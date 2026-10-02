@@ -5,6 +5,9 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { formatTurnDuration } from "./session-format.ts";
+
+export { formatTurnDuration };
 
 // dsh-tui transcript.ts: TURN_COMPLETION_VERBS — CC's past-tense turn verbs.
 const TURN_COMPLETION_VERBS = [
@@ -18,22 +21,7 @@ const TURN_COMPLETION_VERBS = [
 const TURN_FOOTER_MIN_MS = 1_000;
 
 // dsh-tui transcript.ts: formatTurnDuration — `45s`, `1m 23s`, `2h 5m 1s`.
-export function formatTurnDuration(ms: number): string {
-	const elapsed = Math.max(0, ms);
-	if (elapsed < 60_000) return `${Math.floor(elapsed / 1000)}s`;
-	let seconds = Math.round((elapsed % 60_000) / 1000);
-	let minutes = Math.floor((elapsed % 3_600_000) / 60_000);
-	let hours = Math.floor(elapsed / 3_600_000);
-	if (seconds === 60) {
-		seconds = 0;
-		minutes += 1;
-	}
-	if (minutes === 60) {
-		minutes = 0;
-		hours += 1;
-	}
-	return hours > 0 ? `${hours}h ${minutes}m ${seconds}s` : `${minutes}m ${seconds}s`;
-}
+// Lives in session-format.ts with the other pure session formatters.
 
 function sampleTurnVerb(): string {
 	return TURN_COMPLETION_VERBS[Math.floor(Math.random() * TURN_COMPLETION_VERBS.length)] ?? "Worked";

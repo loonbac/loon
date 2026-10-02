@@ -6,32 +6,14 @@
  * session_start plus a user-turn counter, appended as one dim part.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { homedir } from "node:os";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { formatTokens, tildeHome } from "./session-format.ts";
 
-/**
- * Collapse the home-dir prefix of an absolute path to `~`, CC-style
- * (getDisplayPath, file.ts:163-166): only rewrite when the path actually sits
- * under home, guarded by a `home + "/"` boundary. A bare
- * `cwd.replace(HOME ?? "", "~")` injects a stray leading `~` when HOME is unset
- * (`replace("", "~")` matches at index 0) (AUDIT §5 status-line.ts:66).
- */
-export function tildeHome(cwd: string): string {
-	const home = homedir();
-	if (!home) return cwd;
-	if (cwd === home) return "~";
-	if (cwd.startsWith(home + "/")) return "~" + cwd.slice(home.length);
-	return cwd;
-}
+export { tildeHome };
 
 // Loose type for the assistant message usage we sum (avoids a direct pi-ai dependency).
 interface AssistantUsage {
 	usage: { cost: { total: number } };
-}
-
-function formatTokens(n: number): string {
-	if (n < 1000) return `${n}`;
-	return `${(n / 1000).toFixed(1)}k`;
 }
 
 /** CC/old-ext duration format: <60s "Ns", <1h "Mm Ss", else "Hh Mm Ss". */
