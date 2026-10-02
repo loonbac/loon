@@ -1,0 +1,11 @@
+# Dependencias instaladas — el build las resuelve Nix (npmDepsHash).
+node_modules/
+
+# Artefactos de build
+result
+result-*
+*.tsbuildinfo
+
+# Estado local de Pi / herramientas
+.atl/
+.pi/
