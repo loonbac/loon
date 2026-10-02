@@ -21,7 +21,7 @@ import { installHostPatches } from "./host-patches.js";
 import { registerSpinner } from "./spinner.js";
 import { registerTurnFooter } from "./turn-footer.js";
 import { registerSessionSummary } from "./session-summary.js";
-import { registerBanner } from "./banner.js";
+import { registerBanner, ccAccent } from "./banner.js";
 import { registerStatusLine } from "./status-line.js";
 import { registerGrouping } from "./tools/grouping.js";
 import { registerBuiltins } from "./tools/builtins.js";
@@ -105,7 +105,7 @@ export default function (pi: ExtensionAPI) {
 	// Layer 2: chrome
 	registerSpinner(pi);
 	registerTurnFooter(pi);
-	registerSessionSummary(pi);
+	registerSessionSummary(pi, { accentFromTheme: ccAccent });
 	registerBanner(pi);
 	if (shouldRegisterStandaloneStatusLine()) registerStatusLine(pi);
 	registerPromptPointer(pi);

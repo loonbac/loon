@@ -30,6 +30,9 @@ import { VERSION } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { tildeHome } from "./status-line.js";
 import { fg as paletteFg, resolvePalette } from "./palette.js";
+import { PI_LOGO } from "./pi-logo.js";
+
+export { PI_LOGO };
 
 const SKILLS_MAX_ROWS = 6;
 /** Below this render width the banner degrades to the centered compact box. */
@@ -43,7 +46,7 @@ const RIGHT_MIN_WIDTH = 20;
 /** CC brand orange for the banner chrome — the theme's `accent` maps to CC's
  *  suggestion blue (menus/selectors), so the banner resolves the CC palette
  *  directly (memoized per theme name). */
-function ccAccent(theme: Theme): (s: string) => string {
+export function ccAccent(theme: Theme): (s: string) => string {
 	const pal = resolvePalette(theme.name, (token) => {
 		try {
 			return theme.fg(token as never, "x");
@@ -54,15 +57,7 @@ function ccAccent(theme: Theme): (s: string) => string {
 	return (s) => paletteFg(pal.cc.claude, s);
 }
 
-// pi brand mark — the geometric P+i logo (pi.dev/logo-auto.svg), 6-row grid.
-const PI_LOGO: readonly string[] = [
-	"██████████    ",
-	"████  ████    ",
-	"████  ████    ",
-	"████████  ████",
-	"████      ████",
-	"████      ████",
-];
+
 
 export interface BannerInfo {
 	model: () => string | undefined;

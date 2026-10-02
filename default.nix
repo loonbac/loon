@@ -4,7 +4,7 @@
 
 buildNpmPackage {
   pname = "loon";
-  version = "0.1.8";
+  version = "0.1.9";
 
   src = ./.;
   npmDepsHash = "sha256-U6jzMGjSoaeC/G7H9WNyCEbeB9lyBQwpBjUfhRBToj4=";
