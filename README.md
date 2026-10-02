@@ -4,14 +4,33 @@ LOON Offers Only Nuanced-gentle — Claude Code visual identity for [pi](https:/
 
 ## Install
 
-```bash
-pi install npm:better-claude-code-ui
+As a flake input — this is how `loon-flakes` consumes it:
+
+```nix
+inputs.loon = {
+  url = "github:loonbac/loon";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+
+# then
+pkgs.callPackage loon.packages.${system}.default { }
 ```
 
-Try it without installing:
+Or from a local checkout, pointing pi at the working tree so edits take effect
+without a rebuild — add the checkout to the `packages` array in
+`~/.pi/agent/settings.json`:
+
+```json
+{ "packages": ["/home/you/Proyectos/better-claude-code-ui-loon"] }
+```
+
+### Tests
+
+The pi core packages are peer dependencies, so the suite runs against a bare
+checkout with no install step:
 
 ```bash
-pi -e npm:better-claude-code-ui
+node --experimental-strip-types --test extension/*.test.ts
 ```
 
 ### Recommended setting
@@ -62,6 +81,13 @@ the seven built-in tool registrations to `gentle-pi` so both packages can load.
 Use `GENTLE_PI_QUIET_TOOLS=0 pi` when the CC tool renderers should take
 ownership instead.
 
+## Attribution
+
+LOON is a derivative of [Demo-0416/my-pi-extensions](https://github.com/Demo-0416/my-pi-extensions)
+(MIT, Copyright (c) 2026 Demo-0416), which remains the origin of the CC-style
+rendering this package builds on. The `pi.image` / `pi.video` preview fields in
+`package.json` still point at the upstream cover assets.
+
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

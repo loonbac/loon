@@ -3,7 +3,7 @@
 }:
 
 buildNpmPackage {
-  pname = "better-claude-code-ui-loon";
+  pname = "loon";
   version = "0.1.7";
 
   src = ./.;

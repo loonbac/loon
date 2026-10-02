@@ -1,5 +1,5 @@
 {
-  "name": "better-claude-code-ui",
+  "name": "loon",
   "displayName": "LOON: LOON Offers Only Nuanced-gentle",
   "version": "0.1.7",
   "description": "LOON: LOON Offers Only Nuanced-gentle",
@@ -14,8 +14,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Demo-0416/my-pi-extensions.git",
-    "directory": "better-claude-code-ui"
+    "url": "https://github.com/loonbac/loon"
   },
   "files": [
     "extension",
