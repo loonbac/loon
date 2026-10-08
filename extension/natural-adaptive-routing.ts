@@ -99,7 +99,7 @@ export function validAdaptiveDecision(decision: AdaptiveDecision, agent: string)
   const route = decision.requestedAdaptiveRoute;
   if (!route || !route.provider || !route.model || !route.effectiveEffort || !decision.compiledPrompt) return false;
   if (route.model === "claude-opus-4-6") return agent === "jd-judge-b" && route.provider === "antigravity" && route.effectiveEffort === "high";
-  return NATURAL_RECOVERY_ALLOWLIST.has(`${route.provider}/${route.model}`) || onboardedRouteAllowed(route.provider, route.model);
+  return adaptiveRecoveryRouteAllowed(route, agent);
 }
 
 export function legacyFallbackMayPreempt(adaptivePrimaryApplied: boolean): boolean { return !adaptivePrimaryApplied; }
@@ -124,18 +124,44 @@ export function recoveryLineage(primary: AdaptiveRoute, fallback: AdaptiveRoute,
   };
 }
 
-const NATURAL_RECOVERY_ALLOWLIST = new Set([
-  "commandcode/Qwen/Qwen3.8-Flash", "commandcode/deepseek/deepseek-v4.1-flash",
-  "commandcode/z-ai/glm-5.3-flash", "commandcode/meta/muse-spark-1.3-contributor",
-  "commandcode/xiaomi/mimo-v2.5", "commandcode/xiaomi/mimo-v2.6-flash",
-  "commandcode/xiaomi/mimo-v2.6-pro", "commandcode/stealth/space-bunny-alpha",
-  "antigravity/gemini-3.8-flash",
-]);
+// La lista fija que había aquí nombraba nueve rutas, ocho de ellas pagadas, y servía para
+// permitir una ruta que el catálogo no tenía activa. Eso es doblemente malo: duplica en código
+// lo que el config ya declara, y lo duplica a favor de los modelos que más cuestan. La
+// autoridad pasa a ser la config del provider, que es la única fuente y la que se mantiene.
 
+/**
+ * Whether a route may be taken when the adaptive path is recovering from a failure.
+ *
+ * The permit is derived, not declared. It was a hardcoded set of nine routes — eight of them
+ * paid — which duplicated in code what the provider config already states, and did so in favour
+ * of the most expensive models. Now the catalogue decides, and the provider's own allowed
+ * patterns decide when a model is not catalogued yet, so adding a provider or a model needs no
+ * edit here.
+ */
 export function adaptiveRecoveryRouteAllowed(route: Pick<AdaptiveRoute, "provider" | "model">, agentName: string | undefined): boolean {
   if (route.model === "claude-opus-4-6") return agentName === "jd-judge-b";
   if (agentName === "jd-judge-b") return false;
-  return NATURAL_RECOVERY_ALLOWLIST.has(`${route.provider}/${route.model}`) || onboardedRouteAllowed(route.provider, route.model);
+  return onboardedRouteAllowed(route.provider, route.model) || providerAllowsRoute(route.provider, route.model);
+}
+
+/**
+ * Reads the provider's declared route patterns from the briefing config.
+ *
+ * Patterns are globs, so this matches the same way the onboarding path does. A missing or
+ * unreadable config permits nothing: falling back to a hardcoded allowlist is what this
+ * replaced.
+ */
+function providerAllowsRoute(provider: string, model: string): boolean {
+  try {
+    const configHome = process.env.GENTLE_PI_CONFIG_HOME?.trim() || join(homedir(), ".pi", "gentle-ai");
+    void configHome;
+    const path = process.env.NATURAL_ROUTER_ROOT?.trim()
+      ? join(process.env.NATURAL_ROUTER_ROOT.trim(), "config", "model-onboarding-v1.json")
+      : join(homedir(), "Proyectos", "gentle-jev-adaptive-routing", "config", "model-onboarding-v1.json");
+    const config = JSON.parse(readFileSync(path, "utf8")) as { providers?: Record<string, { allowedModelPatterns?: string[] }> };
+    const patterns = config.providers?.[provider]?.allowedModelPatterns ?? [];
+    return patterns.some((pattern) => new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/gu, "\\$&").replace(/\*/gu, ".*")}$`, "u").test(model));
+  } catch { return false; }
 }
 
 export function hasExplicitGentleProfilePin(cwd: string): boolean {
