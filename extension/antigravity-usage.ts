@@ -22,7 +22,7 @@ export type AntigravityUsageSnapshot =
 	}
 	| { status: "unavailable" };
 
-export type AntigravityProviderId = "antigravity" | "antigravity-alt";
+export type AntigravityProviderId = "antigravity";
 
 type AccountState = {
 	provider: AntigravityProviderId;
@@ -42,16 +42,7 @@ const accountA: AccountState = {
 	observedModel: undefined,
 };
 
-const accountB: AccountState = {
-	provider: "antigravity-alt",
-	snapshot: { status: "idle" },
-	inFlight: undefined,
-	inFlightContext: undefined,
-	refreshGeneration: 0,
-	observedModel: undefined,
-};
-
-const accounts = [accountA, accountB] as const;
+const accounts = [accountA] as const;
 
 const ENDPOINTS = [
 	"https://daily-cloudcode-pa.googleapis.com",
@@ -83,12 +74,8 @@ type LiveUi = {
 	requestRender?: () => void;
 };
 
-export function antigravityAUsageSnapshot(): AntigravityUsageSnapshot {
+export function antigravityUsageSnapshot(): AntigravityUsageSnapshot {
 	return accountA.snapshot;
-}
-
-export function antigravityBUsageSnapshot(): AntigravityUsageSnapshot {
-	return accountB.snapshot;
 }
 
 function contextIsCurrent(ctx: ExtensionContext, account: AccountState, generation: number): boolean {

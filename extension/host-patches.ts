@@ -59,8 +59,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { fastModeActivatedAt, fastModeAnimationPhase, fastModeIsActive } from "./fast-mode-indicator.js";
 import {
-	antigravityAUsageSnapshot,
-	antigravityBUsageSnapshot,
+	antigravityUsageSnapshot,
 	type AntigravityUsageSnapshot,
 } from "./antigravity-usage.js";
 import { openCodeGoUsageSnapshot, type OpenCodeGoUsageSnapshot } from "./opencode-go-usage.js";
@@ -1195,15 +1194,13 @@ function withSeparatedUsage(lines: string[], changes?: SidebarChangesSummary): s
 		?? (cachedCodex.status === "ready" ? cachedCodexUsageMeter(cachedCodex.usedPercent) : "—");
 	const openCodeGo = openCodeGoUsageMeter(openCodeGoUsageSnapshot());
 	const commandCode = commandCodeUsageMeter(commandCodeUsageSnapshot());
-	const antigravityA = antigravityUsageMeter(antigravityAUsageSnapshot());
-	const antigravityB = antigravityUsageMeter(antigravityBUsageSnapshot());
+	const antigravity = antigravityUsageMeter(antigravityUsageSnapshot());
 	const template = currentBody[0]!;
 	const providerGroups = [
 		["GPT / Codex", `Cost ${cost}`, "Semana", codexValue],
 		["OpenCode Go", "5 h / sem / mes", "Restante", openCodeGo],
 		["Command Code", "5 h / sem / créditos", "Restante", commandCode],
-		["Antigravity A", "5 h sobre semanal", "Restante", antigravityA],
-		["Antigravity B", "5 h sobre semanal", "Restante", antigravityB],
+		["Antigravity", "5 h sobre semanal", "Restante", antigravity],
 	] as const;
 	const replacement = providerGroups.flatMap(([provider, limit, meterLabel, meter], index) => [
 		gentleCardRow(template, sidebarFieldRow(template, transcriptTone("borderAccent", provider), limit)),

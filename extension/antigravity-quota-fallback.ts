@@ -45,14 +45,14 @@ export interface FallbackRoute {
 }
 
 const DEEPSEEK_HIGH: FallbackRoute = {
-  provider: "cpa-commandcode",
-  model: "commandcode/deepseek/deepseek-v4.1-flash",
+  provider: "commandcode",
+  model: "deepseek/deepseek-v4.1-flash",
   label: "DeepSeek V4.1 Flash",
   thinking: "high",
 };
 
 const MUSE_XHIGH: FallbackRoute = {
-  provider: "cpa-infronai",
+  provider: "infronai",
   model: "deepseek/deepseek-v4.1-flash:free",
   label: "DeepSeek V4.1 Flash (Infron Free)",
   thinking: "high",
@@ -63,12 +63,12 @@ const MUSE_XHIGH: FallbackRoute = {
 // two explicit routes requested for their workload.
 export const FALLBACK_CHAIN: readonly FallbackRoute[] = [
   {
-    provider: "cpa-commandcode",
-    model: "commandcode/deepseek/deepseek-v4.1-flash",
+    provider: "commandcode",
+    model: "deepseek/deepseek-v4.1-flash",
     label: "DeepSeek V4.1 Flash",
   },
   {
-    provider: "cpa-infronai",
+    provider: "infronai",
     model: "deepseek/deepseek-v4.1-flash:free",
     label: "DeepSeek V4.1 Flash (Infron Free)",
   },
@@ -86,11 +86,12 @@ export const AGENT_FALLBACK_CHAINS: Readonly<Record<string, readonly FallbackRou
 };
 
 export const PRIMARY_ANTIGRAVITY_PROVIDER = "antigravity";
-export const SECONDARY_ANTIGRAVITY_PROVIDER = "antigravity-alt";
-const ANTIGRAVITY_PROVIDERS = [
-  PRIMARY_ANTIGRAVITY_PROVIDER,
-  SECONDARY_ANTIGRAVITY_PROVIDER,
-] as const;
+// `antigravity-alt` registraba el mismo servicio bajo un segundo provider para
+// simular una segunda cuenta. Con el failover multi-cuenta nativo de
+// `pi-antigravity` ese hack sobra: hay un solo provider y las cuentas viven
+// dentro de él, así que no se puede ni se debe enumerar una "cuenta B" desde
+// aquí.
+const ANTIGRAVITY_PROVIDERS = [PRIMARY_ANTIGRAVITY_PROVIDER] as const;
 type AntigravityProvider = (typeof ANTIGRAVITY_PROVIDERS)[number];
 
 const STATE_VERSION = 2;
@@ -376,10 +377,55 @@ function remaining(state: ProviderCooldown): string {
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
+/**
+ * Pi's own transient-error classifier answers one question: will Pi retry this
+ * failed request on its own? The fallback must not enqueue a second
+ * continuation on top of that retry.
+ *
+ * `@earendil-works/pi-ai` ships nested inside the `pi-coding-agent` package and
+ * is not a declared dependency of this one, so the bare specifier is not
+ * resolvable from an installed extension. A plain import throws
+ * ERR_MODULE_NOT_FOUND, and because Pi awaits this factory during startup that
+ * failure would take the whole extension down with it. Resolve it lazily and
+ * fall back to a local transient check when it is absent.
+ *
+ * The local check mirrors Pi's retryable set closely enough for its purpose:
+ * limit, quota and billing failures are absent from it, so a routed reroute
+ * still happens exactly when a different provider or account can succeed.
+ */
+const TRANSIENT_PROVIDER_ERROR =
+  /(?:overloaded|high demand|at capacity|rate.?limit|too many requests|\b(?:429|500|502|503|504|520|524)\b|service.?unavailable|server.?error|internal.?error|provider.?returned.?error|network.?error|connection.?(?:error|refused|lost)|other side closed|fetch failed|getaddrinfo|EAI_AGAIN|ENOTFOUND|timed? ?out|timeout|terminated|websocket.?(?:closed|error)|socket hang up|ended without|stream ended before|pending stream has been canceled)/iu;
+
+interface RetryableAssistantMessage {
+  stopReason?: string | undefined;
+  errorMessage?: string | undefined;
+}
+
+async function loadRetryableAssistantError(): Promise<
+  (message: RetryableAssistantMessage) => boolean
+> {
+  try {
+    const module = (await import("@earendil-works/pi-ai")) as {
+      isRetryableAssistantError?: unknown;
+    };
+    if (typeof module.isRetryableAssistantError === "function") {
+      return module.isRetryableAssistantError as (
+        message: RetryableAssistantMessage,
+      ) => boolean;
+    }
+  } catch {
+    // Not resolvable from an installed extension; use the local check below.
+  }
+  return (message) =>
+    message.stopReason === "error" &&
+    typeof message.errorMessage === "string" &&
+    TRANSIENT_PROVIDER_ERROR.test(message.errorMessage);
+}
+
 export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promise<void> {
   // Use Pi's own transient-error classifier so the extension does not enqueue
   // a second turn when Pi is already going to retry the failed request.
-  const { isRetryableAssistantError } = await import("@earendil-works/pi-ai");
+  const isRetryableAssistantError = await loadRetryableAssistantError();
   const gentleAgentName = detectGentleAgentName();
   let fallbackChain = fallbackChainForAgent(gentleAgentName);
   let originalModel: ExtensionContext["model"];
@@ -395,27 +441,19 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
   const routeLabel = (route: FallbackRoute): string =>
     `${route.label}${route.thinking ? ` ${route.thinking}` : ""}`;
 
-  const chainLabel = (): string => {
-    const configuredSecondary = fallbackChain.some(
-      (route) => route.provider === SECONDARY_ANTIGRAVITY_PROVIDER,
-    );
-    return [
-      ...(configuredSecondary ? [] : ["Antigravity cuenta B"]),
-      ...fallbackChain.map(routeLabel),
-    ].join(" → ");
-  };
+  const chainLabel = (): string => fallbackChain.map(routeLabel).join(" → ");
 
   const showState = (ctx: ExtensionContext, state = readState()): void => {
     const cooldowns = state
       ? ANTIGRAVITY_PROVIDERS.flatMap((provider) => {
           const entry = state.providers[provider];
           if (!entry) return [];
-          return [`${provider === PRIMARY_ANTIGRAVITY_PROVIDER ? "A" : "B"} ${remaining(entry)}`];
+          return [remaining(entry)];
         }).join(", ")
       : "";
     ctx.ui.setStatus(
       STATUS_KEY,
-      state ? `Antigravity A → ${chainLabel()} (${cooldowns})` : undefined,
+      state ? `Antigravity → ${chainLabel()} (${cooldowns})` : undefined,
     );
   };
 
@@ -439,38 +477,6 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
       originalModel = ctx.model;
       originalThinkingLevel = pi.getThinkingLevel();
     }
-  };
-
-  const activateSecondary = async (
-    ctx: ExtensionContext,
-    sourceModel: string,
-    state = readState(),
-  ): Promise<{ provider: string; model: string; label: string } | undefined> => {
-    if (state?.providers[SECONDARY_ANTIGRAVITY_PROVIDER]) return undefined;
-    const secondary = ctx.modelRegistry.find(SECONDARY_ANTIGRAVITY_PROVIDER, sourceModel);
-    if (!secondary) {
-      ctx.ui.notify(
-        `No se encontró ${SECONDARY_ANTIGRAVITY_PROVIDER}/${sourceModel}; probando fallbacks externos.`,
-        "warning",
-      );
-      return undefined;
-    }
-    if (!(await pi.setModel(secondary))) {
-      ctx.ui.notify(
-        "La cuenta B de Antigravity aún no está autenticada; probando fallbacks externos.",
-        "warning",
-      );
-      return undefined;
-    }
-    if (originalThinkingLevel) pi.setThinkingLevel(originalThinkingLevel);
-    activeFallbackIndex = undefined;
-    activeRoute = {
-      provider: SECONDARY_ANTIGRAVITY_PROVIDER,
-      model: sourceModel,
-      label: "Antigravity cuenta B",
-    };
-    reportEffectiveRoute(ctx, activeRoute);
-    return activeRoute;
   };
 
   const activateFallback = async (
@@ -603,19 +609,8 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
       state.providers[PRIMARY_ANTIGRAVITY_PROVIDER]
     ) {
       rememberOriginal(ctx);
-      // Named Gentle agents already encode account B as Perfil B. Follow that
-      // single authoritative chain so a B cooldown advances to Perfil C
-      // instead of selecting B a second time through the implicit route.
-      if (gentleAgentName) {
-        await activateFallback(ctx, 0);
-      } else {
-        const secondary = await activateSecondary(ctx, ctx.model.id, state);
-        if (!secondary) await activateFallback(ctx, 0);
-      }
-    } else if (
-      ctx.model.provider === SECONDARY_ANTIGRAVITY_PROVIDER &&
-      state.providers[SECONDARY_ANTIGRAVITY_PROVIDER]
-    ) {
+      // Sin cuenta B: un cooldown de antigravity avanza directo por la única
+      // cadena autoritativa.
       await activateFallback(ctx, 0);
     }
   });
@@ -655,30 +650,10 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
       const state = writeState(provider, message.errorMessage, message.model);
       showState(ctx, state);
       const isQuota = typeof message.errorMessage === "string" && /quota|resource[_\s-]?exhausted|limit/i.test(message.errorMessage);
-      reason = isQuota
-        ? `Antigravity cuenta ${provider === PRIMARY_ANTIGRAVITY_PROVIDER ? "A" : "B"} agotó su cuota`
-        : `Antigravity cuenta ${provider === PRIMARY_ANTIGRAVITY_PROVIDER ? "A" : "B"} no está disponible (${provider === PRIMARY_ANTIGRAVITY_PROVIDER ? "Cuenta A" : "Cuenta B"})`;
-      if (provider === PRIMARY_ANTIGRAVITY_PROVIDER) {
-        if (gentleAgentName) {
-          activated = await activateFallback(ctx, 0);
-        } else {
-          activated = await activateSecondary(ctx, message.model, state);
-        }
-      } else {
-        const failedIndex = fallbackIndex(message.provider, message.model, fallbackChain);
-        const nextIndex =
-          failedIndex >= 0 && activeFallbackIndex === failedIndex ? failedIndex + 1 : 0;
-        activated = await activateFallback(ctx, nextIndex);
-      }
-      if (!activated) activated = await activateFallback(ctx, 0);
-    } else if (
-      message.provider === SECONDARY_ANTIGRAVITY_PROVIDER &&
-      activeRoute?.provider === SECONDARY_ANTIGRAVITY_PROVIDER &&
-      activeRoute.model === message.model &&
-      activeFallbackIndex === undefined &&
-      originalModel
-    ) {
-      reason = "Antigravity cuenta B falló";
+      reason = isQuota ? "Antigravity agotó su cuota" : "Antigravity no está disponible";
+      // Las cuentas las administra el propio provider (failover nativo), así que
+      // un agotamiento de cuota aquí ya significa que el provider entero quedó
+      // fuera: se pasa directo a la cadena externa.
       activated = await activateFallback(ctx, 0);
     } else if (
       adaptivePrimaryApplied &&

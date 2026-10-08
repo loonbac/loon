@@ -35,6 +35,7 @@ import { registerCommandCodeUsage } from "./commandcode-usage.js";
 import { registerOpenCodeGoUsage } from "./opencode-go-usage.js";
 import { registerCodexUsageCache } from "./codex-usage-cache.js";
 import { ensureFallbackConfig } from "./fallback-config.js";
+import antigravityQuotaFallback from "./antigravity-quota-fallback.js";
 import { registerBoundedSearch } from "./bounded-search.js";
 
 /**
@@ -88,13 +89,18 @@ function shouldRegisterStandaloneStatusLine(): boolean {
 	}
 }
 
-export default function (pi: ExtensionAPI) {
+export default async function (pi: ExtensionAPI) {
 	// NixOS whole-filesystem searches fan out through /nix/store. Teach every
 	// parent/child session the bounded alternative and enforce it at tool time.
 	registerBoundedSearch(pi);
 	// Keep the custom fallback editor/runtime and gentle-pi 2.7's named profile
 	// store reconciled even when the user has not opened /gentle:models yet.
 	ensureFallbackConfig();
+	// Seam de routing a nivel de lanzamiento: este módulo es el dueño del hook
+	// `before_agent_start` que aplica la ruta primaria adaptativa y la
+	// recuperación por cuota, y registra `/adaptive`. Sin esta llamada el router
+	// natural calculaba decisiones que nadie consumía.
+	await antigravityQuotaFallback(pi);
 	// Host patches (ghost blank rows, ctrl+o status residue) — before any render.
 	installHostPatches();
 	registerAntigravityUsage(pi);
