@@ -141,28 +141,15 @@ export function recoveryLineage(primary: AdaptiveRoute, fallback: AdaptiveRoute,
 export function adaptiveRecoveryRouteAllowed(route: Pick<AdaptiveRoute, "provider" | "model">, agentName: string | undefined): boolean {
   if (route.model === "claude-opus-4-6") return agentName === "jd-judge-b";
   if (agentName === "jd-judge-b") return false;
-  return onboardedRouteAllowed(route.provider, route.model) || providerAllowsRoute(route.provider, route.model);
+  // The catalogue is the authority, and only the catalogue. The provider's patterns answer a
+  // different question — what may be onboarded — and they are deliberately permissive now so a
+  // model the provider adds is discovered on its own. Using them here would let recovery take a
+  // route the catalogue does not have, which is a route with no evidence behind it, and that is
+  // the opposite of what a recovery permit is for. Discovery puts models in the catalogue; this
+  // reads what is in it.
+  return onboardedRouteAllowed(route.provider, route.model);
 }
 
-/**
- * Reads the provider's declared route patterns from the briefing config.
- *
- * Patterns are globs, so this matches the same way the onboarding path does. A missing or
- * unreadable config permits nothing: falling back to a hardcoded allowlist is what this
- * replaced.
- */
-function providerAllowsRoute(provider: string, model: string): boolean {
-  try {
-    const configHome = process.env.GENTLE_PI_CONFIG_HOME?.trim() || join(homedir(), ".pi", "gentle-ai");
-    void configHome;
-    const path = process.env.NATURAL_ROUTER_ROOT?.trim()
-      ? join(process.env.NATURAL_ROUTER_ROOT.trim(), "config", "model-onboarding-v1.json")
-      : join(homedir(), "Proyectos", "gentle-jev-adaptive-routing", "config", "model-onboarding-v1.json");
-    const config = JSON.parse(readFileSync(path, "utf8")) as { providers?: Record<string, { allowedModelPatterns?: string[] }> };
-    const patterns = config.providers?.[provider]?.allowedModelPatterns ?? [];
-    return patterns.some((pattern) => new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/gu, "\\$&").replace(/\*/gu, ".*")}$`, "u").test(model));
-  } catch { return false; }
-}
 
 export function hasExplicitGentleProfilePin(cwd: string): boolean {
   if (existsSync(join(cwd, ".pi", "gentle-ai", "profile.json"))) return true;
