@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { FallbackEffort } from "./fallback-config.js";
+import { detectWorkUnitLanguage } from "./repository-language.ts";
 
 export type AdaptiveMode = "OFF" | "SHADOW" | "ACTIVE_GUARDED";
 export interface AdaptiveRoute { provider: string; model: string; requestedEffort: FallbackEffort; effectiveEffort: FallbackEffort; account?: string }
@@ -171,9 +172,15 @@ export async function resolveAdaptivePrimary(
   if (!ctx.model) throw new Error("static model is unavailable");
   const effort = pi.getThinkingLevel() as FallbackEffort;
   const staticRoute: AdaptiveRoute = { provider: ctx.model.provider, model: ctx.model.id, requestedEffort: effort, effectiveEffort: effort };
+  // The host is the only layer that can see the repository, so it names the
+  // language; the router keeps per-language evidence and has no detector of its
+  // own. An inconclusive answer stays undefined and the routing stays on the
+  // language-neutral axis.
+  const language = detectWorkUnitLanguage(prompt, ctx.cwd);
   const response = await callNaturalRouter({
     action: "route", agent, role: agent, task: prompt, cwd: ctx.cwd,
     staticRoute,
+    ...(language === undefined ? {} : { language }),
     explicitUserOverride: hasExplicitGentleProfilePin(ctx.cwd) || routeDiffersFromConfiguredGentleDefault(agent, staticRoute),
     availableModels: ctx.modelRegistry.getAvailable().map((model) => ({ provider: model.provider, model: model.id })),
     allowedTools: pi.getActiveTools(),
