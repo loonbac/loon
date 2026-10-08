@@ -46,45 +46,63 @@ export interface FallbackRoute {
   thinking?: FallbackThinking;
 }
 
-const DEEPSEEK_HIGH: FallbackRoute = {
-  provider: "commandcode",
-  model: "deepseek/deepseek-v4.1-flash",
-  label: "DeepSeek V4.1 Flash",
+const ANTIGRAVITY_THIRD_PARTY: FallbackRoute = {
+  provider: "antigravity",
+  model: "claude-sonnet-5-5",
+  label: "Claude Sonnet (Antigravity, pool de terceros)",
   thinking: "high",
 };
 
-const MUSE_XHIGH: FallbackRoute = {
+const INFRON_FREE_HIGH: FallbackRoute = {
   provider: "infronai",
   model: "deepseek/deepseek-v4.1-flash:free",
   label: "DeepSeek V4.1 Flash (Infron Free)",
   thinking: "high",
 };
 
+const COMMANDCODE_FREE_HIGH: FallbackRoute = {
+  provider: "commandcode",
+  model: "inclusionai/ling-3.1-flash:free",
+  label: "Ling 3.1 Flash (Command Code, gratis)",
+  thinking: "high",
+};
+
+const CLINE_FREE_LOW: FallbackRoute = {
+  provider: "cline",
+  model: "cline-free/solar-mini4",
+  label: "Solar Mini 4 (Cline, gratis)",
+  thinking: "low",
+};
+
 // Unknown agents and ordinary Pi sessions retain the existing global order
 // and their current thinking level. The named Gentle agents below receive the
 // two explicit routes requested for their workload.
+// Every route here has zero marginal cost: either the subscription the user already pays
+// for, or a model its provider serves free. The chain exists precisely because the
+// primary route ran out of quota, so reaching for metered capacity while free capacity is
+// listed spends money to buy nothing.
+//
+// Antigravity belongs in it because its two pools are independent: the `gemini-*` and
+// `3p-*` windows are spent separately, so an exhausted Gemini pool leaves the
+// third-party one untouched.
 export const FALLBACK_CHAIN: readonly FallbackRoute[] = [
-  {
-    provider: "commandcode",
-    model: "deepseek/deepseek-v4.1-flash",
-    label: "DeepSeek V4.1 Flash",
-  },
-  {
-    provider: "infronai",
-    model: "deepseek/deepseek-v4.1-flash:free",
-    label: "DeepSeek V4.1 Flash (Infron Free)",
-  },
+  ANTIGRAVITY_THIRD_PARTY,
+  INFRON_FREE_HIGH,
+  COMMANDCODE_FREE_HIGH,
+  CLINE_FREE_LOW,
 ] as const;
 
+// The two entries differ by which zero-cost pool answers second, so a provider outage
+// does not take the same route down for every agent at once. None of them is metered.
 export const AGENT_FALLBACK_CHAINS: Readonly<Record<string, readonly FallbackRoute[]>> = {
-  "gentle-ai-explore": [DEEPSEEK_HIGH, MUSE_XHIGH],
-  "gentle-ai-worker": [MUSE_XHIGH, DEEPSEEK_HIGH],
-  "jd-fix-agent": [DEEPSEEK_HIGH, MUSE_XHIGH],
-  "sdd-explore": [DEEPSEEK_HIGH, MUSE_XHIGH],
-  "sdd-spec": [MUSE_XHIGH, DEEPSEEK_HIGH],
-  "sdd-tasks": [DEEPSEEK_HIGH, MUSE_XHIGH],
-  "sdd-apply": [MUSE_XHIGH, DEEPSEEK_HIGH],
-  "sdd-onboard": [DEEPSEEK_HIGH, MUSE_XHIGH],
+  "gentle-ai-explore": [ANTIGRAVITY_THIRD_PARTY, INFRON_FREE_HIGH],
+  "gentle-ai-worker": [INFRON_FREE_HIGH, COMMANDCODE_FREE_HIGH],
+  "jd-fix-agent": [COMMANDCODE_FREE_HIGH, INFRON_FREE_HIGH],
+  "sdd-explore": [ANTIGRAVITY_THIRD_PARTY, INFRON_FREE_HIGH],
+  "sdd-spec": [ANTIGRAVITY_THIRD_PARTY, COMMANDCODE_FREE_HIGH],
+  "sdd-tasks": [INFRON_FREE_HIGH, ANTIGRAVITY_THIRD_PARTY],
+  "sdd-apply": [COMMANDCODE_FREE_HIGH, INFRON_FREE_HIGH],
+  "sdd-onboard": [CLINE_FREE_LOW, INFRON_FREE_HIGH],
 };
 
 export const PRIMARY_ANTIGRAVITY_PROVIDER = "antigravity";
