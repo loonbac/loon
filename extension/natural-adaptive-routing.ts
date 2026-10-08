@@ -182,7 +182,19 @@ export async function resolveAdaptivePrimary(
     staticRoute,
     ...(language === undefined ? {} : { language }),
     explicitUserOverride: hasExplicitGentleProfilePin(ctx.cwd) || routeDiffersFromConfiguredGentleDefault(agent, staticRoute),
-    availableModels: ctx.modelRegistry.getAvailable().map((model) => ({ provider: model.provider, model: model.id })),
+    // Provider prices as the runtime reports them. The router keeps this separate
+    // from its normalized benchmark cost dimension, so a missing price stays
+    // unknown instead of being read as free.
+    availableModels: ctx.modelRegistry.getAvailable().map((model) => {
+      const cost = (model as { cost?: Partial<Record<"input" | "output" | "cacheRead" | "cacheWrite", number>> }).cost;
+      const priced = cost !== undefined && typeof cost.input === "number" && typeof cost.output === "number"
+        && typeof cost.cacheRead === "number" && typeof cost.cacheWrite === "number";
+      return {
+        provider: model.provider,
+        model: model.id,
+        ...(priced ? { cost: { input: cost.input!, output: cost.output!, cacheRead: cost.cacheRead!, cacheWrite: cost.cacheWrite! } } : {}),
+      };
+    }),
     allowedTools: pi.getActiveTools(),
   });
   if (!response.decision) throw new Error("adaptive router returned no decision");
