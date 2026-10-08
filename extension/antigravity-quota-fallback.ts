@@ -28,12 +28,14 @@ import {
   recordAdaptiveFailure,
   recordAdaptiveInvariant,
   recordObservedRoute,
+  recordVerifiedOutcome,
   registerAdaptiveCommands,
   resolveAdaptivePrimary,
   validAdaptiveDecision,
   type AdaptiveDecision,
   type AdaptiveRoute,
 } from "./natural-adaptive-routing.js";
+import { VerificationGateTracker } from "./verified-outcome.ts";
 
 export type FallbackThinking = FallbackEffort;
 
@@ -437,6 +439,18 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
   let adaptiveDecision: AdaptiveDecision | undefined;
   let adaptivePrimaryApplied = false;
   let adaptiveRouteObserved = false;
+  let lastPrompt = "";
+  // Routes already tried for the current work unit. The dynamic fallback hands
+  // these to the router so it can choose the next best one itself.
+  const failedRoutes: Array<{ provider: string; model: string }> = [];
+  const gates = new VerificationGateTracker();
+
+  // A verification command that exits zero is the host's own evidence that the
+  // work unit succeeded, and it is the only signal the router can admit without
+  // judging the model's prose. A gate that fails is ambiguous — pre-existing,
+  // flaky, or the model's fault — so it is recorded as nothing rather than guessed.
+  pi.on("tool_execution_start", (event) => { gates.noteStart(event.toolCallId, event.args); });
+  pi.on("tool_execution_end", (event) => { gates.noteEnd(event.toolCallId, event.isError); });
 
   const routeLabel = (route: FallbackRoute): string =>
     `${route.label}${route.thinking ? ` ${route.thinking}` : ""}`;
@@ -493,6 +507,26 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
       rememberOriginal(ctx);
       const cooldownState = readState();
 
+      // Dynamic fallback: the router's own ranking minus everything that already
+      // failed for this work unit. It knows quota, cost, language and local
+      // evidence; the static chain below knows none of that and stays only as the
+      // safety net for when the router cannot answer at all.
+      if (gentleAgentName.length > 0 && lastPrompt.length > 0) {
+        try {
+          const decision = await resolveAdaptivePrimary(pi, ctx, gentleAgentName, lastPrompt, failedRoutes);
+          const route = validAdaptiveDecision(decision, gentleAgentName) ? decision.requestedAdaptiveRoute : undefined;
+          const selected = route === undefined ? undefined : ctx.modelRegistry.find(route.provider, route.model);
+          if (route !== undefined && selected !== undefined && (await pi.setModel(selected))) {
+            activeFallbackIndex = undefined;
+            activeRoute = { provider: route.provider, model: route.model, label: "Fallback dinámico" };
+            reportEffectiveRoute(ctx, activeRoute);
+            return activeRoute;
+          }
+        } catch {
+          // The static chain below remains the safety net.
+        }
+      }
+
       for (let index = startIndex; index < fallbackChain.length; index += 1) {
         const route = fallbackChain[index];
         if (adaptivePrimaryApplied && !adaptiveRecoveryRouteAllowed(route, gentleAgentName)) continue;
@@ -548,6 +582,11 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
   // cooldown before its run. This prevents one failed subagent per route after
   // the first Antigravity quota error has established the reset deadline.
   pi.on("before_agent_start", async (event, ctx) => {
+    // Each run verifies its own tree; a gate from the previous run says nothing
+    // about this one.
+    gates.reset();
+    lastPrompt = event.prompt;
+    failedRoutes.length = 0;
     // The editor writes atomically, so an already-running child can adopt a
     // newly saved chain on its next request without polling or a process restart.
     fallbackChain = fallbackChainForAgent(gentleAgentName);
@@ -639,6 +678,10 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
 
     if (message.stopReason !== "error") return;
 
+    // Record the route that just failed so the dynamic fallback excludes it instead
+    // of re-selecting it.
+    failedRoutes.push({ provider: message.provider, model: message.model });
+
     let activated: { provider: string; model: string; label: string } | undefined;
     let reason: string;
     if (
@@ -712,6 +755,15 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
   // original route remains in the session and will be tried again once the
   // provider-reported cooldown has expired.
   pi.on("agent_settled", async (_event, ctx) => {
+    // A verified outcome has to be admitted before the decision it belongs to is
+    // cleared, and only for a route the host actually observed running.
+    const settledDecision = adaptiveDecision;
+    const passedGate = gates.passedGate();
+    if (adaptivePrimaryApplied && adaptiveRouteObserved && settledDecision !== undefined && passedGate !== undefined) {
+      try { await recordVerifiedOutcome(settledDecision.decisionId, "native_gate", "SUCCESS"); }
+      catch { /* Evidence admission cannot block a valid user execution. */ }
+    }
+    gates.reset();
     if (
       activeRoute &&
       originalModel &&

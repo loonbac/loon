@@ -168,6 +168,8 @@ export async function resolveAdaptivePrimary(
   ctx: ExtensionContext,
   agent: string,
   prompt: string,
+  /** Routes already tried and failed for this work unit; see the router's request type. */
+  excludeRoutes?: Array<{ provider: string; model: string }>,
 ): Promise<AdaptiveDecision> {
   if (!ctx.model) throw new Error("static model is unavailable");
   const effort = pi.getThinkingLevel() as FallbackEffort;
@@ -181,6 +183,7 @@ export async function resolveAdaptivePrimary(
     action: "route", agent, role: agent, task: prompt, cwd: ctx.cwd,
     staticRoute,
     ...(language === undefined ? {} : { language }),
+    ...(excludeRoutes === undefined || excludeRoutes.length === 0 ? {} : { excludeRoutes }),
     explicitUserOverride: hasExplicitGentleProfilePin(ctx.cwd) || routeDiffersFromConfiguredGentleDefault(agent, staticRoute),
     // Provider prices as the runtime reports them. The router keeps this separate
     // from its normalized benchmark cost dimension, so a missing price stays
@@ -203,6 +206,25 @@ export async function resolveAdaptivePrimary(
 
 export async function recordObservedRoute(decision: AdaptiveDecision, observed: AdaptiveRoute): Promise<void> {
   await callNaturalRouter({ action: "observe", decisionId: decision.decisionId, role: decision.role, requested: decision.requestedAdaptiveRoute, observed });
+}
+
+export type VerifiedOutcomeSource = "tests" | "oracle" | "native_gate" | "review" | "human" | "accepted_result_contract";
+export type VerifiedOutcomeDisposition = "SUCCESS" | "PRODUCT_FAILURE" | "MODEL_CAPABILITY_FAILURE";
+
+/**
+ * Admit a verified outcome for a route the host already observed as applied.
+ *
+ * This is what turns an observation into local evidence. `observe` only records
+ * that a route ran, so without this call every candidate stays EXPLORATION_ONLY
+ * and the router can never leave its cold-start bootstrap: it keeps gathering
+ * evidence that nothing admits.
+ */
+export async function recordVerifiedOutcome(
+  decisionId: string,
+  source: VerifiedOutcomeSource,
+  disposition: VerifiedOutcomeDisposition,
+): Promise<void> {
+  await callNaturalRouter({ action: "outcome", decisionId, source, disposition });
 }
 
 export async function recordAdaptiveFailure(reason: string): Promise<void> {
