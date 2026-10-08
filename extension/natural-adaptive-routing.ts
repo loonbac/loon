@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { FallbackEffort } from "./fallback-config.js";
 import { detectWorkUnitLanguage } from "./repository-language.ts";
+import type { RunMetrics } from "./run-metrics.ts";
 
 export type AdaptiveMode = "OFF" | "SHADOW" | "ACTIVE_GUARDED";
 export interface AdaptiveRoute { provider: string; model: string; requestedEffort: FallbackEffort; effectiveEffort: FallbackEffort; account?: string }
@@ -223,8 +224,12 @@ export async function recordVerifiedOutcome(
   decisionId: string,
   source: VerifiedOutcomeSource,
   disposition: VerifiedOutcomeDisposition,
+  run?: RunMetrics,
 ): Promise<void> {
-  await callNaturalRouter({ action: "outcome", decisionId, source, disposition });
+  // The run metrics travel with the outcome because they describe the same unit: what the
+  // verified result cost to reach. Sending them separately could pair a result with the
+  // cost of a different run.
+  await callNaturalRouter({ action: "outcome", decisionId, source, disposition, ...(run === undefined ? {} : { run }) });
 }
 
 export async function recordAdaptiveFailure(reason: string): Promise<void> {

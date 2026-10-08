@@ -36,6 +36,7 @@ import {
   type AdaptiveRoute,
 } from "./natural-adaptive-routing.js";
 import { VerificationGateTracker } from "./verified-outcome.ts";
+import { RunMetricsTracker } from "./run-metrics.ts";
 
 export type FallbackThinking = FallbackEffort;
 
@@ -462,13 +463,20 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
   // these to the router so it can choose the next best one itself.
   const failedRoutes: Array<{ provider: string; model: string }> = [];
   const gates = new VerificationGateTracker();
+  // What the current work unit costs. Reset per run, like the gate tracker: one unit's
+  // cost is not evidence about the next one.
+  const runMetrics = new RunMetricsTracker();
+  let runStartedAt = 0;
 
   // A verification command that exits zero is the host's own evidence that the
   // work unit succeeded, and it is the only signal the router can admit without
   // judging the model's prose. A gate that fails is ambiguous — pre-existing,
   // flaky, or the model's fault — so it is recorded as nothing rather than guessed.
   pi.on("tool_execution_start", (event) => { gates.noteStart(event.toolCallId, event.args); });
-  pi.on("tool_execution_end", (event) => { gates.noteEnd(event.toolCallId, event.isError); });
+  pi.on("tool_execution_end", (event) => {
+    gates.noteEnd(event.toolCallId, event.isError);
+    runMetrics.noteToolEnd(event.durationMs, event.isError);
+  });
 
   const routeLabel = (route: FallbackRoute): string =>
     `${route.label}${route.thinking ? ` ${route.thinking}` : ""}`;
@@ -603,6 +611,8 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     // Each run verifies its own tree; a gate from the previous run says nothing
     // about this one.
     gates.reset();
+    runMetrics.reset();
+    runStartedAt = Date.now();
     lastPrompt = event.prompt;
     failedRoutes.length = 0;
     // The editor writes atomically, so an already-running child can adopt a
@@ -772,16 +782,21 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
   // Model changes made by the fallback are scoped to one settled request. The
   // original route remains in the session and will be tried again once the
   // provider-reported cooldown has expired.
-  pi.on("agent_settled", async (_event, ctx) => {
+  pi.on("agent_settled", async (event, ctx) => {
     // A verified outcome has to be admitted before the decision it belongs to is
     // cleared, and only for a route the host actually observed running.
     const settledDecision = adaptiveDecision;
     const passedGate = gates.passedGate();
+    runMetrics.noteSettled(event.aborted);
+    // Wall-clock spans the whole unit, because that is the time the user waited.
+    if (runStartedAt > 0) runMetrics.noteDuration(Date.now() - runStartedAt);
     if (adaptivePrimaryApplied && adaptiveRouteObserved && settledDecision !== undefined && passedGate !== undefined) {
-      try { await recordVerifiedOutcome(settledDecision.decisionId, "native_gate", "SUCCESS"); }
+      try { await recordVerifiedOutcome(settledDecision.decisionId, "native_gate", "SUCCESS", runMetrics.snapshot()); }
       catch { /* Evidence admission cannot block a valid user execution. */ }
     }
     gates.reset();
+    runMetrics.reset();
+    runStartedAt = 0;
     if (
       activeRoute &&
       originalModel &&
