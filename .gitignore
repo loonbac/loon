@@ -9,3 +9,5 @@ result-*
 # Estado local de Pi / herramientas
 .atl/
 .pi/
+# Índice local de CodeGraph; artefacto de herramienta, no fuente.
+.codegraph/
