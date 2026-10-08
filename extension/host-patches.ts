@@ -41,8 +41,6 @@ import {
 	AssistantMessageComponent,
 	InteractiveMode,
 	SessionSelectorComponent,
-	ToolExecutionComponent,
-	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import {
 	getKeybindings,
@@ -55,9 +53,7 @@ import {
 	TuiAltScreen,
 	TuiMainScreen,
 	visibleWidth,
-	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { fastModeActivatedAt, fastModeAnimationPhase, fastModeIsActive } from "./fast-mode-indicator.ts";
 import {
 	antigravityUsageSnapshot,
 	type AntigravityUsageSnapshot,
@@ -66,7 +62,6 @@ import { openCodeGoUsageSnapshot, type OpenCodeGoUsageSnapshot } from "./opencod
 import { commandCodeUsageSnapshot, type CommandCodeUsageSnapshot } from "./commandcode-usage.ts";
 import { codexUsageSnapshot, observeCodexUsage } from "./codex-usage-cache.ts";
 import { installFallbackPanelBehavior } from "./fallback-panel.ts";
-import { trimTranscriptFrameBody } from "./image-layout.ts";
 import {
 	formatGentleSidebarCards,
 	parseCardRow,
@@ -90,19 +85,6 @@ function isBlankRow(line: unknown): boolean {
 
 const BLANK_RENDER_FLAG = Symbol.for("better-cc-ui:assistant-blank-render");
 const STATUS_FLAG = Symbol.for("better-cc-ui:tool-output-status");
-const RESPONSE_BASE_RENDER = Symbol.for("better-cc-ui:response-base-render");
-const USER_MESSAGE_BASE_RENDER = Symbol.for("better-cc-ui:user-message-base-render");
-const TOOL_BASE_RENDER = Symbol.for("better-cc-ui:tool-base-render");
-const ASSISTANT_UPDATE_BASE = Symbol.for("better-cc-ui:assistant-update-base");
-const RESPONSE_FRAME_CACHE = Symbol.for("better-cc-ui:response-frame-cache");
-const USER_MESSAGE_FRAME_CACHE = Symbol.for("better-cc-ui:user-message-frame-cache");
-const TOOL_FRAME_CACHE = Symbol.for("better-cc-ui:tool-frame-cache");
-const USER_MESSAGE_INVALIDATE_BASE = Symbol.for("better-cc-ui:user-message-invalidate-base");
-const TOOL_INVALIDATE_BASE = Symbol.for("better-cc-ui:tool-invalidate-base");
-const TOOL_MUTATION_BASES = Symbol.for("better-cc-ui:tool-mutation-bases");
-const FAST_RESPONSE_FRAME = Symbol.for("better-cc-ui:fast-response-frame");
-const TOOL_EXECUTION_START_BASE = Symbol.for("better-cc-ui:tool-execution-start-base");
-const FAST_TOOL_FRAME = Symbol.for("better-cc-ui:fast-tool-frame");
 const EXTENSION_UI_BASE = Symbol.for("better-cc-ui:extension-ui-base");
 const EXTENSION_FOOTER_BASE = Symbol.for("better-cc-ui:extension-footer-base");
 const GENTLE_MODEL_PANEL_RENDER_BASE = Symbol.for("better-cc-ui:gentle-model-panel-render-base");
@@ -135,11 +117,6 @@ const CUSTOM_OVERLAY_IMAGE_GUARD = Symbol.for("better-cc-ui:custom-overlay-image
 // a dependency on Gentle and leaves no API surface in that package.
 const WALLPAPER_REDRAW = Symbol.for("better-cc-ui:wallpaper-redraw");
 const TRANSCRIPT_THEME = Symbol.for("better-cc-ui:transcript-theme");
-const OSC133_ZONE_START = "\x1b]133;A\x07";
-const OSC133_ZONE_END = "\x1b]133;B\x07";
-const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
-const OSC133_ZONE_RE = /\x1b\]133;[ABC]\x07/g;
-const USER_MESSAGE_BACKGROUND_RE = /\x1b\[(?:4[0-7]|10[0-7]|48(?:[;:][0-9:;]*)?|49)m/g;
 
 const DELETE_HOLD_MS = 900;
 const DELETE_RETURN_MS = 420;
@@ -577,14 +554,6 @@ interface TranscriptTheme {
 	fg?: (role: string, text: string) => string;
 }
 
-type TranscriptFrameCache = {
-	width: number;
-	phase: number;
-	body: string[];
-	lines: string[];
-	state?: unknown;
-};
-
 // The host's Theme is a stable proxy whose color roles are updated in-place by
 // wallpaper-sync. Keeping the proxy (not a copied ANSI value) makes historical
 // user cards recolor immediately with the current wallpaper palette. Store it
@@ -611,7 +580,6 @@ const RESET_UNDERLINE_COLOR = "\x1b[59m";
 const METER_EMPTY = "\x1b[38;2;135;145;158m";
 const DISABLED_RED = "\x1b[38;2;255;98;120m";
 const RESET_BACKGROUND = "\x1b[49m";
-const RESET_FOREGROUND_RE = /\x1b\[39m/g;
 
 // Every 18x36 sprite occupies exactly one terminal cell. The four variants per
 // outer state keep the larger weekly parallelogram geometrically identical as
@@ -1565,177 +1533,6 @@ function scheduleGentleSidebarBannerRemoval(ui: unknown): void {
 	retry();
 }
 
-/** Keep normal assistant prose readable over a transparent terminal. */
-function brightenResponse(line: string): string {
-	return `${BRIGHT_TEXT}${line.replace(RESET_FOREGROUND_RE, BRIGHT_TEXT)}\x1b[39m`;
-}
-
-// Matches the animation ring in fast-mode-indicator.ts. Its phase advances
-// with the same 120ms clock as the live status rail.
-const FAST_RGB: ReadonlyArray<readonly [number, number, number]> = [
-	[255, 78, 183],
-	[187, 91, 255],
-	[73, 160, 255],
-	[66, 225, 211],
-	[145, 238, 91],
-	[255, 211, 70],
-	[255, 128, 78],
-];
-
-function fastRgb(index: number): string {
-	const [r, g, b] = FAST_RGB[index % FAST_RGB.length]!;
-	return `\x1b[38;2;${r};${g};${b}m`;
-}
-
-function rainbowFrame(text: string, phase = 0): string {
-	return [...text].map((character, index) => `${fastRgb(index + phase)}${character}`).join("") + "\x1b[39m";
-}
-
-type SemanticToolResult = {
-	content?: Array<{ type?: unknown; text?: unknown }>;
-	details?: unknown;
-	isError?: unknown;
-};
-
-function toolFrameLabel(toolName: unknown, args: unknown, result?: SemanticToolResult): string {
-	if (toolName === "ask_user_question") {
-		const details = result?.details as { cancelled?: unknown } | undefined;
-		if (result?.isError === true) return "Pregunta · error";
-		if (details?.cancelled === true) return "Pregunta cancelada";
-		return result ? "Respuesta de loonbac" : "Pregunta para loonbac";
-	}
-	if (toolName === "todo") {
-		const action = typeof args === "object" && args !== null
-			? (args as { action?: unknown }).action
-			: undefined;
-		return action === "write" && result ? "Tareas · actualizadas" : "Tareas";
-	}
-	if (toolName !== "subagent_run" || typeof args !== "object" || args === null) return "Comando";
-	const values = args as { agent?: unknown; label?: unknown };
-	const detail = typeof values.label === "string" && values.label.trim() !== ""
-		? values.label.trim()
-		: typeof values.agent === "string" && values.agent.trim() !== ""
-			? values.agent.trim()
-			: undefined;
-	return detail ? `Agente · ${detail}` : "Agente";
-}
-
-function wrappedSemanticRows(text: string, width: number, prefix = ""): string[] {
-	const normalized = text.replace(/\s+/gu, " ").trim();
-	if (normalized === "") return [];
-	const prefixWidth = displayWidth(prefix);
-	const wrapped = wrapTextWithAnsi(normalized, Math.max(1, width - prefixWidth));
-	const continuation = " ".repeat(prefixWidth);
-	return wrapped.map((line, index) => `${index === 0 ? prefix : continuation}${line}`);
-}
-
-function semanticQuestionBody(args: unknown, result: SemanticToolResult | undefined, width: number): string[] {
-	const details = result?.details as {
-		answers?: Array<{ question?: unknown; answer?: unknown; selected?: unknown }>;
-		cancelled?: unknown;
-	} | undefined;
-	if (details?.cancelled === true) return [transcriptTone("muted", "La pregunta fue cancelada.")];
-
-	const answers = Array.isArray(details?.answers) ? details.answers : [];
-	if (answers.length > 0) {
-		const lines: string[] = [];
-		answers.forEach((entry, index) => {
-			const question = typeof entry.question === "string" ? entry.question : `Pregunta ${index + 1}`;
-			const selected = Array.isArray(entry.selected)
-				? entry.selected.filter((value): value is string => typeof value === "string").join(", ")
-				: "";
-			const answer = typeof entry.answer === "string" && entry.answer.trim() !== ""
-				? entry.answer
-				: selected || "Sin respuesta";
-			if (index > 0) lines.push("");
-			lines.push(...wrappedSemanticRows(question, width, answers.length > 1 ? `${index + 1}. ` : "" )
-				.map((line) => transcriptTone("muted", line)));
-			lines.push(...wrappedSemanticRows(answer, width, "↳ ")
-				.map((line) => `${BRIGHT_TEXT}${line}\x1b[39m`));
-		});
-		return lines;
-	}
-
-	const questions = typeof args === "object" && args !== null && Array.isArray((args as { questions?: unknown }).questions)
-		? (args as { questions: Array<{ question?: unknown }> }).questions
-		: [];
-	const lines = questions.flatMap((entry, index) => {
-		const question = typeof entry.question === "string" ? entry.question : `Pregunta ${index + 1}`;
-		return wrappedSemanticRows(question, width, questions.length > 1 ? `${index + 1}. ` : "")
-			.map((line) => `${BRIGHT_TEXT}${line}\x1b[39m`);
-	});
-	if (!result && lines.length > 0) lines.push(transcriptTone("muted", "Esperando tu respuesta…"));
-	return lines;
-}
-
-function semanticTodoBody(args: unknown, result: SemanticToolResult | undefined, width: number): string[] | undefined {
-	const details = result?.details as { gentleTodo?: { tasks?: unknown } } | undefined;
-	const resultTasks = details?.gentleTodo?.tasks;
-	const argTasks = typeof args === "object" && args !== null ? (args as { tasks?: unknown }).tasks : undefined;
-	const tasks = Array.isArray(resultTasks) ? resultTasks : Array.isArray(argTasks) ? argTasks : undefined;
-	if (!tasks) return undefined;
-
-	const statuses = tasks.map((task) => typeof task === "object" && task !== null
-		? (task as { status?: unknown }).status
-		: undefined);
-	const done = statuses.filter((status) => status === "done").length;
-	const active = statuses.filter((status) => status === "in_progress").length;
-	const pending = Math.max(0, tasks.length - done - active);
-	const plural = (count: number, singular: string, multiple: string) => `${count} ${count === 1 ? singular : multiple}`;
-	const summary = [
-		plural(tasks.length, "tarea", "tareas"),
-		transcriptTone("success", `✓ ${plural(done, "completada", "completadas")}`),
-		transcriptTone("warning", `◐ ${plural(active, "en curso", "en curso")}`),
-		transcriptTone("muted", `○ ${plural(pending, "pendiente", "pendientes")}`),
-	].join("  ·  ");
-	return wrapTextWithAnsi(summary, Math.max(1, width));
-}
-
-function semanticToolBody(
-	toolName: unknown,
-	args: unknown,
-	result: SemanticToolResult | undefined,
-	width: number,
-): string[] | undefined {
-	if (toolName === "ask_user_question") return semanticQuestionBody(args, result, width);
-	if (toolName === "todo") return semanticTodoBody(args, result, width);
-	return undefined;
-}
-
-/** Frame a transcript item without consuming space from Pi's viewport. */
-function frame(lines: string[], width: number, label: string, rainbow = false): string[] {
-	const body = trimTranscriptFrameBody(lines, isOnlyWhitespace);
-	if (body.length === 0 || width < 16) return body;
-
-	const contentWidth = Math.max(1, width - 4);
-	const borderWidth = Math.max(1, width - 2);
-	const shownLabel = clipPlainText(label, Math.max(1, borderWidth - 3));
-	const title = `─ ${shownLabel} `;
-	const topFill = Math.max(0, borderWidth - displayWidth(title));
-	const phase = rainbow ? fastModeAnimationPhase() : 0;
-	const border = (text: string) => transcriptTone("borderAccent", text);
-	const titleTone = (text: string) => transcriptTone("claudeShimmer", text);
-	const content = body.map((rawLine, row) => {
-		const line = label === "Respuesta" ? brightenResponse(rawLine) : rawLine;
-		const padding = Math.max(0, contentWidth - displayWidth(line));
-		if (!rainbow) return `${border("│")} ${line}${" ".repeat(padding)} ${border("│")}`;
-		return `${rainbowFrame("│", phase + row + 1)} ${line}${" ".repeat(padding)} ${rainbowFrame("│", phase + row + 4)}`;
-	});
-	const top = rainbow
-		? rainbowFrame(`┌${title}${"─".repeat(topFill)}┐`, phase)
-		: shownLabel.length > 0
-			? `${border("┌─ ")}${titleTone(shownLabel)}${border(` ${"─".repeat(topFill)}┐`)}`
-			: border(`┌${"─".repeat(borderWidth)}┐`);
-	const bottom = rainbow
-		? rainbowFrame(`└${"─".repeat(borderWidth)}┘`, phase + 3)
-		: border(`└${"─".repeat(borderWidth)}┘`);
-	return [
-		top,
-		...content,
-		bottom,
-	];
-}
-
 function transcriptTone(role: string, text: string): string {
 	try {
 		const activeTheme = transcriptTheme
@@ -1745,61 +1542,6 @@ function transcriptTone(role: string, text: string): string {
 	} catch {
 		return text;
 	}
-}
-
-/** Render the user's message as a compact palette-aware transcript card. */
-function frameUserMessage(lines: string[], width: number): string[] {
-	const cleaned = lines.map((line) => line
-		.replace(OSC133_ZONE_RE, "")
-		.replace(USER_MESSAGE_BACKGROUND_RE, ""));
-	let first = 0;
-	let last = cleaned.length;
-	while (first < last && isOnlyWhitespace(cleaned[first]!)) first++;
-	while (last > first && isOnlyWhitespace(cleaned[last - 1]!)) last--;
-	const body = cleaned.slice(first, last);
-	if (body.length === 0 || width < 16) return body;
-
-	const border = (text: string) => transcriptTone("borderAccent", text);
-	const label = (text: string) => transcriptTone("claudeShimmer", text);
-	const contentWidth = Math.max(1, width - 4);
-	const borderWidth = Math.max(1, width - 2);
-	const titlePrefix = "─ ";
-	const titleSuffix = " ";
-	const titleWidth = displayWidth(titlePrefix) + displayWidth("loonbac") + displayWidth(titleSuffix);
-	const topFill = Math.max(0, borderWidth - titleWidth);
-	const content = body.map((line) => {
-		const padding = Math.max(0, contentWidth - displayWidth(line));
-		return `${border("│")} ${line}${" ".repeat(padding)} ${border("│")}`;
-	});
-	const top = `${border(`┌${titlePrefix}`)}${label("loonbac")}${border(`${titleSuffix}${"─".repeat(topFill)}┐`)}`;
-	const bottom = border(`└${"─".repeat(borderWidth)}┘`);
-	return [
-		OSC133_ZONE_START + top,
-		...content,
-		OSC133_ZONE_END + OSC133_ZONE_FINAL + bottom,
-	];
-}
-
-function isResponseCreatedWhileFastWasActive(message: unknown): boolean {
-	const activatedAt = fastModeActivatedAt();
-	const timestamp = (message as { timestamp?: unknown } | undefined)?.timestamp;
-	return typeof activatedAt === "number" && typeof timestamp === "number" && timestamp >= activatedAt;
-}
-
-/**
- * Pi's stock UserMessage Box paints to the full transcript width, even for a
- * one-word message. In fullscreen that reads as a giant slab reaching toward
- * the rail. Render it once to learn its actual markdown width, then render it
- * at that compact width so Pi keeps its own OSC copy zones and wrapping.
- */
-function compactUserMessageWidth(lines: string[], availableWidth: number): number {
-	let widest = 0;
-	for (const line of lines) {
-		const content = stripTerminalSequences(line).trimEnd();
-		if (content.length > 0) widest = Math.max(widest, visibleWidth(content));
-	}
-	// Preserve the Box's trailing one-column breathing room after the text.
-	return Math.max(3, Math.min(availableWidth, widest + 1));
 }
 
 /** The exact host notice dropped by patch 2 (interactive-mode.js setToolsExpanded). */
@@ -1841,127 +1583,6 @@ export function installHostPatches(): void {
 			return lines;
 		};
 		amProto[BLANK_RENDER_FLAG] = true;
-	}
-
-	if (typeof amProto.updateContent === "function") {
-		// Remember the mode on the component, rather than checking it during
-		// render. Therefore a response begun under Fast keeps its RGB border if
-		// Fast is disabled while it streams, while all older timestamps stay plain.
-		const originalUpdate = amProto[ASSISTANT_UPDATE_BASE] ?? amProto.updateContent;
-		amProto[ASSISTANT_UPDATE_BASE] = originalUpdate;
-		amProto.updateContent = function ccUiTrackFastResponse(message: unknown, ...args: unknown[]): unknown {
-			this[RESPONSE_FRAME_CACHE] = undefined;
-			if (isResponseCreatedWhileFastWasActive(message)) this[FAST_RESPONSE_FRAME] = true;
-			return originalUpdate.call(this, message, ...args);
-		};
-	}
-
-	if (typeof amProto.render === "function") {
-		// Preserve the pre-frame renderer once, then replace only this outer
-		// layer on every /reload. That makes visual tweaks live without stacking
-		// wrappers or forcing the user to restart Pi.
-		const originalRender = amProto[RESPONSE_BASE_RENDER] ?? amProto.render;
-		amProto[RESPONSE_BASE_RENDER] = originalRender;
-		amProto.render = function ccUiFramedAssistantRender(width: number): string[] {
-			if (width < 16) return originalRender.call(this, width);
-			const rainbow = this[FAST_RESPONSE_FRAME] === true;
-			const phase = rainbow ? fastModeAnimationPhase() : -1;
-			const cached = this[RESPONSE_FRAME_CACHE] as TranscriptFrameCache | undefined;
-			if (cached?.width === width && cached.phase === phase) return cached.lines;
-			const body = cached?.width === width ? cached.body : originalRender.call(this, width - 4);
-			const lines = frame(body, width, "Respuesta", rainbow);
-			this[RESPONSE_FRAME_CACHE] = { width, phase, body, lines } satisfies TranscriptFrameCache;
-			return lines;
-		};
-	}
-
-	// User messages retain Pi's native Markdown typography and copy zones. The
-	// stock full-row background is replaced by a compact wallpaper-palette card.
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const userProto = UserMessageComponent.prototype as any;
-	if (typeof userProto.invalidate === "function") {
-		const originalInvalidate = userProto[USER_MESSAGE_INVALIDATE_BASE] ?? userProto.invalidate;
-		userProto[USER_MESSAGE_INVALIDATE_BASE] = originalInvalidate;
-		userProto.invalidate = function ccUiInvalidateUserMessageCache(...args: unknown[]): unknown {
-			this[USER_MESSAGE_FRAME_CACHE] = undefined;
-			return originalInvalidate.apply(this, args);
-		};
-	}
-	if (typeof userProto.render === "function") {
-		const originalRender = userProto[USER_MESSAGE_BASE_RENDER] ?? userProto.render;
-		userProto[USER_MESSAGE_BASE_RENDER] = originalRender;
-		userProto.render = function ccUiFramedUserMessage(width: number): string[] {
-			if (width < 16) return originalRender.call(this, width);
-			const state = this.outputPad;
-			const cached = this[USER_MESSAGE_FRAME_CACHE] as TranscriptFrameCache | undefined;
-			if (cached?.width === width && cached.state === state) return cached.lines;
-			const availableBodyWidth = Math.max(3, width - 4);
-			const initial = originalRender.call(this, availableBodyWidth) as string[];
-			const compactWidth = compactUserMessageWidth(initial, availableBodyWidth);
-			const body = compactWidth < availableBodyWidth
-				? originalRender.call(this, compactWidth) as string[]
-				: initial;
-			const panelWidth = Math.max(16, Math.min(width, compactWidth + 4));
-			const lines = frameUserMessage(body, panelWidth);
-			this[USER_MESSAGE_FRAME_CACHE] = { width, phase: -1, body, lines, state } satisfies TranscriptFrameCache;
-			return lines;
-		};
-	}
-
-	// Tool executions share one frame, but interaction/task tools receive their
-	// own semantic title and body instead of being mislabeled as commands.
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const toolProto = ToolExecutionComponent.prototype as any;
-	if (typeof toolProto.invalidate === "function") {
-		const originalInvalidate = toolProto[TOOL_INVALIDATE_BASE] ?? toolProto.invalidate;
-		toolProto[TOOL_INVALIDATE_BASE] = originalInvalidate;
-		toolProto.invalidate = function ccUiInvalidateToolFrameCache(...args: unknown[]): unknown {
-			this[TOOL_FRAME_CACHE] = undefined;
-			return originalInvalidate.apply(this, args);
-		};
-	}
-	if (typeof toolProto.markExecutionStarted === "function") {
-		const originalStart = toolProto[TOOL_EXECUTION_START_BASE] ?? toolProto.markExecutionStarted;
-		toolProto[TOOL_EXECUTION_START_BASE] = originalStart;
-		toolProto.markExecutionStarted = function ccUiTrackFastToolExecution(...args: unknown[]): unknown {
-			this[TOOL_FRAME_CACHE] = undefined;
-			if (fastModeIsActive()) this[FAST_TOOL_FRAME] = true;
-			return originalStart.call(this, ...args);
-		};
-	}
-	const mutationBases = toolProto[TOOL_MUTATION_BASES] as Map<string, (...args: unknown[]) => unknown> | undefined
-		?? new Map<string, (...args: unknown[]) => unknown>();
-	toolProto[TOOL_MUTATION_BASES] = mutationBases;
-	for (const method of ["updateArgs", "setArgsComplete", "updateResult", "setExpanded", "setShowImages", "setImageWidthCells"] as const) {
-		if (typeof toolProto[method] !== "function") continue;
-		const originalMutation = mutationBases.get(method) ?? toolProto[method];
-		mutationBases.set(method, originalMutation);
-		toolProto[method] = function ccUiInvalidateToolFrameOnMutation(...args: unknown[]): unknown {
-			this[TOOL_FRAME_CACHE] = undefined;
-			return originalMutation.apply(this, args);
-		};
-	}
-	if (typeof toolProto.render === "function") {
-		const originalRender = toolProto[TOOL_BASE_RENDER] ?? toolProto.render;
-		toolProto[TOOL_BASE_RENDER] = originalRender;
-		toolProto.render = function ccUiFramedToolRender(width: number): string[] {
-			if (width < 16) return originalRender.call(this, width);
-			const rainbow = this[FAST_TOOL_FRAME] === true;
-			const phase = rainbow ? fastModeAnimationPhase() : -1;
-			const result = this.result as SemanticToolResult | undefined;
-			const label = toolFrameLabel(this.toolName, this.args, result);
-			const imageState = this.convertedImages instanceof Map ? this.convertedImages.size : 0;
-			const cached = this[TOOL_FRAME_CACHE] as TranscriptFrameCache | undefined;
-			const state = `${imageState}:${label}`;
-			if (cached?.width === width && cached.phase === phase && cached.state === state) return cached.lines;
-			const body = cached?.width === width && cached.state === state
-				? cached.body
-				: semanticToolBody(this.toolName, this.args, result, width - 4)
-					?? originalRender.call(this, width - 4);
-			const lines = frame(body, width, label, rainbow);
-			this[TOOL_FRAME_CACHE] = { width, phase, body, lines, state } satisfies TranscriptFrameCache;
-			return lines;
-		};
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any

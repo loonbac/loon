@@ -21,12 +21,12 @@ Deleting them was offered and declined.
 
 ## Tasks
 
-- [ ] Unregister the chat modules in `extension/index.ts`
-- [ ] Remove the transcript framing overrides from `extension/host-patches.ts`, keeping every rail patch intact
-- [ ] Remove the commands and shortcuts that only drove the removed features
-- [ ] Run the test suite and build the package
-- [ ] Verify visually in a real PTY that the defaults are back
-- [ ] Commit the work unit
+- [x] Unregister the chat modules in `extension/index.ts`
+- [x] Remove the transcript framing overrides from `extension/host-patches.ts`, keeping every rail patch intact
+- [x] Remove the commands and shortcuts that only drove the removed features
+- [x] Run the test suite and build the package
+- [x] Verify visually in a real PTY that the defaults are back
+- [x] Commit the work unit
 
 ## Why this is not a straight module deletion
 
@@ -37,5 +37,21 @@ which the kept patches read.
 
 ## Evidence
 
-Filled in as each task is actually observed. Nothing is recorded here before it
-was run.
+- Tests: `node --experimental-strip-types --test extension/*.test.ts` → 75 tests, 75 pass, 0 fail.
+- Build: `nix build` → `/nix/store/cyk45h2zfx5zvcarfapmfx08f2bym4z6-loon-0.1.9`.
+- Diff: 3 files, 15 insertions, 568 deletions.
+- Live PTY run, one real turn:
+  - zero occurrences of `┌─ Respuesta`, `┌─ loonbac`, `┌─ bash` and `└─`;
+  - the reply rendered as a bare `ok` line, with no frame;
+  - no theme or load error;
+  - the LOON banner and the `✻ LOON — 57s` exit recap still render.
+- Every symbol the writer removed was grepped afterwards: 0 remaining references, and the kept
+  workarounds (`ccUiBlankMessageRender`, `ccUiFilteredShowStatus`, the rail and header patches,
+  `sharedHostState[TRANSCRIPT_THEME]`) are all still present.
+
+## Known limit
+
+The prompt pointer `❯` and the `▎` rail still appear, but they are not ours: gentle-pi's
+`extensions/gentle-shell.ts:1120` calls `ctx.ui.setEditorComponent(factory)`. Removing our own
+`prompt-editor.ts` was all this extension could do. A truly stock editor would require disabling
+Gentle Shell's editor, which is a separate decision.

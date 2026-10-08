@@ -3,31 +3,22 @@
  *
  * Layers:
  *   1. theme/             curated dark ANSI theme (JSON, loaded by pi)
- *   2. chrome             banner (welcome box), spinner, status line, turn footer
- *   3. tools/             CC-style tool rendering (builtins, diff, grouping)
- *   4. thinking           CC-style thinking title + hidden label + spinner row
+ *   2. chrome             banner (welcome box), session summary, status line
  *
- * Layers 1-4 use only pi public extension APIs. host-patches.ts additionally
- * wraps two prototype methods of PUBLIC pi exports (AssistantMessageComponent,
- * InteractiveMode) as the extension-side landing of the upstream PR draft —
- * see its header for scope and removal criteria.
- * See ALIGNMENT.md for the per-module CC source mapping.
+ * Chat rendering, tool rendering, thinking, and prompt editor use Pi's native
+ * default implementations. host-patches.ts wraps prototype methods of public
+ * pi exports (AssistantMessageComponent, InteractiveMode, SessionSelectorComponent)
+ * for upstream bug fixes, resume hold-delete, and Gentle rail/layout stabilization.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { installHostPatches } from "./host-patches.ts";
-import { registerSpinner } from "./spinner.ts";
-import { registerTurnFooter } from "./turn-footer.ts";
 import { registerSessionSummary } from "./session-summary.ts";
 import { registerBanner, ccAccent } from "./banner.ts";
 import { registerStatusLine } from "./status-line.ts";
-import { registerGrouping } from "./tools/grouping.js";
-import { registerBuiltins } from "./tools/builtins.js";
 import { registerCommands } from "./commands.ts";
-import { registerThinking } from "./thinking.ts";
-import { registerPromptPointer } from "./prompt-editor.ts";
 import { FastModeIndicator, type FastModeIndicatorUi } from "./fast-mode-indicator.ts";
 import { WallpaperAccentSync, type WallpaperThemeUi } from "./wallpaper-sync.ts";
 import { registerAntigravityUsage } from "./antigravity-usage.ts";
@@ -37,37 +28,6 @@ import { registerCodexUsageCache } from "./codex-usage-cache.ts";
 import { ensureFallbackConfig } from "./fallback-config.ts";
 import antigravityQuotaFallback from "./antigravity-quota-fallback.ts";
 import { registerBoundedSearch } from "./bounded-search.ts";
-
-/**
- * gentle-pi's quiet-tools extension owns the same seven built-in tool names.
- * Let it keep those registrations when it is active, while the rest of this
- * extension (including wallpaper colors) continues to load. Set
- * GENTLE_PI_QUIET_TOOLS=0 to give these CC renderers ownership instead.
- */
-function gentlePiQuietToolsAreActive(): boolean {
-	if (process.env.GENTLE_PI_QUIET_TOOLS === "0") return false;
-	try {
-		const settingsPaths = [
-			join(homedir(), ".pi", "agent", "settings.json"),
-			join(homedir(), ".pi", "settings.json"),
-			join(process.cwd(), ".pi", "settings.json"),
-		];
-		for (const p of settingsPaths) {
-			if (!existsSync(p)) continue;
-			const settings = JSON.parse(readFileSync(p, "utf8")) as { packages?: unknown; extensions?: unknown };
-			if (Array.isArray(settings.packages) && settings.packages.some(
-				(source) => typeof source === "string" && (source.includes("gentle-pi") || /^(?:npm:)?gentle-pi(?:@|$)/u.test(source)),
-			)) return true;
-			if (Array.isArray(settings.extensions) && settings.extensions.some(
-				(source) => typeof source === "string" && source.includes("gentle-pi"),
-			)) return true;
-		}
-	} catch {
-		// ignore
-	}
-	return existsSync(join(homedir(), "Proyectos", "gentle-pi", "extensions", "quiet-tools.ts")) ||
-		existsSync(join(homedir(), ".pi", "agent", "npm", "node_modules", "gentle-pi", "extensions", "quiet-tools.ts"));
-}
 
 function shouldRegisterStandaloneStatusLine(): boolean {
 	if (process.env.BETTER_CC_STATUS_LINE === "0") return false;
@@ -109,21 +69,11 @@ export default async function (pi: ExtensionAPI) {
 	registerCodexUsageCache(pi);
 
 	// Layer 2: chrome
-	registerSpinner(pi);
-	registerTurnFooter(pi);
 	registerSessionSummary(pi, { accentFromTheme: ccAccent });
 	registerBanner(pi);
 	if (shouldRegisterStandaloneStatusLine()) registerStatusLine(pi);
-	registerPromptPointer(pi);
 
-	// Layer 3: tool rendering
-	registerGrouping(pi);
-	if (!gentlePiQuietToolsAreActive()) registerBuiltins(pi);
-
-	// Layer 4: thinking (transformer + hidden label + spinner-row coordination)
-	registerThinking(pi);
-
-	// Commands + shortcuts
+	// Commands
 	registerCommands(pi);
 
 	// Keep the CC brand roles aligned with the wallpaper producer's live accent.
