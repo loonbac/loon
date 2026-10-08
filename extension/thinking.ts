@@ -34,7 +34,7 @@
  * belongs to spinner.ts.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { dim, italic } from "./palette.js";
+import { dim, italic } from "./palette.ts";
 
 const THINKING_TITLE = "∴ Thinking…";
 /** Kept empty: CC has no collapsed-thinking line (see header). */

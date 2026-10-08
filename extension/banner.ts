@@ -28,9 +28,9 @@ import { join } from "node:path";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { VERSION } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { tildeHome } from "./status-line.js";
-import { fg as paletteFg, resolvePalette } from "./palette.js";
-import { PI_LOGO } from "./pi-logo.js";
+import { tildeHome } from "./status-line.ts";
+import { fg as paletteFg, resolvePalette } from "./palette.ts";
+import { PI_LOGO } from "./pi-logo.ts";
 
 export { PI_LOGO };
 

@@ -1,13 +1,4 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -15,11 +6,11 @@ import {
   antigravityQuotaIsAvailable,
   refreshAntigravityUsage,
   type AntigravityProviderId,
-} from "./antigravity-usage.js";
+} from "./antigravity-usage.ts";
 import {
   fallbackRoutesForAgent,
   type FallbackEffort,
-} from "./fallback-config.js";
+} from "./fallback-config.ts";
 import {
   callNaturalRouter,
   adaptiveRecoveryRouteAllowed,
@@ -34,7 +25,7 @@ import {
   validAdaptiveDecision,
   type AdaptiveDecision,
   type AdaptiveRoute,
-} from "./natural-adaptive-routing.js";
+} from "./natural-adaptive-routing.ts";
 import { VerificationGateTracker } from "./verified-outcome.ts";
 import { RunMetricsTracker } from "./run-metrics.ts";
 
@@ -191,15 +182,35 @@ export function parseAgentDefinitionIdentity(
   return { name: declaredName || fallbackName, instructions };
 }
 
+/**
+ * The text `--append-system-prompt` carries, whether it was given directly or as a file path.
+ *
+ * Pi documents the flag as accepting "text or file contents", and gentle-ai passes a path
+ * whenever an agent's instructions exceed its inline limit — which every real agent does, by an
+ * order of magnitude, because they are long contracts. Comparing that path against the contract
+ * text never matched, so the agent was never identified and the router never ran for any real
+ * delegation. Reading the file is what makes the two forms equivalent, which is how Pi treats
+ * them.
+ *
+ * A value that is not a readable file is the text itself, so nothing is lost when the caller
+ * passes it inline.
+ */
+function appendedSystemPromptValue(value: string): string {
+  try {
+    if (existsSync(value) && statSync(value).isFile()) return readFileSync(value, "utf8");
+  } catch { /* not a path: fall through and treat the value as the text */ }
+  return value;
+}
+
 export function appendedSystemPrompts(argv: readonly string[]): string[] {
   const prompts: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--append-system-prompt" && index + 1 < argv.length) {
-      prompts.push(argv[index + 1]);
+      prompts.push(appendedSystemPromptValue(argv[index + 1]!));
       index += 1;
     } else if (argument.startsWith("--append-system-prompt=")) {
-      prompts.push(argument.slice("--append-system-prompt=".length));
+      prompts.push(appendedSystemPromptValue(argument.slice("--append-system-prompt=".length)));
     }
   }
   return prompts;

@@ -15,6 +15,7 @@ import {
   validAdaptiveDecision,
   type AdaptiveDecision,
 } from "./natural-adaptive-routing.ts";
+import { appendedSystemPrompts } from "./antigravity-quota-fallback.ts";
 
 const decision: AdaptiveDecision = {
   kind: "ADAPTIVE_ASSIGNMENT", decisionId: "D-1", reason: "fixture", mode: "ACTIVE_GUARDED",
@@ -111,4 +112,22 @@ test("a current work-unit route that differs from configured Gentle default is u
   assert.equal(routeDiffersFromConfiguredGentleDefault("gentle-ai-worker", decision.requestedAdaptiveRoute!), true);
   if (previous === undefined) delete process.env.GENTLE_PI_CONFIG_HOME;
   else process.env.GENTLE_PI_CONFIG_HOME = previous;
+});
+
+test("the agent is identified when its instructions arrive as a file path", () => {
+  // gentle-ai passes --append-system-prompt a PATH whenever an agent's instructions exceed its
+  // inline limit, which every real agent does by an order of magnitude. Pi accepts either form,
+  // so a check that only understood the inline one never identified any real delegation and the
+  // router never ran — while every test that fed the text directly kept passing.
+  const dir = mkdtempSync(join(tmpdir(), "gentle-pi-subagent-"));
+  const file = join(dir, "instructions.md");
+  const body = "You are the worker agent.\n\nDo the work and report evidence.";
+  writeFileSync(file, body);
+
+  assert.deepEqual(appendedSystemPrompts(["node", "pi", "--append-system-prompt", file]), [body]);
+  assert.deepEqual(appendedSystemPrompts([`--append-system-prompt=${file}`]), [body]);
+  // A value that is not a file is the text itself, so nothing is lost inline.
+  assert.deepEqual(appendedSystemPrompts(["node", "pi", "--append-system-prompt", body]), [body]);
+  // And a missing path is not a crash: it is simply a value that is not a readable file.
+  assert.deepEqual(appendedSystemPrompts(["node", "pi", "--append-system-prompt", join(dir, "absent.md")]), [join(dir, "absent.md")]);
 });

@@ -6,7 +6,7 @@ import {
 	type FallbackProfile,
 	type GentleFallbackConfig,
 	writeFallbackConfig,
-} from "./fallback-config.js";
+} from "./fallback-config.ts";
 
 const SET_ALL_AGENTS = "Set all agents";
 const PANEL_STATE = Symbol.for("better-cc-ui:gentle-fallback-panel-state-v1");

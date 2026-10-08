@@ -57,16 +57,16 @@ import {
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { fastModeActivatedAt, fastModeAnimationPhase, fastModeIsActive } from "./fast-mode-indicator.js";
+import { fastModeActivatedAt, fastModeAnimationPhase, fastModeIsActive } from "./fast-mode-indicator.ts";
 import {
 	antigravityUsageSnapshot,
 	type AntigravityUsageSnapshot,
-} from "./antigravity-usage.js";
-import { openCodeGoUsageSnapshot, type OpenCodeGoUsageSnapshot } from "./opencode-go-usage.js";
-import { commandCodeUsageSnapshot, type CommandCodeUsageSnapshot } from "./commandcode-usage.js";
-import { codexUsageSnapshot, observeCodexUsage } from "./codex-usage-cache.js";
-import { installFallbackPanelBehavior } from "./fallback-panel.js";
-import { trimTranscriptFrameBody } from "./image-layout.js";
+} from "./antigravity-usage.ts";
+import { openCodeGoUsageSnapshot, type OpenCodeGoUsageSnapshot } from "./opencode-go-usage.ts";
+import { commandCodeUsageSnapshot, type CommandCodeUsageSnapshot } from "./commandcode-usage.ts";
+import { codexUsageSnapshot, observeCodexUsage } from "./codex-usage-cache.ts";
+import { installFallbackPanelBehavior } from "./fallback-panel.ts";
+import { trimTranscriptFrameBody } from "./image-layout.ts";
 import {
 	formatGentleSidebarCards,
 	parseCardRow,
@@ -75,7 +75,7 @@ import {
 	suppressGentleBelowInputWidget,
 	suppressGentleHeader,
 	withoutGentleSidebarBanner,
-} from "./gentle-header.js";
+} from "./gentle-header.ts";
 
 // CSI + OSC (BEL or ST terminated) + charset selects. OSC matters: the host
 // render wraps a message's first/last row in OSC133 zone marks, which the

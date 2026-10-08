@@ -18,7 +18,7 @@
  * picked up immediately (no burn-in) and we own every color span.
  */
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { fg as paletteFg, resolvePalette } from "./palette.js";
+import { fg as paletteFg, resolvePalette } from "./palette.ts";
 
 // CC Spinner/utils.ts getDefaultCharacters(): Ghostty renders ✽ slightly offset,
 // so the last frame is * there.
