@@ -50,7 +50,7 @@ test("a provider that reports no usage is not counted as reporting zero tokens",
   assert.deepEqual(metrics, emptyRunMetrics());
 });
 
-test("an errored, aborted or failed-tool turn marks the unit incomplete", () => {
+test("an errored or aborted turn, or an aborted run, marks the unit incomplete", () => {
   const tracker = new RunMetricsTracker();
   tracker.noteAssistantMessage(assistant({ input: 10, output: 1, totalTokens: 11, cost: { total: 0.01 } }));
   assert.equal(tracker.snapshot().complete, true);
@@ -66,11 +66,20 @@ test("an errored, aborted or failed-tool turn marks the unit incomplete", () => 
   const runAborted = new RunMetricsTracker();
   runAborted.noteSettled(true);
   assert.equal(runAborted.snapshot().complete, false);
+});
 
-  const toolFailed = new RunMetricsTracker();
-  toolFailed.noteSettled(false);
-  toolFailed.noteToolEnd(120, true);
-  assert.equal(toolFailed.snapshot().complete, false);
+test("a failing tool is counted but does not make the figures defective", () => {
+  // A verification command that fails is the evidence a failure outcome is built from.
+  // Marking the measurement defective would make that failure impossible to record.
+  const tracker = new RunMetricsTracker();
+  tracker.noteSettled(false);
+  tracker.noteToolEnd(120, true);
+  tracker.noteToolEnd(80, true);
+  tracker.noteToolEnd(30, false);
+  const metrics = tracker.snapshot();
+  assert.equal(metrics.failedTools, 2);
+  assert.equal(metrics.toolCalls, 3);
+  assert.equal(metrics.complete, true);
 });
 
 test("tool time is tracked apart from model time", () => {

@@ -104,3 +104,53 @@ test("reset clears a pass from a previous run", () => {
 	gates.reset();
 	assert.equal(gates.passedGate(), undefined);
 });
+
+test("a pass that a later failure supersedes is not a verified unit", () => {
+  // The last gate describes the final tree. A run that went green and then broke the tree
+  // on the next edit ended unverified, and reporting success would attribute a broken
+  // result to a route that did not produce one.
+  const gates = new VerificationGateTracker();
+  gates.noteStart("a", { command: "npm test" });
+  gates.noteEnd("a", false);
+  assert.equal(gates.outcome(), "PASSED");
+  assert.equal(gates.passedGate(), "npm test");
+
+  gates.noteStart("b", { command: "nix flake check" });
+  gates.noteEnd("b", true);
+  assert.equal(gates.outcome(), "FAILED");
+  assert.equal(gates.passedGate(), undefined);
+});
+
+test("a run where no gate ended has no verdict rather than a passing one", () => {
+  const gates = new VerificationGateTracker();
+  assert.equal(gates.outcome(), "NONE");
+
+  // Started but never ended: the host cannot say the tree passed anything.
+  gates.noteStart("a", { command: "cargo test" });
+  assert.equal(gates.outcome(), "NONE");
+
+  // A non-verification tool never becomes a gate at all.
+  gates.noteStart("b", { command: "ls -la" });
+  gates.noteEnd("b", false);
+  assert.equal(gates.outcome(), "NONE");
+});
+
+test("a failure followed by a fix passes, because the final tree is what counts", () => {
+  const gates = new VerificationGateTracker();
+  gates.noteStart("a", { command: "go test ./..." });
+  gates.noteEnd("a", true);
+  assert.equal(gates.outcome(), "FAILED");
+
+  gates.noteStart("b", { command: "go test ./..." });
+  gates.noteEnd("b", false);
+  assert.equal(gates.outcome(), "PASSED");
+});
+
+test("reset clears the verdict of the previous run", () => {
+  const gates = new VerificationGateTracker();
+  gates.noteStart("a", { command: "npm test" });
+  gates.noteEnd("a", false);
+  gates.reset();
+  assert.equal(gates.outcome(), "NONE");
+  assert.equal(gates.passedGate(), undefined);
+});

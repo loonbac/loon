@@ -786,12 +786,24 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     // A verified outcome has to be admitted before the decision it belongs to is
     // cleared, and only for a route the host actually observed running.
     const settledDecision = adaptiveDecision;
-    const passedGate = gates.passedGate();
+    const gate = gates.outcome();
     runMetrics.noteSettled(event.aborted);
     // Wall-clock spans the whole unit, because that is the time the user waited.
     if (runStartedAt > 0) runMetrics.noteDuration(Date.now() - runStartedAt);
-    if (adaptivePrimaryApplied && adaptiveRouteObserved && settledDecision !== undefined && passedGate !== undefined) {
-      try { await recordVerifiedOutcome(settledDecision.decisionId, "native_gate", "SUCCESS", runMetrics.snapshot()); }
+    const settledMetrics = runMetrics.snapshot();
+    // The last gate describes the final tree: a pass only counts if nothing failed after
+    // it, so a unit that broke the tree on a later edit is not reported as verified.
+    //
+    // A failure is reported as a product failure, never as a model-capability failure. One
+    // failing suite is equally consistent with a broken tree the model never touched, and
+    // claiming a model *cannot* do this class of work is a much stronger statement than a
+    // single run supports. It is also withheld entirely when the run did not finish
+    // normally, because an errored or aborted run never gave the model a fair chance.
+    const disposition = gate === "PASSED" ? "SUCCESS"
+      : gate === "FAILED" && settledMetrics.complete ? "PRODUCT_FAILURE"
+      : undefined;
+    if (adaptivePrimaryApplied && adaptiveRouteObserved && settledDecision !== undefined && disposition !== undefined) {
+      try { await recordVerifiedOutcome(settledDecision.decisionId, "native_gate", disposition, settledMetrics); }
       catch { /* Evidence admission cannot block a valid user execution. */ }
     }
     gates.reset();

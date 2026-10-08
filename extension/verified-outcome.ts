@@ -10,13 +10,23 @@
  * out judging the model's own prose. A verification command that exits zero is
  * both: the host watched a gate pass on the tree the model produced.
  *
- * Attribution is deliberately narrow. Only a *passing* gate is reported. A failing
- * gate is ambiguous — it can be a pre-existing failure, a flaky test, or the
- * model's fault — and the router has no baseline to tell them apart, so admitting
- * it would poison the evidence it is meant to build. The consequence is that
- * admitted outcomes are success-only, which is a known bias in the reliability
- * ratio and the reason this module reports no failures at all rather than
- * guessing which ones belong to the model.
+ * Attribution is deliberately narrow, and it distinguishes two failures that used to be
+ * treated as one.
+ *
+ * Whether the work landed is decided by the last gate that ended, because that is the one
+ * that describes the final tree: a run that passes its tests and then breaks something on
+ * the next edit ends unverified even though a gate did pass earlier. So a pass only counts
+ * if nothing failed after it.
+ *
+ * Whether the failure belongs to the model is a separate question, and the honest answer
+ * is narrower than "the gate failed". A failing gate can be a pre-existing failure, a
+ * flaky suite or the model's fault, and the host has no baseline to tell them apart. Two
+ * conditions make it attributable anyway: the run has to have finished normally — no
+ * errored turn, no abort — so the model had a fair chance; and the failures are reported
+ * as product failures, never as model-capability failures. A single failing suite is
+ * equally consistent with a broken tree the model never touched, and asserting that a
+ * model *cannot* do this class of work is a much stronger claim than the evidence
+ * supports. Capability is left to accumulate across fingerprints, not decided by one run.
  */
 
 /**
@@ -84,13 +94,15 @@ export function toolCommand(args: unknown): string | undefined {
  * tool call id: many runs execute a gate that fails first and passes after the
  * model fixes it, and the last outcome is the one that describes the final tree.
  */
+export type GateOutcome = "PASSED" | "FAILED" | "NONE";
+
 export class VerificationGateTracker {
 	#pending = new Map<string, string>();
-	#passed: string | undefined;
+	#last: { command: string; passed: boolean } | undefined;
 
 	reset(): void {
 		this.#pending.clear();
-		this.#passed = undefined;
+		this.#last = undefined;
 	}
 
 	/** Record a started tool call when it looks like a verification command. */
@@ -100,16 +112,30 @@ export class VerificationGateTracker {
 		this.#pending.set(toolCallId, command);
 	}
 
-	/** Record the completion of a tracked tool call. Failing gates record nothing. */
+	/**
+	 * Record the completion of a tracked tool call.
+	 *
+	 * A failure is stored, not discarded: it has to be able to supersede an earlier pass,
+	 * or a unit that broke the tree after a green run would still read as verified.
+	 */
 	noteEnd(toolCallId: string, isError: boolean): void {
 		const command = this.#pending.get(toolCallId);
 		if (command === undefined) return;
 		this.#pending.delete(toolCallId);
-		if (!isError) this.#passed = command;
+		this.#last = { command, passed: !isError };
 	}
 
-	/** The verification command that last passed during this run, if any. */
+	/**
+	 * What the final tree's verification says: the last gate to end decides, and a run
+	 * where no gate ended has no verdict rather than a passing one.
+	 */
+	outcome(): GateOutcome {
+		if (this.#last === undefined) return "NONE";
+		return this.#last.passed ? "PASSED" : "FAILED";
+	}
+
+	/** The verification command the final tree passed, when it did. */
 	passedGate(): string | undefined {
-		return this.#passed;
+		return this.#last?.passed === true ? this.#last.command : undefined;
 	}
 }

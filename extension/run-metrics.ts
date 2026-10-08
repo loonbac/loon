@@ -32,14 +32,24 @@ export interface RunMetrics {
   toolCalls: number;
   /** Time spent inside tools, summed. Reported separately from model latency. */
   toolDurationMs: number;
-  /** True when every assistant turn completed, so the figures describe a finished unit. */
+  /** Tool calls that ended in error, counted whether or not they were verification. */
+  failedTools: number;
+  /**
+   * True when the run finished normally: no turn errored or aborted and the run itself was
+   * not aborted. It says the figures cover a finished run, not that the work succeeded.
+   *
+   * A failing tool does not clear it. A verification command that fails is the evidence a
+   * failure outcome is built from, so treating it as a defective measurement would make
+   * the failure impossible to record — which is exactly the trap this field used to set.
+   */
   complete: boolean;
 }
 
 export function emptyRunMetrics(): RunMetrics {
   return {
     steps: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
-    totalTokens: 0, costUsd: 0, durationMs: 0, toolCalls: 0, toolDurationMs: 0, complete: true,
+    totalTokens: 0, costUsd: 0, durationMs: 0, toolCalls: 0, toolDurationMs: 0,
+    failedTools: 0, complete: true,
   };
 }
 
@@ -78,7 +88,10 @@ export class RunMetricsTracker {
   noteToolEnd(durationMs: unknown, isError: unknown): void {
     this.#metrics.toolCalls += 1;
     this.#metrics.toolDurationMs += finite(durationMs);
-    if (isError === true) this.#metrics.complete = false;
+    // Counted, never fatal: a failing verification command is evidence about the work, and
+    // a failing edit is a mistake worth knowing about, but neither makes the measurement
+    // describe something other than a finished run.
+    if (isError === true) this.#metrics.failedTools += 1;
   }
 
   noteSettled(aborted: unknown): void {
