@@ -82,7 +82,13 @@ function runtimeModels(ctx: ExtensionContext): Array<Record<string, unknown>> {
     const candidate = model as unknown as Record<string, unknown>;
     const map = candidate.thinkingLevelMap && typeof candidate.thinkingLevelMap === "object" ? candidate.thinkingLevelMap as Record<string, unknown> : {};
     const efforts = Object.entries(map).filter(([key, value]) => ["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(key) && typeof value === "string").map(([key]) => key);
-    return { provider: model.provider, id: model.id, name: model.name, contextWindow: model.contextWindow,
+    // `model` is the field the router reads to know which deployments are reachable: every
+    // candidate row is filtered by `availableModels.some((m) => m.provider === route.provider
+    // && m.model === route.model)`, so sending only `id` made every row look unavailable and the
+    // pool empty — every decision since 2026-10-08 was a static assignment with "no eligible,
+    // runtime-available, quota-safe candidate", which is also why no observation, and therefore
+    // no evidence, was ever recorded again. `id` stays because the onboarding shape uses it.
+    return { provider: model.provider, model: model.id, id: model.id, name: model.name, contextWindow: model.contextWindow,
       reasoning: model.reasoning, input: model.input,
       ...(Array.isArray(candidate.supportedEfforts) ? { supportedEfforts: candidate.supportedEfforts } : efforts.length ? { supportedEfforts: efforts } : {}),
       ...(typeof candidate.supportsTools === "boolean" ? { supportsTools: candidate.supportsTools } : {}),
