@@ -32,7 +32,30 @@ export interface AdaptiveDecision {
 
 interface RouterResponse { ok: boolean; decision?: AdaptiveDecision; error?: string; [key: string]: unknown }
 
-export const ADAPTIVE_ROUTER_TIMEOUT_MS = 10_000;
+/**
+ * How long one routing decision may take.
+ *
+ * The engine answers in milliseconds, except when it asks Jev: a live SystemOne question has been
+ * measured at 12.7 s, which is longer than the ten seconds this used to allow. A bound shorter
+ * than the work it bounds does not make the work faster, it makes the decision disappear — the
+ * child is killed, the router records a failure, and three in a row open the breaker and send
+ * everything static. Raised to 30 s, and overridable with NATURAL_ROUTER_TIMEOUT_MS.
+ */
+function envTimeoutMs(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+export const ADAPTIVE_ROUTER_TIMEOUT_MS = envTimeoutMs("NATURAL_ROUTER_TIMEOUT_MS", 30_000);
+/**
+ * What the engine may spend on Jev inside one decision.
+ *
+ * The engine cannot see this process's bound, so the bound is what has to tell it: an inner
+ * budget larger than the outer one never fires, and the decision gets killed instead of
+ * degraded. Five seconds are left for the rest of the decision.
+ */
+export const ADAPTIVE_JEV_BUDGET_MS = Math.max(1_000, ADAPTIVE_ROUTER_TIMEOUT_MS - 5_000);
 export const ADAPTIVE_STATUS_KEY = "loon-natural-adaptive-route";
 
 function projectRoot(): string {
@@ -70,7 +93,12 @@ function runtimeModels(ctx: ExtensionContext): Array<Record<string, unknown>> {
 export async function callNaturalRouter(payload: unknown, timeoutMs = ADAPTIVE_ROUTER_TIMEOUT_MS): Promise<RouterResponse> {
   if (!existsSync(entryPoint())) throw new Error(`adaptive router build missing: ${entryPoint()}`);
   return await new Promise<RouterResponse>((resolvePromise, reject) => {
-    const child = spawn(process.execPath, [entryPoint()], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, NATURAL_ROUTER_ROOT: projectRoot() } });
+    const child = spawn(process.execPath, [entryPoint()], { stdio: ["pipe", "pipe", "pipe"], env: {
+      ...process.env, NATURAL_ROUTER_ROOT: projectRoot(),
+      // An explicit operator value wins; otherwise the hook declares the Jev budget it can afford,
+      // so the engine's retries stay inside this process's own bound.
+      ...(process.env.JEV_TOTAL_BUDGET_MS?.trim() ? {} : { JEV_TOTAL_BUDGET_MS: String(ADAPTIVE_JEV_BUDGET_MS) }),
+    } });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error(`adaptive router exceeded ${timeoutMs}ms`)); }, timeoutMs);
