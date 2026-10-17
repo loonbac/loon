@@ -110,6 +110,17 @@ const STATE_VERSION = 2;
 const DEFAULT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const RESET_BUFFER_MS = 2 * 60 * 1000;
 const STATUS_KEY = "antigravity-quota-fallback";
+
+/**
+ * Maximum number of adaptive router re-asks allowed per work unit.
+ *
+ * The router catalog typically contains at most 3–5 viable models for any
+ * given agent role, and the router excludes previously failed routes passed in
+ * `excludeRoutes`. A cap of 5 re-asks allows the router to walk its full list
+ * of candidate routes if each fails in turn, while providing a definitive
+ * circuit breaker against pathological infinite re-ask loops.
+ */
+export const MAX_ADAPTIVE_REASK_ATTEMPTS = 5;
 // Gentle's parent process cannot observe a child-side pi.setModel() through
 // the RPC session stream. This private status event reports the selected route
 // immediately, before the provider starts returning assistant tokens.
@@ -473,6 +484,7 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
   // Routes already tried for the current work unit. The dynamic fallback hands
   // these to the router so it can choose the next best one itself.
   const failedRoutes: Array<{ provider: string; model: string }> = [];
+  let adaptiveReaskAttempts = 0;
   const gates = new VerificationGateTracker();
   // What the current work unit costs. Reset per run, like the gate tracker: one unit's
   // cost is not evidence about the next one.
@@ -548,7 +560,7 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
       // failed for this work unit. It knows quota, cost, language and local
       // evidence; the static chain below knows none of that and stays only as the
       // safety net for when the router cannot answer at all.
-      if (gentleAgentName.length > 0 && lastPrompt.length > 0) {
+      if (gentleAgentName && gentleAgentName.length > 0 && lastPrompt.length > 0) {
         try {
           const decision = await resolveAdaptivePrimary(pi, ctx, gentleAgentName, lastPrompt, failedRoutes);
           const route = validAdaptiveDecision(decision, gentleAgentName) ? decision.requestedAdaptiveRoute : undefined;
@@ -611,6 +623,8 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     adaptiveDecision = undefined;
     adaptivePrimaryApplied = false;
     adaptiveRouteObserved = false;
+    failedRoutes.length = 0;
+    adaptiveReaskAttempts = 0;
     showState(ctx);
     if (gentleAgentName) void callNaturalRouter({ action: "quota", force: false }, 15_000).catch(() => undefined);
   });
@@ -626,6 +640,7 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     runStartedAt = Date.now();
     lastPrompt = event.prompt;
     failedRoutes.length = 0;
+    adaptiveReaskAttempts = 0;
     // The editor writes atomically, so an already-running child can adopt a
     // newly saved chain on its next request without polling or a process restart.
     fallbackChain = fallbackChainForAgent(gentleAgentName);
@@ -739,12 +754,24 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
       activated = await activateFallback(ctx, 0);
     } else if (
       adaptivePrimaryApplied &&
-      adaptiveDecision?.requestedAdaptiveRoute &&
-      message.provider === adaptiveDecision.requestedAdaptiveRoute.provider &&
-      message.model === adaptiveDecision.requestedAdaptiveRoute.model &&
+      activeRoute &&
+      message.provider === activeRoute.provider &&
+      message.model === activeRoute.model &&
       originalModel
     ) {
-      reason = `Adaptive primary ${message.provider}/${message.model} falló`;
+      if (adaptiveReaskAttempts >= MAX_ADAPTIVE_REASK_ATTEMPTS) {
+        ctx.ui.notify(
+          `Adaptive fallback alcanzó el límite de intentos (${MAX_ADAPTIVE_REASK_ATTEMPTS}); no se intentarán más rutas.`,
+          "warning",
+        );
+        return;
+      }
+      adaptiveReaskAttempts += 1;
+      const isPrimary = message.provider === adaptiveDecision?.requestedAdaptiveRoute?.provider &&
+        message.model === adaptiveDecision?.requestedAdaptiveRoute?.model;
+      reason = isPrimary
+        ? `Adaptive primary ${message.provider}/${message.model} falló`
+        : `Adaptive route ${message.provider}/${message.model} falló`;
       activated = await activateFallback(ctx, 0);
     } else {
       const failedIndex = fallbackIndex(message.provider, message.model, fallbackChain);
@@ -837,6 +864,8 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     adaptiveDecision = undefined;
     adaptivePrimaryApplied = false;
     adaptiveRouteObserved = false;
+    failedRoutes.length = 0;
+    adaptiveReaskAttempts = 0;
     showState(ctx);
     ctx.ui.setStatus("loon-natural-adaptive-route", undefined);
   });
