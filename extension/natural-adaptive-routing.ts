@@ -64,7 +64,7 @@ function projectRoot(): string {
 
 function entryPoint(): string { return join(projectRoot(), "dist", "src", "host", "entry.js"); }
 let activeCatalogCache: { path: string; mtimeNs: bigint; ids: Set<string> } | undefined;
-function onboardedRouteAllowed(provider: string, model: string): boolean {
+export function onboardedRouteAllowed(provider: string, model: string): boolean {
   try {
     const stateDir = process.env.NATURAL_ROUTER_STATE_DIR?.trim() || join(homedir(), ".pi", "agent", "state", "natural-adaptive-routing");
     const path = join(stateDir, "model-catalog.json");

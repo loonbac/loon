@@ -19,7 +19,7 @@ interface TestHarness {
   cleanup: () => void;
 }
 
-function createHarness(options: { agent?: string } = {}): TestHarness {
+function createHarness(options: { agent?: string; routerFails?: boolean } = {}): TestHarness {
   const directory = mkdtempSync(join(tmpdir(), "quota-fallback-test-"));
   const routerLog = join(directory, "router-log.jsonl");
 
@@ -51,6 +51,10 @@ process.stdin.on("end", () => {
     }
 
     if (payload.action === "route") {
+      if (process.env.TEST_ROUTER_FAIL === "1") {
+        process.stdout.write(JSON.stringify({ ok: false, error: "router unavailable" }) + "\\n");
+        process.exit(1);
+      }
       const candidates = [
         { provider: "test-prov", model: "route-1" },
         { provider: "test-prov", model: "route-2" },
@@ -134,6 +138,7 @@ process.stdin.on("end", () => {
   process.env.PI_CODING_AGENT_DIR = directory;
   process.env.GENTLE_PI_CONFIG_HOME = directory;
   process.env.TEST_ROUTER_LOG = routerLog;
+  if (options.routerFails) process.env.TEST_ROUTER_FAIL = "1";
 
   const agentName = options.agent ?? "test-agent";
   if (options.agent !== undefined || options.agent === undefined) {
@@ -242,7 +247,16 @@ process.stdin.on("end", () => {
     rmSync(directory, { recursive: true, force: true });
   };
 
-  return { directory, pi, ctx, emit, sentMessages, notifications, getRouterRequests, cleanup };
+  return {
+    directory, pi, ctx, emit, sentMessages, notifications, getRouterRequests, cleanup,
+    // Overrides the chain the extension reads from the fallback config, so a test can reproduce a
+    // machine with no configured chain at all. `GENTLE_FALLBACK_CONFIG` is the documented override.
+    setFallbackChain: (routes: Array<{ provider: string; model: string }>) => {
+      const path = join(directory, "gentle-fallbacks.json");
+      writeFileSync(path, JSON.stringify({ fallbacks: routes }));
+      process.env.GENTLE_FALLBACK_CONFIG = path;
+    },
+  };
 }
 
 test("(a) an applied adaptive route fails: assert router is asked again with failed route in excludeRoutes and different route is applied", async () => {
@@ -432,5 +446,53 @@ test("(d) non-adaptive run takes static chain unchanged, and antigravity-quota b
     assert.equal(nonAdaptiveHarness.ctx.model.id, "inclusionai/ling-3.1-flash:free");
   } finally {
     nonAdaptiveHarness.cleanup();
+  }
+});
+
+test("(e) the router cannot answer: the work unit is carried on with another approved model, never cancelled", async () => {
+  const harness = createHarness({ routerFails: true });
+  try {
+    await antigravityQuotaFallback(harness.pi);
+
+    // No adaptive primary: the router is down, so the run starts on the static assignment.
+    await harness.emit("before_agent_start", { prompt: "Solve the task", systemPrompt: "Base prompt" });
+    // No fallback chain was configured either, which is this machine's real state:
+    // `gentle-fallbacks.json` is {"fallbacks": []}. The chain is otherwise read from disk.
+    (harness as any).setFallbackChain([]);
+    const startedOn = harness.ctx.model.id;
+
+    // The route that is running fails, and the router has nothing to say about it.
+    await harness.emit("message_end", {
+      message: {
+        role: "assistant",
+        provider: "test-prov",
+        model: startedOn,
+        stopReason: "error",
+        errorMessage: "Execution failed",
+      },
+    });
+
+    // Before this test the work unit simply stopped here: the dynamic path threw, the static
+    // chain is empty on this machine (`gentle-fallbacks.json` is {"fallbacks": []}), the handler
+    // returned without a switch and without a message, and the user had to retype the request.
+    assert.notEqual(harness.ctx.model.id, startedOn, "the work unit was cancelled instead of moved to another model");
+    assert.ok(
+      harness.notifications.some((n) => /no queda ningún modelo|falló|contin/i.test(n.message)),
+      "the user was never told that the route failed and that another one was tried",
+    );
+    assert.ok(harness.sentMessages.length >= 1, "no follow-up turn was queued, so the request was dropped");
+
+    // What it moved to must be a model the catalogue approves, not an arbitrary one. The order
+    // follows the runtime's own list, so the assertion is the rule, not a particular model.
+    const moved = harness.ctx.model;
+    assert.notEqual(`${moved.provider}/${moved.id}`, `${"test-prov"}/${startedOn}`);
+    const approved = JSON.parse(readFileSync(join(harness.directory, "model-catalog.json"), "utf8"));
+    assert.ok(
+      approved.models[`${moved.provider}/${moved.id}`] !== undefined,
+      `moved to ${moved.provider}/${moved.id}, which the catalogue does not approve`,
+    );
+  } finally {
+    delete process.env.TEST_ROUTER_FAIL;
+    harness.cleanup();
   }
 });

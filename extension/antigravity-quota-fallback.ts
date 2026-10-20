@@ -16,6 +16,7 @@ import {
   adaptiveRecoveryRouteAllowed,
   legacyFallbackMayPreempt,
   prepareAdaptiveApplication,
+  onboardedRouteAllowed,
   recordAdaptiveFailure,
   recordAdaptiveInvariant,
   recordObservedRoute,
@@ -542,6 +543,36 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     }
   };
 
+  /**
+   * Last resort when the router cannot answer and the static chain is empty.
+   *
+   * The chain is built from `~/.pi/agent/gentle-fallbacks.json`, which is `{"fallbacks": []}` on
+   * this machine, so there is nothing to walk. When the router also fails — unavailable, or it
+   * answers with a route the host refuses — `activateFallback` returns undefined, the handler
+   * returns, and the work unit stops: no switch, no follow-up turn, and the user has to retype
+   * the request. That is the "se cancela" this answers.
+   *
+   * The candidates come from the runtime and the catalogue, which is the same authority the
+   * adaptive path uses, so nothing here invents a route: a model is eligible only if the runtime
+   * reports it and the catalogue approves it. Routes already failed for this work unit are
+   * skipped, and so are antigravity providers under a recorded cooldown, so this cannot bounce
+   * back to the route that just failed.
+   */
+  const lastResortRoute = (ctx: ExtensionContext): { provider: string; model: string } | undefined => {
+    const cooldownState = readState();
+    const failed = new Set(failedRoutes.map((route) => `${route.provider}/${route.model}`));
+    const current = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+    for (const model of ctx.modelRegistry.getAvailable()) {
+      const key = `${model.provider}/${model.id}`;
+      if (key === current || failed.has(key)) continue;
+      if (ANTIGRAVITY_PROVIDERS.includes(model.provider as AntigravityProvider)
+        && cooldownState?.providers[model.provider as AntigravityProvider]) continue;
+      if (!onboardedRouteAllowed(model.provider, model.id)) continue;
+      return { provider: model.provider, model: model.id };
+    }
+    return undefined;
+  };
+
   const activateFallback = async (
     ctx: ExtensionContext,
     startIndex: number,
@@ -606,6 +637,16 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
         );
       }
 
+      // The chain is empty and the router had nothing usable. Try one model the runtime reports
+      // and the catalogue approves before giving up, so a failed route does not end the work unit.
+      const lastResort = lastResortRoute(ctx);
+      const candidate = lastResort === undefined ? undefined : ctx.modelRegistry.find(lastResort.provider, lastResort.model);
+      if (candidate !== undefined && (await pi.setModel(candidate))) {
+        activeFallbackIndex = undefined;
+        activeRoute = { provider: lastResort!.provider, model: lastResort!.model, label: "Último recurso" };
+        reportEffectiveRoute(ctx, activeRoute);
+        return activeRoute;
+      }
       ctx.ui.notify("No queda ningún modelo disponible en la cadena de fallback.", "error");
       return undefined;
     } finally {
@@ -775,16 +816,27 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
       activated = await activateFallback(ctx, 0);
     } else {
       const failedIndex = fallbackIndex(message.provider, message.model, fallbackChain);
-      if (
-        failedIndex < 0 ||
+      if (failedIndex < 0) {
+        // The failed route is not part of the static chain, so walking the chain from it means
+        // nothing. This is where a Gentle run used to stop: the chain is built from
+        // `~/.pi/agent/gentle-fallbacks.json`, which is {"fallbacks": []} on this machine, so
+        // `failedIndex` is -1, the handler returned here, and the work unit ended with no switch
+        // and no follow-up turn. Ask the router, and if it cannot answer take another approved
+        // model instead of cancelling. Bounded to Gentle agent runs, so a plain Pi session that
+        // merely shares this extension is not moved to a different model underneath the user.
+        if (!gentleAgentName || switchInProgress) return;
+        reason = `${message.provider}/${message.model} falló`;
+        activated = await activateFallback(ctx, 0);
+      } else if (
         activeFallbackIndex !== failedIndex ||
         !originalModel ||
         failedIndex + 1 >= fallbackChain.length
       ) {
         return;
+      } else {
+        reason = `${routeLabel(fallbackChain[failedIndex])} falló`;
+        activated = await activateFallback(ctx, failedIndex + 1);
       }
-      reason = `${routeLabel(fallbackChain[failedIndex])} falló`;
-      activated = await activateFallback(ctx, failedIndex + 1);
     }
 
     if (!activated) return;
