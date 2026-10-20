@@ -154,3 +154,23 @@ test("reset clears the verdict of the previous run", () => {
   assert.equal(gates.outcome(), "NONE");
   assert.equal(gates.passedGate(), undefined);
 });
+
+test("common project gates are recognised, so a verified run is not thrown away", () => {
+	// Every one of these is a real gate that exits non-zero on a broken tree. A command that is
+	// not recognised produces no verifiedOutcome, and an observation without one is recorded but
+	// cannot be admitted as evidence — which is how 80 of 87 live observations ended up discarded.
+	for (const command of [
+		"node --test extension/*.test.ts",
+		"python3 -m pytest -q",
+		"npm run test",
+		"npx tsc --noEmit",
+		"uv run pytest",
+		"cargo test --workspace",
+	]) {
+		assert.equal(isVerificationCommand(command), true, `not recognised as a gate: ${command}`);
+	}
+	// And these must stay out: they exit zero for reasons unrelated to the work.
+	for (const command of ["ls", "git status", "cat README.md", "npm install"]) {
+		assert.equal(isVerificationCommand(command), false, `wrongly treated as a gate: ${command}`);
+	}
+});

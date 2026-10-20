@@ -56,6 +56,14 @@ const VERIFICATION_PATTERNS: readonly RegExp[] = [
 	/\bruff\s+check\b/u,
 	/\bshellcheck\b/u,
 	/\bnix\s+(?:build|flake\s+check)\b/u,
+	// `node --test` is how this repository and the router next to it run their own suites, and
+	// `python -m pytest` is the same idea for a Python project. Both exit non-zero on a broken
+	// tree, so both are gates. Without them a run that verified itself correctly produced no
+	// verifiedOutcome, and the observation was recorded but could not be admitted as evidence.
+	/\bnode\s+(?:--test|--experimental-test)\b/u,
+	/\bpython[\d.]*\s+-m\s+pytest\b/u,
+	/\buv\s+run\s+pytest\b/u,
+	/\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test(?::[\w:-]+)?\b/u,
 ];
 
 /**
