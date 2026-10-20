@@ -251,6 +251,10 @@ process.stdin.on("end", () => {
     directory, pi, ctx, emit, sentMessages, notifications, getRouterRequests, cleanup,
     // Overrides the chain the extension reads from the fallback config, so a test can reproduce a
     // machine with no configured chain at all. `GENTLE_FALLBACK_CONFIG` is the documented override.
+    setModel: (provider: string, id: string) => {
+      const found = availableModels.find((m) => m.provider === provider && m.id === id);
+      if (found) currentModel = found;
+    },
     setFallbackChain: (routes: Array<{ provider: string; model: string }>) => {
       const path = join(directory, "gentle-fallbacks.json");
       writeFileSync(path, JSON.stringify({ fallbacks: routes }));
@@ -493,6 +497,32 @@ test("(e) the router cannot answer: the work unit is carried on with another app
     );
   } finally {
     delete process.env.TEST_ROUTER_FAIL;
+    harness.cleanup();
+  }
+});
+
+test("(f) a settled work unit does not throw away the route the router chose", async () => {
+  const harness = createHarness();
+  try {
+    await antigravityQuotaFallback(harness.pi);
+    // The unit starts on the model that was already selected before the router spoke.
+    (harness as any).setModel("antigravity", "claude-sonnet-5-5");
+    await harness.emit("before_agent_start", { prompt: "Solve the task", systemPrompt: "Base prompt" });
+    const routed = harness.ctx.model.id;
+    assert.equal(routed, "route-1", "the router should have moved the unit off the pre-router model");
+
+    // The unit finishes normally. `agent_settled` used to restore the model that was running before
+    // the router chose anything, so the next unit started from the static assignment again and the
+    // router had to re-decide from scratch — which is how a worker moved to deepseek came back as
+    // gemini on the orchestrator's next launch.
+    await harness.emit("agent_settled", { aborted: false });
+
+    assert.equal(
+      harness.ctx.model.id,
+      routed,
+      "settling the unit put the model back to the pre-router one, so the next unit re-decides from scratch",
+    );
+  } finally {
     harness.cleanup();
   }
 });

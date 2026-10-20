@@ -899,15 +899,18 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     gates.reset();
     runMetrics.reset();
     runStartedAt = 0;
-    if (
-      activeRoute &&
-      originalModel &&
-      ctx.model?.provider === activeRoute.provider &&
-      ctx.model.id === activeRoute.model
-    ) {
-      await pi.setModel(originalModel);
-      if (originalThinkingLevel) pi.setThinkingLevel(originalThinkingLevel);
-    }
+    // The route the router chose outlives the unit that ran on it.
+    //
+    // This used to restore `originalModel` — the model that was running before the router spoke —
+    // every time a unit settled. So a worker the router had moved to deepseek came back as the
+    // static route on the next launch, and the router had to re-decide from scratch: measured on a
+    // real session, the worker sat on `infronai/deepseek-v4.1-flash` from 05:23 until 06:03 and
+    // then jumped to `antigravity/gemini-3.8-flash` the moment it settled.
+    //
+    // Keeping the route is what makes a fallback a fallback rather than a one-unit detour. The
+    // original is still restored on the paths that must: a router failure that never applied a
+    // route, and `session_start`, where a new session legitimately begins from the static
+    // assignment. Nothing here changes which model was chosen — only that the choice survives.
     originalModel = undefined;
     originalThinkingLevel = undefined;
     activeFallbackIndex = undefined;
