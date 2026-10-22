@@ -19,7 +19,7 @@ interface TestHarness {
   cleanup: () => void;
 }
 
-function createHarness(options: { agent?: string; routerFails?: boolean } = {}): TestHarness {
+function createHarness(options: { agent?: string; routerFails?: boolean; observeFails?: boolean } = {}): TestHarness {
   const directory = mkdtempSync(join(tmpdir(), "quota-fallback-test-"));
   const routerLog = join(directory, "router-log.jsonl");
 
@@ -43,6 +43,11 @@ process.stdin.on("end", () => {
     const logFile = process.env.TEST_ROUTER_LOG;
     if (logFile) {
       fs.appendFileSync(logFile, JSON.stringify(payload) + "\\n");
+    }
+
+    if (payload.action === "observe" && process.env.TEST_ROUTER_OBSERVE_FAIL === "1") {
+      process.stdout.write(JSON.stringify({ ok: false, error: "observation ledger unavailable" }) + "\\n");
+      process.exit(1);
     }
 
     if (payload.action === "quota" || payload.action === "observe") {
@@ -139,6 +144,7 @@ process.stdin.on("end", () => {
   process.env.GENTLE_PI_CONFIG_HOME = directory;
   process.env.TEST_ROUTER_LOG = routerLog;
   if (options.routerFails) process.env.TEST_ROUTER_FAIL = "1";
+  if (options.observeFails) process.env.TEST_ROUTER_OBSERVE_FAIL = "1";
 
   const agentName = options.agent ?? "test-agent";
   if (options.agent !== undefined || options.agent === undefined) {
@@ -521,6 +527,71 @@ test("(f) a settled work unit does not throw away the route the router chose", a
       harness.ctx.model.id,
       routed,
       "settling the unit put the model back to the pre-router one, so the next unit re-decides from scratch",
+    );
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("a route that never produced an assistant message is still observed", async () => {
+  const harness = createHarness();
+  try {
+    await antigravityQuotaFallback(harness.pi);
+    await harness.emit("before_agent_start", { prompt: "Solve the task", systemPrompt: "Base prompt" });
+    assert.equal(harness.ctx.model.id, "route-1");
+
+    // The run dies before its first assistant message: no `message_end` at all.
+    await harness.emit("agent_settled", { aborted: true });
+
+    const requests = harness.getRouterRequests();
+    const observations = requests.filter((r) => r.action === "observe");
+    assert.equal(observations.length, 1, "the applied route was launched but never observed");
+    const [observation] = observations;
+    assert.equal(observation.decisionId, "dec-test-prov-route-1");
+    assert.equal(observation.requested.provider, "test-prov");
+    assert.equal(observation.requested.model, "route-1");
+    assert.equal(observation.observed.provider, "test-prov");
+    assert.equal(observation.observed.model, "route-1");
+    assert.equal(observation.observed.requestedEffort, "high");
+    // Recording the observation must not ask the router to decide again.
+    assert.equal(requests.filter((r) => r.action === "route").length, 1, "settling issued a duplicate route request");
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("a failed observation is recorded instead of swallowed", async () => {
+  const harness = createHarness({ observeFails: true });
+  try {
+    await antigravityQuotaFallback(harness.pi);
+    await harness.emit("before_agent_start", { prompt: "Solve the task", systemPrompt: "Base prompt" });
+    assert.equal(harness.ctx.model.id, "route-1");
+
+    // The run settles normally even though the router rejects the observation.
+    await harness.emit("agent_settled", { aborted: true });
+
+    assert.equal(harness.getRouterRequests().filter((r) => r.action === "observe").length, 1);
+    const lines = readFileSync(join(harness.directory, "observation-failures.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    assert.equal(lines.length, 1, "expected exactly one recorded observation failure");
+    const entry = JSON.parse(lines[0]!);
+    assert.equal(entry.decisionId, "dec-test-prov-route-1");
+    assert.equal(entry.observed.provider, "test-prov");
+    assert.equal(entry.observed.model, "route-1");
+    assert.match(entry.error, /observation ledger unavailable/);
+    assert.ok(!Number.isNaN(Date.parse(entry.at)), "the failure record carries an ISO timestamp");
+    assert.equal(
+      harness.notifications.filter((n) => n.level === "warning" && /observ/i.test(n.message)).length,
+      1,
+      "the observation failure was not surfaced to the user once",
+    );
+    // An observation failure is not a routing failure: the circuit breaker must stay untouched.
+    assert.equal(
+      harness.getRouterRequests().filter((r) => r.action === "router-failure").length,
+      0,
+      "an observation failure was counted toward the router circuit breaker",
     );
   } finally {
     harness.cleanup();

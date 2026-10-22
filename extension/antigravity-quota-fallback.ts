@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -466,6 +466,46 @@ async function loadRetryableAssistantError(): Promise<
     TRANSIENT_PROVIDER_ERROR.test(message.errorMessage);
 }
 
+// Warn about a broken observation path once per process, not once per run: a broken ledger
+// fails every run the same way, and the local log already holds each failure.
+let observationFailureWarned = false;
+
+function observationFailuresPath(): string {
+  const stateDir = process.env.NATURAL_ROUTER_STATE_DIR?.trim()
+    || join(homedir(), ".pi", "agent", "state", "natural-adaptive-routing");
+  return join(stateDir, "observation-failures.jsonl");
+}
+
+/**
+ * Make a failed observation visible instead of indistinguishable from a run that produced no
+ * message. This is local evidence only: it never calls `recordAdaptiveFailure`, because an
+ * observation failure says nothing about the route and must not trip the router circuit breaker.
+ */
+function recordObservationFailure(
+  ctx: ExtensionContext,
+  decisionId: string,
+  observed: AdaptiveRoute,
+  error: unknown,
+): void {
+  const message = error instanceof Error ? error.message : String(error);
+  try {
+    const path = observationFailuresPath();
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, `${JSON.stringify({
+      decisionId,
+      observed,
+      error: message.slice(0, 240),
+      at: new Date().toISOString(),
+    })}\n`);
+  } catch { /* The failure log can never block a valid user execution. */ }
+  if (observationFailureWarned) return;
+  observationFailureWarned = true;
+  ctx.ui.notify(
+    `Adaptive router: no se pudo registrar la observación de ${decisionId} (${message.slice(0, 120)}). Detalle en ${observationFailuresPath()}.`,
+    "warning",
+  );
+}
+
 export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promise<void> {
   // Use Pi's own transient-error classifier so the extension does not enqueue
   // a second turn when Pi is already going to retry the failed request.
@@ -481,6 +521,9 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
   let adaptiveDecision: AdaptiveDecision | undefined;
   let adaptivePrimaryApplied = false;
   let adaptiveRouteObserved = false;
+  // The route the extension actually set for this work unit, captured at apply time because
+  // `activeRoute` is overwritten by fallbacks.
+  let appliedAdaptiveRoute: AdaptiveRoute | undefined;
   let lastPrompt = "";
   // Routes already tried for the current work unit. The dynamic fallback hands
   // these to the router so it can choose the next best one itself.
@@ -501,6 +544,22 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     gates.noteEnd(event.toolCallId, event.isError);
     runMetrics.noteToolEnd(event.durationMs, event.isError);
   });
+
+  // One path for every observation, so `message_end` and settle cannot record twice and a
+  // failure leaves the flag false for settle to try again.
+  const observeAppliedRoute = async (
+    decision: AdaptiveDecision,
+    observed: AdaptiveRoute,
+    ctx: ExtensionContext,
+  ): Promise<void> => {
+    if (adaptiveRouteObserved) return;
+    try {
+      await recordObservedRoute(decision, observed);
+      adaptiveRouteObserved = true;
+    } catch (error) {
+      recordObservationFailure(ctx, decision.decisionId, observed, error);
+    }
+  };
 
   const routeLabel = (route: FallbackRoute): string =>
     `${route.label}${route.thinking ? ` ${route.thinking}` : ""}`;
@@ -664,6 +723,7 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     adaptiveDecision = undefined;
     adaptivePrimaryApplied = false;
     adaptiveRouteObserved = false;
+    appliedAdaptiveRoute = undefined;
     failedRoutes.length = 0;
     adaptiveReaskAttempts = 0;
     showState(ctx);
@@ -703,6 +763,7 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
           if (!(await pi.setModel(selected))) throw new Error(`selected route authentication unavailable: ${requested.provider}/${requested.model}`);
           pi.setThinkingLevel(requested.requestedEffort);
           adaptivePrimaryApplied = true;
+          appliedAdaptiveRoute = { ...requested };
           activeRoute = {
             provider: requested.provider,
             model: requested.model,
@@ -759,7 +820,6 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     if (message.role !== "assistant") return;
 
     if (adaptivePrimaryApplied && adaptiveDecision?.requestedAdaptiveRoute && !adaptiveRouteObserved) {
-      adaptiveRouteObserved = true;
       const effort = pi.getThinkingLevel() as FallbackThinking;
       const observed: AdaptiveRoute = {
         provider: message.provider,
@@ -767,8 +827,7 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
         requestedEffort: effort,
         effectiveEffort: effort,
       };
-      try { await recordObservedRoute(adaptiveDecision, observed); }
-      catch { /* Observation failure cannot block a valid user execution. */ }
+      await observeAppliedRoute(adaptiveDecision, observed, ctx);
     }
 
     if (message.stopReason !== "error") return;
@@ -892,6 +951,19 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     const disposition = gate === "PASSED" ? "SUCCESS"
       : gate === "FAILED" && settledMetrics.complete ? "PRODUCT_FAILURE"
       : undefined;
+    // A run with no assistant message still ran the route, so record the route this extension
+    // applied. Once a fallback has taken the run over, the adaptive route did not complete, so
+    // recording it would be a lie. `message_end` records first when a message arrives, because
+    // its provider/model is the more accurate signal.
+    if (
+      adaptivePrimaryApplied
+      && !adaptiveRouteObserved
+      && appliedAdaptiveRoute !== undefined
+      && activeFallbackIndex === undefined
+      && settledDecision !== undefined
+    ) {
+      await observeAppliedRoute(settledDecision, appliedAdaptiveRoute, ctx);
+    }
     if (adaptivePrimaryApplied && adaptiveRouteObserved && settledDecision !== undefined && disposition !== undefined) {
       try { await recordVerifiedOutcome(settledDecision.decisionId, "native_gate", disposition, settledMetrics); }
       catch { /* Evidence admission cannot block a valid user execution. */ }
@@ -919,6 +991,7 @@ export default async function antigravityQuotaFallback(pi: ExtensionAPI): Promis
     adaptiveDecision = undefined;
     adaptivePrimaryApplied = false;
     adaptiveRouteObserved = false;
+    appliedAdaptiveRoute = undefined;
     failedRoutes.length = 0;
     adaptiveReaskAttempts = 0;
     showState(ctx);
