@@ -1,78 +1,84 @@
-# LOON: LOON Offers Only Nuanced-gentle
+# LOON-Pi
 
-LOON Offers Only Nuanced-gentle — Claude Code visual identity for [pi](https://pi.dev): curated dark ANSI theme, welcome banner, status line, and dynamic wallpaper accent sync.
+A pi package that gives the TUI a **theme-aware startup banner**: the
+pi-claude-code-tui look, painted entirely by the theme you already use.
+
+```
+╭─── LOON Pi v1.4.0 ───────────────────────────────────────────────────────────╮
+│                                                      │                       │
+│                                                      │ Getting started       │
+│                    █████████                         │ Ask Pi to build it    │
+│                    ███   ███                         │ ──────────────────────│
+│                    ██████   ███                      │ Commands              │
+│                    ███      ███                      │ loon:default          │
+│                                                      │ /model                │
+│             Let’s build something great              │ /theme                │
+│           gentle/gentleman · high effort             │ /compact              │
+│              ~/Proyectos/pi-loon/loon                │                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+## What it does
+
+- Replaces the startup header with an animated logo (22 frames, 120 ms), a
+  centered tagline, the model and effort line, the current directory and a tips
+  sidebar.
+- Resolves every colour from the active theme through one mapping
+  (`extensions/lib/palette.ts`): cyan -> `accent`, red -> `error`, green ->
+  `success`, orange and flash -> `warning`, white -> `text`, brand -> `accent`;
+  box and rules use `border`, `borderMuted`, text uses `accent`, `muted` and
+  `dim`. The banner emits no SGR colour of its own, so it reads correctly with
+  the three gentle-pi themes, with system/dark/light and with any user theme.
+- Installs after `session_start` on the next macrotask and re-asserts twice, so
+  it wins over another extension's startup header (gentle-pi paints its own).
+
+## Commands
+
+| Command | Effect |
+| --- | --- |
+| `/loon:look` | Reapply the LOON banner (refreshes model, effort, cwd and tips). |
+| `/loon:default` | Restore pi's own header, footer and spinner. |
 
 ## Install
 
-As a flake input — this is how `loon-flakes` consumes it:
+Load it straight from a checkout:
 
-```nix
-inputs.loon = {
-  url = "github:loonbac/loon";
-  inputs.nixpkgs.follows = "nixpkgs";
-};
-
-# then
-pkgs.callPackage loon.packages.${system}.default { }
+```sh
+pi -e /home/loonbac/Proyectos/pi-loon/loon
 ```
 
-Or from a local checkout, pointing pi at the working tree so edits take effect
-without a rebuild — add the checkout to the `packages` array in
-`~/.pi/agent/settings.json`:
+Or install it as a package and list it in `packages` in your pi settings:
 
-```json
-{ "packages": ["/home/you/Proyectos/better-claude-code-ui-loon"] }
+```sh
+pi install /home/loonbac/Proyectos/pi-loon/loon
 ```
 
-### Tests
+`package.json` declares one extension (`./extensions/loon-startup.ts`) and no
+themes, images or prompts.
 
-The pi core packages are peer dependencies, so the suite runs against a bare
-checkout with no install step:
+## Test
 
-```bash
-node --experimental-strip-types --test extension/*.test.ts
+```sh
+npm install   # dev dependencies for the tests and the type checker
+npm test      # node --experimental-strip-types --test
+npm run typecheck
 ```
 
-### Recommended setting
+The tests pin the palette mapping against a stub theme that only knows the roles
+the three gentle-pi themes define, a golden render of the banner at 80 columns,
+and the absence of raw colour escapes in every animation frame.
 
-This extension draws its own welcome banner, so pi's built-in startup header
-becomes redundant. Hide it in `~/.pi/agent/settings.json`:
+## What it does NOT do
 
-```json
-{ "quietStartup": true }
-```
+- **No own theme.** There is no `pi.themes` entry and no JSON theme in this
+  repository: LOON-Pi is an extension, and the colours come from whichever
+  theme is active.
+- No footer or spinner replacement of its own (the restore command clears them).
+- No working-message verbs, no keyboard overrides, no patches to pi internals.
+- No changes outside the header: your transcript, editor and tools stay standard.
 
-The full two-column banner (extensions + skills) appears the first time you
-open a given project, matching CC's `showOnboarding` behavior; later starts in
-that project use the condensed logo.
+## Licence
 
-## What you get
-
-**Theme**:
-
-- `loon` — single unified ANSI-16 theme synchronized with the active wallpaper accent color
-
-**UI modules**:
-
-- **Welcome banner** — CC's condensed logo on startup, boxed banner for new versions / first run in a project
-- **Status line** — model, cwd (with `~` shortening), git branch
-
-## Requirements
-
-Runs inside pi (`@earendil-works/pi-coding-agent`); pi core packages are peer dependencies provided by the host. Tested against pi 0.84.x.
-
-When a Claude Code theme is active, the extension also watches
-`~/.config/mpvpaper/accent.txt`. A valid `#RRGGBB` value updates the CC brand
-accent live; missing or incomplete values are ignored until the producer writes
-a complete value.
-
-## Attribution
-
-LOON is a derivative of [Demo-0416/my-pi-extensions](https://github.com/Demo-0416/my-pi-extensions)
-(MIT, Copyright (c) 2026 Demo-0416), which remains the origin of the CC-style
-rendering this package builds on. The `pi.image` / `pi.video` preview fields in
-`package.json` still point at the upstream cover assets.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+MIT. The logo animation and the box layout derive from
+[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui) (MIT);
+see `NOTICE` for the attribution and the upstream licence text.

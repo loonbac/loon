@@ -1,44 +1,49 @@
 {
-  "name": "loon",
-  "displayName": "LOON: LOON Offers Only Nuanced-gentle",
-  "version": "0.1.9",
-  "description": "LOON: LOON Offers Only Nuanced-gentle",
+  "name": "loon-pi",
+  "version": "0.1.0",
+  "description": "A pi package that gives the TUI a theme-aware startup banner: the pi-claude-code-tui look, painted entirely by the active theme.",
+  "type": "module",
   "keywords": [
     "pi-package",
-    "pi-extension",
-    "loon",
-    "claude-code",
-    "theme",
-    "tui"
+    "pi",
+    "tui",
+    "startup",
+    "banner",
+    "theme"
   ],
   "license": "MIT",
+  "author": "Joshua Rosales",
+  "homepage": "https://github.com/loonbac/loon#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/loonbac/loon"
+    "url": "git+https://github.com/loonbac/loon.git"
+  },
+  "bugs": {
+    "url": "https://github.com/loonbac/loon/issues"
   },
   "files": [
-    "extension",
-    "theme",
+    "extensions",
+    "NOTICE",
     "README.md",
     "LICENSE"
   ],
-  "dependencies": {
-    "@shikijs/cli": "^4.0.2",
-    "diff": "^9.0.0"
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/loon-startup.ts"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
   },
-  "pi": {
-    "extensions": [
-      "./extension/index.ts"
-    ],
-    "themes": [
-      "./theme"
-    ],
-    "video": "https://cdn.jsdelivr.net/gh/Demo-0416/my-pi-extensions@23ec214394e7afcc87251d3a38c29057a269ae06/better-claude-code-ui/media/cover.mp4",
-    "image": "https://raw.githubusercontent.com/Demo-0416/my-pi-extensions/master/better-claude-code-ui/media/cover.png"
-  },
-  "type": "module"
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-tui": "^1.4.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.0.0"
+  }
 }

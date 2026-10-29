@@ -1,0 +1,47 @@
+LOON-Pi
+Copyright (c) 2026 Joshua Rosales
+
+This package is a port of the startup banner shipped by pi-claude-code-tui
+(https://github.com/Phoobobo/pi-claude-code-tui), Copyright (c) 2026 Phoobobo,
+licensed under the MIT License.
+
+Derived material:
+
+- The 22-frame logo animation built from "███" cells, its frame table, the
+  cell-coordinate helpers and the per-cell colour rules come from
+  extensions/claude-code-startup.ts of pi-claude-code-tui.
+- The box layout (border line, boxed rows, two-column body), the sidebar tips
+  and the width helpers (center, padRight, headerColumnWidths, formatCwd,
+  formatModelLabel, pickSlashCommandTips, collectPiCommandNames) come from
+  that project’s extensions/render-utils.ts.
+
+LOON changes: every colour is resolved from the active pi theme through
+extensions/lib/palette.ts, so the banner never emits a raw SGR colour code;
+the commands are loon:look and loon:default; the working-verb override was
+dropped, so the only feature is the startup banner.
+
+The upstream MIT license follows verbatim.
+
+---
+
+MIT License
+
+Copyright (c) 2026 Phoobobo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
