@@ -338,7 +338,7 @@ function describe(state: LoonState, wallpaper: Rgb | undefined, theme?: EnsureOu
 		`LOON banner ${banner}`,
 		accent,
 		`density ${state.gentle.density}`,
-		`placement ${state.gentle.headerPlacement}`,
+		`gentle-pi placement ${state.gentle.headerPlacement} (its bar; the banner stays on top)`,
 		state.loon.mark ? 'mark on' : 'mark off',
 		`source ${state.loon.source}`,
 		describeTheme(theme, activeTheme),
@@ -380,7 +380,8 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 	const loonPaints = () => state?.loon.enabled === true && state.loon.source === 'loon';
 
 	/** True when LOON should own the top slot right now. */
-	const ownsTopSlot = () => loonPaints() && state?.gentle.headerPlacement === 'top';
+	/** True when LOON should own the header slot: painting is the whole condition. */
+	const ownsTopSlot = () => loonPaints();
 
 	/**
 	 * Paint with the settings already in hand. Never reads the files: the caller
@@ -412,16 +413,10 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 			return false;
 		}
 
-		if (gentle.headerPlacement === 'below-input') {
-			// gentle-pi's rule: the top slot stays free and the banner moves under
-			// the editor, so its own banner keeps the top when it paints.
-			cancelWatchdog();
-			if (attached === 'header') ctx.ui.setHeader(undefined);
-			ctx.ui.setWidget(WIDGET_KEY, header, { placement: 'belowEditor' });
-			attached = 'widget';
-			return true;
-		}
-
+		// The banner lives in pi's header slot, always. gentle-pi's `headerPlacement`
+		// moves *its own* bar under the editor; it never moved pi's header, and the
+		// banner used to follow it into a `belowEditor` widget, which is what made the
+		// two look like one piece that slid down. The bar moves, the banner does not.
 		if (attached === 'widget') ctx.ui.setWidget(WIDGET_KEY, undefined);
 		ctx.ui.setHeader(header);
 		attached = 'header';
