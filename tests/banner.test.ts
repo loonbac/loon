@@ -226,7 +226,28 @@ test('a label that does not fit breaks at the slash, then keeps the words togeth
 	]);
 });
 
+test('the last row never keeps a single word on its own', () => {
+	// Greedy packing would give "… · high" and leave "effort" alone on the last
+	// row, which reads as a broken label rather than a wrapped one.
+	assert.deepEqual(wrapLabel('openai-codex/gpt-5.5 · high effort', 30), [
+		'openai-codex/gpt-5.5 ·',
+		'high effort',
+	]);
+	// The fix must not touch the real 42-column id: same three rows as before.
+	assert.deepEqual(
+		wrapLabel('river/deepseek-ai/DeepSeek-V4.1-Flash-1017 · high effort', 30),
+		['river/deepseek-ai/', 'DeepSeek-V4.1-Flash-1017', '· high effort'],
+	);
+});
+
+test('the widow retry stops at half the width and keeps the original result', () => {
+	// No width down to the floor brings a second word onto the last row, so the
+	// greedy result stands instead of shrinking the label further.
+	assert.deepEqual(wrapLabel('aaaa bbbb cccc', 10), ['aaaa bbbb', 'cccc']);
+});
+
 test('a long run with no separator is cut at the width, without an invented ellipsis', () => {
+	// A single token that does not fit is a whole row by nature, never a widow.
 	assert.deepEqual(wrapLabel('abcdefghij', 4), ['abcd', 'efgh', 'ij']);
 	assert.deepEqual(wrapLabel('alpha-beta-gamma', 8), ['alpha-', 'beta-', 'gamma']);
 	for (const line of wrapLabel('abcdefghij', 4)) assert.ok(!line.includes('…'));

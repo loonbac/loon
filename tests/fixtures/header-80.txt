@@ -7,7 +7,7 @@
 │          ███      ███           │ /use-default-tui                           │
 │                                 │ /model                                     │
 │  Let's build something great    │ /theme                                     │
-│  openai-codex/gpt-5.5 · high    │ /compact                                   │
-│             effort              │                                            │
+│     openai-codex/gpt-5.5 ·      │ /compact                                   │
+│          high effort            │                                            │
 │        ~/Workspace/mypi         │                                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯

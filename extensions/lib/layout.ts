@@ -97,14 +97,12 @@ function breakToken(token: string, width: number, depth = 0): string[] {
 }
 
 /**
- * Break a label into lines that fit the width, so a long model id keeps every
- * character instead of losing its tail to an ellipsis. Breaks at a space when
- * there is one, splits an over-long token at a slash and then a dash, and cuts
- * at the width only when a single run has no separator left. A token that had
- * to be split ends its line, so the words after it start on a fresh one.
+ * Wrap at one fixed width. Also reports whether the last line came from a token
+ * that had to be split, which is the one case where a single token on the final
+ * line is legitimate rather than a widow.
  */
-export function wrapLabel(text: string, width: number): string[] {
-	if (width <= 0) return [];
+function wrapAt(text: string, width: number): { lines: string[]; splitTail: boolean } {
+	if (width <= 0) return { lines: [], splitTail: false };
 	const lines: string[] = [];
 	let current = '';
 	let fresh = false;
@@ -138,7 +136,41 @@ export function wrapLabel(text: string, width: number): string[] {
 	}
 
 	flush();
-	return lines.length > 0 ? lines : [''];
+	return { lines: lines.length > 0 ? lines : [''], splitTail: fresh };
+}
+
+/** Number of space-separated tokens on a line. */
+function tokenCount(line: string): number {
+	return line.split(' ').filter((token) => token.length > 0).length;
+}
+
+/**
+ * Break a label into lines that fit the width, so a long model id keeps every
+ * character instead of losing its tail to an ellipsis. Breaks at a space when
+ * there is one, splits an over-long token at a slash and then a dash, and cuts
+ * at the width only when a single run has no separator left. A token that had
+ * to be split ends its line, so the words after it start on a fresh one.
+ *
+ * A final line holding a single word reads as a broken label, so the wrap is
+ * retried at a slightly smaller width and the widest result whose last line has
+ * at least two words wins. The retry stops at half the width and keeps the
+ * original result when nothing improves; a token that had to be split is a
+ * whole line by nature and is never re-wrapped.
+ */
+export function wrapLabel(text: string, width: number): string[] {
+	const original = wrapAt(text, width);
+	if (original.lines.length < 2 || original.splitTail) return original.lines;
+	if (tokenCount(original.lines[original.lines.length - 1] ?? '') > 1) return original.lines;
+
+	const floor = Math.max(1, Math.ceil(width / 2));
+	for (let narrower = width - 1; narrower >= floor; narrower -= 1) {
+		const candidate = wrapAt(text, narrower);
+		if (candidate.splitTail) continue;
+		const last = candidate.lines[candidate.lines.length - 1] ?? '';
+		if (tokenCount(last) > 1) return candidate.lines;
+	}
+
+	return original.lines;
 }
 
 /** Pad to exactly `width` columns, optionally truncating with `ellipsis`. */

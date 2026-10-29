@@ -36,7 +36,9 @@ else: the pi-claude-code-tui box, painted entirely by the theme you already use.
   the width. Nothing is replaced by an ellipsis. `river/deepseek-ai/
   DeepSeek-V4.1-Flash-1017 · high effort` becomes three centred rows at 32
   columns, and the box grows a row for each extra line so the sidebar keeps its
-  position.
+  position. A wrap whose last line would hold a single word is retried one
+  column narrower until two words fit together, down to half the width, because
+  `openai-codex/gpt-5.5 · high` above a lone `effort` reads as a bug.
 - The mark is static and single-coloured: a 4 × 4 grid of three-column cells,
   12 columns wide and 4 rows tall, drawn in the theme accent. No animation. It
   starts two rows below the top border, level with `Ask Pi to build it`, with one

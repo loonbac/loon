@@ -78,7 +78,8 @@ S26 — Square logo section, wider sidebar. The left half drops from 69% to 42% 
 | T14 | S13, S21 | inline | f2c9b00 |
 | T15 | S24, S25 | inline | 7d580b8 |
 | T16 | S26 | inline | be5b1a2 |
-| T17 | S27 | inline | pending |
+| T17 | S27 | inline | b3fac08 |
+| T18 | S28 | inline | pending |
 ## Log
 
 L1 (user request, verbatim):
@@ -281,3 +282,13 @@ L15 (T17 evidence):
 - Tests: one row when it fits; two and three rows with the exact break points; hard cut with no ellipsis and the dash preference; and a rectangular-box check at 80 and 120 with the real 42-column id, asserting no `…`, the sidebar keeps its 8 content rows, the two extra rows under it are blank, and every body row still starts and ends with a border. 35 tests pass, `tsc --noEmit` clean, goldens regenerated.
 - Real capture (`pi --use-theme Gentle`, 13 s), 80x32 and 120x32: the model block is exactly the three expected rows, each centred; the frame keeps 80 and 120 visible columns on every row; body 12 rows with the sidebar content ending at row 9 and three blank rows below it; the bottom border moves down two rows versus the one-line version, which is `max(left, right)` doing its job.
 - Known rough edge, left as specified (greedy packing, no balance heuristic): a label that is just over the window with ordinary words can orphan its last word, e.g. `openai-codex/gpt-5.5 · high effort` at 30 columns gives `openai-codex/gpt-5.5 · high` / `effort`.
+S28 — No widow on the last row. When a wrap ends with a line holding a single word, `wrapLabel` retries at width-1, width-2 and so on down to half the width, and keeps the widest result whose last row has two or more words. If no width down to the floor helps, the original result stands. A row that came from splitting one over-long token is exempt, because a token wider than the window is a whole row by nature. The user's 42-column id at 30 must stay exactly `river/deepseek-ai/` / `DeepSeek-V4.1-Flash-1017` / `· high effort`.
+
+L16 (T18 evidence):
+
+- `wrapAt` is the old greedy wrapper and now also reports `splitTail`; `wrapLabel` is the retry loop above it, bounded by `Math.ceil(width / 2)`.
+- `openai-codex/gpt-5.5 · high effort` at 30: greedy gave `openai-codex/gpt-5.5 · high` / `effort`; the retry finds 26 (`openai-codex/gpt-5.5 ·` / `high effort`) and takes it.
+- Real id at 30 unchanged (its last row already holds three words, so no retry runs); single-row fit unchanged; `abcdefghij` at 4 still gives `abcd` / `efgh` / `ij` because the tail was split.
+- Bound proven by test: `aaaa bbbb cccc` at 10 has no width down to 5 that removes the widow, so the original `aaaa bbbb` / `cccc` stands.
+- 37 tests pass, `tsc --noEmit` clean.
+- Golden 120 byte-identical. Golden 80 moved by the fix itself and only in the model block: its fixture label IS the widow example, so `openai-codex/gpt-5.5 · high` / `effort` became `openai-codex/gpt-5.5 ·` / `high effort`. Row count 12 stays, box rectangular, sidebar and cwd unmoved.
