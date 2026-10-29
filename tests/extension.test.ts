@@ -285,32 +285,31 @@ test('nothing is installed when the context has no TUI', async () => {
 
 /* S3: headerPlacement, in both directions and without a restart. */
 
-test('below-input leaves the top slot and draws under the editor', async () => {
+test('gentle-pi’s below-input placement moves its bar, never the banner', async () => {
+	// The user saw the banner slide under the editor together with gentle-pi’s bar.
+	// The banner lives in pi’s header slot and does not follow that setting.
 	const { pi, ctx } = boot({ gentle: { ...DEFAULT_GENTLE_SETTINGS, headerPlacement: 'below-input' } });
 	startSession(pi, ctx);
 	await wait(50);
 
-	assert.equal(headerFactories(ctx).at(-1), undefined, 'the top slot is handed back');
-	const [key, value] = widgets(ctx).at(-1) ?? ['', { content: undefined, options: undefined }];
-	assert.equal(key, WIDGET_KEY);
-	assert.deepEqual(value.options, { placement: 'belowEditor' });
-	assert.match(renderWidget(ctx).join('\n'), /Getting started/);
+	assert.equal(typeof headerFactories(ctx).at(-1), 'function', 'the banner left the header slot');
+	assert.deepEqual(widgets(ctx), [], 'the banner was drawn as a widget under the editor');
+	assert.match(renderHeader(ctx).join('\n'), /Getting started/);
 });
 
-test('a live change from below-input to top restores the header, and back again', async () => {
+test('a live placement change leaves the banner where it is', async () => {
 	const { pi, ctx, config } = boot({ gentle: { ...DEFAULT_GENTLE_SETTINGS, headerPlacement: 'below-input' } });
 	startSession(pi, ctx);
 	await wait(50);
 
 	config.set({ gentle: { ...config.state.gentle, headerPlacement: 'top' } });
 	config.emit();
-	assert.equal(typeof headerFactories(ctx).at(-1), 'function', 'the header did not come back');
-	assert.equal(widgets(ctx).at(-1)?.[1].content, undefined, 'the widget was not cleared');
+	assert.equal(typeof headerFactories(ctx).at(-1), 'function', 'the banner is not in the header slot');
 
 	config.set({ gentle: { ...config.state.gentle, headerPlacement: 'below-input' } });
 	config.emit();
-	assert.equal(headerFactories(ctx).at(-1), undefined, 'the top slot was not released');
-	assert.deepEqual(widgets(ctx).at(-1)?.[1].options, { placement: 'belowEditor' });
+	assert.equal(typeof headerFactories(ctx).at(-1), 'function', 'the banner left the header slot when the bar moved down');
+	assert.deepEqual(widgets(ctx), [], 'a banner widget appeared under the editor');
 });
 
 /* S4/S5: `source` decides who paints, and LOON never reclaims what it does not own. */
@@ -692,19 +691,26 @@ test('the watchdog gives up at the ceiling', () => {
 	assert.equal(clock.running(), false, 'the watchdog never stopped at its ceiling');
 });
 
-test('the extension stops re-asserting while the banner is disabled or below the editor', async () => {
-	const scenarios = [
-		{ loon: { ...DEFAULT_LOON_SETTINGS, enabled: false }, gentle: DEFAULT_GENTLE_SETTINGS },
-		{ loon: DEFAULT_LOON_SETTINGS, gentle: { ...DEFAULT_GENTLE_SETTINGS, headerPlacement: 'below-input' as const } },
-	];
-	for (const scenario of scenarios) {
-		const clock = fakeClock();
-		const { pi, ctx } = boot(scenario, clock);
-		startSession(pi, ctx);
-		await wait(50);
+test('the extension stops re-asserting while the banner is disabled', async () => {
+	const clock = fakeClock();
+	const { pi, ctx } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, enabled: false }, gentle: DEFAULT_GENTLE_SETTINGS }, clock);
+	startSession(pi, ctx);
+	await wait(50);
 
-		const before = ctx.ui.calls.length;
-		for (let tick = 0; tick < 20; tick += 1) clock.advance(WATCHDOG_CONFIG.tickMs);
-		assert.equal(ctx.ui.calls.length, before, 'the watchdog re-asserted where it must not');
-	}
+	const before = ctx.ui.calls.length;
+	for (let tick = 0; tick < 20; tick += 1) clock.advance(WATCHDOG_CONFIG.tickMs);
+	assert.equal(ctx.ui.calls.length, before, 'the watchdog re-asserted while the banner was off');
+});
+
+test('the watchdog still defends the banner when the bar moves down', async () => {
+	// The banner is on top and a later registration can take the slot, whatever
+	// gentle-pi's own placement says.
+	const clock = fakeClock();
+	const { pi, ctx } = boot({ gentle: { ...DEFAULT_GENTLE_SETTINGS, headerPlacement: 'below-input' } }, clock);
+	startSession(pi, ctx);
+	await wait(50);
+
+	const before = ctx.ui.calls.length;
+	for (let tick = 0; tick < 12; tick += 1) clock.advance(WATCHDOG_CONFIG.tickMs);
+	assert.ok(ctx.ui.calls.length > before, 'the banner was left undefended under below-input');
 });

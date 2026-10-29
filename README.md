@@ -114,7 +114,7 @@ already writes, so what you pick in `/gentle:customization` reaches this header.
 | `density: compact` | `visual-customization.json` | No blank row above the mark and no tagline: mark, model, cwd; the sidebar loses the short rule. |
 | `density: minimal` | `visual-customization.json` | A three-row box with one row: `provider/model · effort effort`, cut with `…` when it does not fit. No mark, no tagline, no cwd, no sidebar. |
 | `headerPlacement: top` | `visual-customization.json` | LOON keeps the top slot, as it always did. |
-| `headerPlacement: below-input` | `visual-customization.json` | LOON releases the top slot (`setHeader(undefined)`) and draws itself as a `belowEditor` widget. |
+| `headerPlacement: below-input` | `visual-customization.json` | Moves gentle-pi's **own bar** under the editor. The banner is unaffected: it lives in pi's header slot and stays on top. |
 | `color: pink\|cyan\|yellow\|green` | `banner.json` | Overrides the accent: box, divider, headings and mark. `text`, `muted` and `dim` keep coming from the theme. |
 | `showTextLogo` | `banner.json` | **Not applicable.** It hides gentle-pi's ASCII wordmark, which this package does not draw; the Pi mark has its own switch below. Read, validated, ignored. |
 | `showRose` | `banner.json` | **Not applicable.** LOON has no rose. Read, validated, ignored. |
@@ -312,10 +312,11 @@ overrides, today's header.
 - No animation, no working-message verbs (`ctx.ui.setWorkingMessage` is never
   called), no footer or spinner of its own.
 - No editor, input box or window-title changes.
-- Applying the header touches only `ctx.ui.setHeader` (or, under
-  `headerPlacement: below-input`, one `belowEditor` widget of its own). Nothing
-  else in pi's UI is replaced; `/use-default-tui` also clears the footer and the
-  spinner, as it always did.
+- Applying the header touches only `ctx.ui.setHeader`, and it never follows
+  gentle-pi's `headerPlacement`: that setting moves gentle-pi's own bar, and the
+  banner stays in pi's header slot whether the bar is on top or under the editor.
+  Nothing else in pi's UI is replaced; `/use-default-tui` also clears the footer
+  and the spinner, as it always did.
 - **No writes into gentle-pi.** LOON reads `visual-customization.json` and
   `banner.json`; it never edits them and never adds rows to
   `/gentle:customization`. The integration only goes one way, by design: that
