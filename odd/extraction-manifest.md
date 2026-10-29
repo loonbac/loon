@@ -117,19 +117,29 @@ $ node --experimental-strip-types --test extension/*.test.ts
    esperado /MODEL ONBOARDING DRY RUN/, obtenido «provider policy denies fixture/test-model»
 ```
 
+La suite **depende de un `HOME` real** (`/home/loonbac`): `session-summary.test.ts` compara rutas
+`~/...` y `natural-adaptive-routing.test.ts` resuelve `~/Proyectos/gentle-jev-adaptive-routing`. Con
+un `HOME` falso no falla: devuelve **otros números**, que se leerían como un delta propio del cambio
+que estés midiendo. Toda medición de este plan va con el `HOME` del operador, nunca en un sandbox
+limpio con el entorno mínimo.
+
 Ninguna comprobación de este plan puede ser «todos los tests en verde». La comprobación es
 **comparación contra esta línea base** (punto 6).
 
 Dos detalles menores pero reales, encontrados de paso:
 
 - **Tres ficheros de producción tienen bytes NUL literales**: `palette.ts:288` (2),
-  `banner.ts:299` (1) y `tools/grouping.ts` (1, en el código que el paso 0 borra). Efecto
-  doble, y el segundo es peor que el primero.
+  `banner.ts:299` (1) y `tools/grouping.ts` (1, en el código que el paso 0 borra: offset 3678,
+  línea 103, `const GROUP_BREAK = "\x00group-break";`; los otros nueve ficheros que ese paso borra
+  no tienen ninguno). Son **separadores intencionados** que se unen con `.join("\x00")`, no
+  corrupción: al moverlos se trasladan tal cual. Efecto doble, y el segundo es peor que el primero.
   1. `rg`, `grep` y `git diff` los tratan como **binarios** y no muestran su contenido:
      una edición se revisa a ciegas. Al mover hay que usar `rg -a` y `git diff --text`.
-  2. Un fichero binario aporta **cero líneas** al diffstat. El borrado de 4.936 líneas del paso 0 se
-     reporta como `3.820 deletions` porque `grouping.ts` no se cuenta. Quien revise ese commit
-     por el número va a creer que se borraron 1.116 líneas menos de las que se borraron.
+  2. Un fichero binario aporta **cero líneas** al diffstat, y con eso el paso 0 produce tres cifras
+     que no son intercambiables: los diez ficheros borrados suman **4.936 líneas** (`wc -l`), sus
+     borrados se reportan como **3.820** porque `grouping.ts` no se cuenta, y el total del PR es
+     **3.838** (3.820 + 16 de `README.md` + 2 de `revert-pi-ui-overrides.md`). Quien revise por el
+     número concluirá que se borraron 1.116 líneas menos de las que se borraron.
 - `extension/natural-adaptive-routing.ts:6` importa `"./fallback-config.js"` y el fichero es
   `.ts`. Hoy no rompe porque es `import type` (se borra al transpilar), pero es la clase de
   import que se rompe sola al cambiar de resolvedor o al volverse `import` de valor.
@@ -594,6 +604,7 @@ movimiento roto del hueco normal de peer dependencies. Verificado sobre `9d51720
 
 ```bash
 git rev-parse HEAD; git rev-parse origin/master          # 9d51720 == 9d51720
+echo $HOME                                               # debe ser /home/loonbac (§0.5)
 diff -rq extension /nix/store/x7bkkga9xwd6gv0fynqwfp6ixcmig7wh-loon-0.1.9/extension
 node --experimental-strip-types --test extension/*.test.ts   # 84/83/1
 readlink -f ~/.local/share/loon-pi-packages/better-claude-code-ui
