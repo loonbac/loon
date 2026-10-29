@@ -97,10 +97,10 @@ byte-identical.
 
 | ID | Specs | Route | Commit |
 | --- | --- | --- | --- |
-| T1 | S1-S9 (this document) | inline | pending |
-| T2 | S4, S5 | inline | pending |
-| T3 | S3, S5, S7 | inline | pending |
-| T4 | S6, S8 | inline | pending |
+| T1 | S1-S9 (this document) | inline | 5af6061 |
+| T2 | S4, S5 | inline | 45fc907 |
+| T3 | S3, S5, S7 | inline | 0470cba |
+| T4 | S6, S8 | inline | 0470cba |
 | T5 | S9 | inline | pending |
 
 ## Log
@@ -115,3 +115,23 @@ for syntax and hard contrast floors; the derivation is a pure function; the file
 regenerated when missing, stale or on a wallpaper change; a foreign file is never
 clobbered; the banner follows the wallpaper while that theme is active, without
 rewriting `loon-tui.json`.
+
+L3 — implementation notes and evidence:
+
+- `extensions/lib/oklch.ts`: sRGB to OKLab/OKLCH and back, gamut-aware chroma
+  reduction, WCAG luminance and contrast. Pure, no IO.
+- `extensions/lib/wallpaper-theme.ts`: `loonThemeName`, `isLoonThemeName`,
+  `themeFileName` and `deriveWallpaperTheme(accent)`. The palette uses 55 colour
+  keys and 33 vars; the accent is lifted in lightness until it clears 3:1 against
+  the background, keeping its hue.
+- `extensions/lib/theme-file.ts`: `ensureWallpaperTheme` writes atomically and only
+  when absent, unparsable or older than the accent file; a file whose `name` is not
+  ours is reported `skipped-foreign` and left untouched.
+- Wiring: the theme is ensured on session start and on every wallpaper change; the
+  banner follows the wallpaper when `ctx.ui.theme.name` is ours (paint-time, no
+  settings write); `status` reports the outcome and whether it is active.
+- Measured contrast for the real accent `#D5A9F0`: text 17.3:1, muted 8.1:1, accent
+  10:1 against `#100B13`; for a black wallpaper the accent is lifted to `#636363`
+  (3.2:1) instead of disappearing.
+- pi's own `loadThemeFromPath` loads the generated file and resolves `accent` to
+  the wallpaper colour, which is asserted when pi is installed.
