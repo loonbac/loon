@@ -154,3 +154,22 @@ L4 — the prompt band, and why the role is `selectedBg` and not `selection`:
 - The shell's top status bar still paints `#101F13` (hue 149.6): it borrows
   `toolSuccessBg` for its INFO/SUCCESS card tones in `lib/shell-card.ts:268-269`. Out
   of the scope of this slice; reported with the number.
+L5 — the card surfaces (issue #43):
+
+- Measured cause: `lib/shell-card.ts:268-271` paints the card background by tone, and
+  INFO and SUCCESS both map to `toolSuccessBg`, WARNING to `toolPendingBg`, ERROR to
+  `toolErrorBg`. The tone itself is carried by the border and the title
+  (`shell-card.ts:73-82`), so the background is decoration. Stock themes leave those
+  backgrounds nearly neutral; our semantic saturated values were the outlier.
+- The prompt band in `lib/shell-prompt.ts:151` uses the same role. **The fourth patch
+  was reverted**: gentle-pi keeps its own line, and the fix is in our palette.
+- `toolSuccessBg`, `toolPendingBg` and `toolErrorBg` are now accent-hued surfaces:
+  chroma `min(0.03, max(0.012, tint*0.45))`, lightness 0.2335-0.235 (between
+  `bgPanel` 0.205 and `bgElement` 0.235), contrast 1.15-1.17 against the background,
+  text on them 14.9:1. `toolPendingBg` is a var of its own now instead of borrowing
+  `bgPanel`.
+- `success`, `warning` and `error` keep their semantic hues (150, 75, 25) and a test
+  pins them.
+- The constraint pair (lightness inside panel..element, contrast >= 1.15) leaves a
+  window only ~0.0015 wide, so the three surfaces land on the same hex. Reported to
+  the owner as a number instead of widening it on my own initiative.
