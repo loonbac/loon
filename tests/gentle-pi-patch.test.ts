@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -486,7 +486,12 @@ async function loadEmittedShellBar(): Promise<{
 		stages[0],
 		'export { barBrandSegments, headerLeftStages };',
 	].join('\n'));
-	return import(pathToFileURL(path).href) as Promise<never>;
+	// The probe is a scratch file, not evidence: it must not outlive the test.
+	try {
+		return (await import(pathToFileURL(path).href)) as never;
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 }
 
 test('a stock theme keeps the brand, and its header stages, exactly as before', async () => {
