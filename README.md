@@ -5,16 +5,16 @@ else: the pi-claude-code-tui box, painted entirely by the theme you already use.
 
 ```
 ╭─── Pi v1.4.0 ────────────────────────────────────────────────────────────────╮
-│                                                      │                       │
-│                                                      │ Getting started       │
-│                      █████████                       │ Ask Pi to build it    │
-│                      ███   ███                       │ ──────────────────────│
-│                    ██████   ███                      │ Commands              │
-│                    ███      ███                      │ /use-default-tui      │
-│                                                      │ /model                │
-│             Let's build something great              │ /theme                │
-│         openai-codex/gpt-5.5 · high effort           │ /compact              │
-│                  ~/Workspace/mypi                    │                       │
+│                                 │                                            │
+│                                 │ Getting started                            │
+│          █████████              │ Ask Pi to build it                         │
+│          ███   ███              │ ────────────────────────────────────────── │
+│          ██████   ███           │ Commands                                   │
+│          ███      ███           │ /use-default-tui                           │
+│                                 │ /model                                     │
+│  Let's build something great    │ /theme                                     │
+│  openai/gpt-5.5 · high effort   │ /compact                                   │
+│        ~/Workspace/mypi         │                                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -23,8 +23,14 @@ else: the pi-claude-code-tui box, painted entirely by the theme you already use.
 - Draws one rounded box across the terminal width: the `Pi v<version>` label in
   the top border, then on the left the block Pi mark, `Let's build something
   great` in bold, the `provider/model · <effort> effort` line and the
-  `~`-shortened cwd, with one accent divider at 69% of the interior and the tips
-  sidebar on the right.
+  `~`-shortened cwd, with one accent divider and the tips sidebar on the right.
+- The left section stays square: the divider sits at 42% of the interior but the
+  left half never grows past 40 columns, because ten body rows read square at
+  roughly the mark plus breathing room. At 80 columns that is 32 + 44, at 120 it
+  is 40 + 76, so the mark never floats in an empty band and the sidebar gets
+  enough width for real command names.
+- The short rule under `Ask Pi to build it` fills the sidebar and stops one
+  column short of the border.
 - The mark is static and single-coloured: a 4 × 4 grid of three-column cells,
   12 columns wide and 4 rows tall, drawn in the theme accent. No animation. It
   starts two rows below the top border, level with `Ask Pi to build it`, with one

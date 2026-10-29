@@ -56,6 +56,8 @@ S24 — Startup race. SUPERSEDED by S25 after L11. Original claim: the 120 ms re
 
 S25 — Install watchdog. The header installs on the next macrotask after `session_start` and then a watchdog re-asserts whenever our component stops being rendered: pi calls `render` on the installed component, so a render gap is the signal. Tick 250 ms, a render older than 1 s counts as gone, at most one re-assert per stale period, ceiling 10 s, and the loop stops as soon as a render follows a reclaim. Re-asserts never assume how long boot takes.
 
+S26 — Square logo section, wider sidebar. The left half drops from 69% to 42% of the interior and is capped at 40 columns: at 80 columns 32 + 44, at 120 columns 40 + 76. The mark keeps 10 columns of air per side at 80 (it starts at column 11; at 120 at column 15), and the tips sidebar gains room for real command names, so `Getting started` is no longer squeezed. The short rule under `Ask Pi to build it` fills the sidebar and stops one column short of the border instead of a fixed 22 columns. Untouched: the mark, the body height, the colours, the model label, the cwd and the row order.
+
 ## Tasks
 
 | ID | Spec | Route | Commit |
@@ -74,7 +76,8 @@ S25 — Install watchdog. The header installs on the next macrotask after `sessi
 | T12 | S6, S9 | inline | 2ef6b01 |
 | T13 | S13, S15, S21, S23, S24 | inline | 1768abb |
 | T14 | S13, S21 | inline | f2c9b00 |
-| T15 | S24, S25 | inline | pending |
+| T15 | S24, S25 | inline | 7d580b8 |
+| T16 | S26 | inline | pending |
 ## Log
 
 L1 (user request, verbatim):
@@ -244,3 +247,28 @@ L12 (T15 evidence — the install defect and its fix):
 - Tests (30 → 31): re-asserts while the header never paints; re-asserts after a later registration takes the header over and stops once the reclaim paints; leaves a header that keeps painting alone; gives up at the ceiling. The loop takes an injected clock, so no real timers.
 - Real verification after the fix, `tmux`, 80x32: the final frame shows the LOON box (border, mark, tagline, model line, cwd, divider, sidebar) in place of gentle-pi's panel, and the control frame is unchanged. At 120x32 the box renders with the full model label. Widths used: 80 and 120 columns.
 - Extra defect found in that frame: the model label (`river/deepseek-ai/DeepSeek-V4.1-Flash-1017 · high effort`, 57 columns) overflowed the 53-column left half, so the line sat flush against the border with no padding. `centerClipped` now truncates to `leftWidth - 2` before centring; a test pins the padding and the ellipsis.
+L13 (design change requested by the owner, relayed verbatim through the orchestrator):
+
+> "funciona genial pero mucho espacio tiene el logo de pi, y el getting started esta muy chiquito, tiene que estar mas cuadrado la seccion del logo de Pi nada mas"
+
+> Traducción a medidas, con los números actuales medidos por mí en `extensions/lib/layout.ts`:
+> - `DIVIDER_RATIO = 0.69` → a 80 columnas: `innerWidth` 78, `leftWidth` 53, `rightWidth` 22.
+> - El logo mide 12 columnas y se centra en 53 → 20 columnas de aire por lado. Eso es el "mucho espacio".
+> - El sidebar queda con 22 columnas, así que `/commandcode-refresh` se trunca y "Getting started" tiene poco ancho. Eso es el "muy chiquito".
+> - Altura del cuerpo: 10 filas. Una sección de 53x10 en celdas se ve como una banda ancha; el usuario quiere que se lea cuadrada.
+>
+> 1. `DIVIDER_RATIO` baja a ~0.42 y se agrega un techo `MAX_LEFT_WIDTH = 40`, tomando el menor: la izquierda queda cuadrada frente a las 10 filas y no se estira sin control en terminales anchas.
+> 2. La línea corta de `Commands` deja de tener ancho fijo 22 y pasa a llenar el ancho del sidebar.
+> 3. No toques: logo, alturas, colores, etiqueta de modelo, cwd, el orden de las filas.
+>
+> CONSECUENCIA EN TESTS: la aserción `[21, 21, 21, 21]` va a fallar por diseño. No la reemplaces por otro número mágico: deriva el inicio esperado de `headerColumnWidths(width)` (1 + floor((leftWidth - LOGO_WIDTH) / 2)). Y regenera los goldens 80 y 120.
+>
+> VERIFICACIÓN QUE ESPERO, con captura real y no solo goldens: `tmux new-session -d -x 80 -y 32 "cd /home/loonbac && pi --use-theme Gentle"`, 12 s, `tmux capture-pane -pt`. Repite a 120x32.
+L14 (T16 evidence):
+
+- Implemented as specified, no extra knobs: `DIVIDER_RATIO = 0.42`, `MAX_LEFT_WIDTH = 40` applied as `Math.min(dividerIndex - 1, MAX_LEFT_WIDTH)`. At 80 columns that is 32 + 44, at 120 columns 40 + 76.
+- `TIPS_RULE_WIDTH` (22) is gone: the rule is `rightWidth - 1`, one column short of the border, which is what the capture shows. A fixed 22 in a 43-column sidebar read as a broken half-rule.
+- Tests: the mark assertion is now derived — `1 + Math.floor((leftWidth - LOGO_WIDTH) / 2)` from `headerColumnWidths(78)` — so it moves with the layout instead of pinning a frame. `splitColumns` and the divider test read the widths from the same function. New test `the left half stays square instead of stretching on wide screens` pins 32 at 78 and 40 at 118. Goldens regenerated at 80 and 120. 32 tests, 32 pass, `tsc --noEmit` clean.
+- The plain-theme split helper now strips escapes before slicing columns: with the narrower left half more rows are truncated, and pi-tui appends `\x1b[0m` when it truncates, which shifted code-unit slicing.
+- Real capture with the installed package (path install, so `pi --use-theme Gentle` reads this tree): `tmux new-session -d -x 80 -y 32 "cd /home/loonbac && pi --use-theme Gentle"`, 12 s, `tmux capture-pane -pt`. Frame shows the box with the mark section at 32 columns and the sidebar at 44; mark ink starts at column 11 on all four rows (0-based index 11). At 120x32: left 40, sidebar 76, ink starts at 15 on all four rows, rule 74 columns ending one short of the border.
+- Consequence reported, not fixed because the owner asked not to touch the model label: at 32 columns a long id truncates earlier than before, so at 80 columns `river/deepseek-ai/DeepSeek-V4.1-Flash-1017 · high effort` becomes `river/deepseek-ai/DeepSeek-V4…` and the effort word disappears. Options if it matters: drop the effort suffix when the full label does not fit, or raise the ceiling to ~44.

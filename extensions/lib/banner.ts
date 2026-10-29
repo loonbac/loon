@@ -6,7 +6,7 @@
  * the exact output at a fixed width.
  */
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
-import { TIPS_RULE_WIDTH, center, headerColumnWidths, padRight } from './layout.ts';
+import { center, headerColumnWidths, padRight } from './layout.ts';
 import { renderLogo } from './logo.ts';
 import type { Palette } from './palette.ts';
 
@@ -90,7 +90,9 @@ export function renderBanner(input: BannerInput): string[] {
 		centerClipped(palette.subtle(input.cwd), leftWidth),
 	];
 
-	const rule = palette.divider('─'.repeat(Math.max(8, Math.min(rightWidth, TIPS_RULE_WIDTH))));
+	// The rule spans the sidebar, like the capture: a fixed 22 would look broken
+	// in a 43-column column. One column stays blank so it never touches the border.
+	const rule = palette.divider('─'.repeat(Math.max(8, rightWidth - 1)));
 	const [tip0 = '', tip1 = '', tip2 = '', tip3 = ''] = input.tips;
 	const tipLines = [
 		'',

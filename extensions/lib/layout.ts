@@ -6,14 +6,18 @@
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import { LOGO_WIDTH } from './logo.ts';
 
-/** Share of the interior width where the vertical divider sits. */
-export const DIVIDER_RATIO = 0.69;
+/**
+ * Share of the interior width where the vertical divider sits. The mark block
+ * only needs room for itself, so the sidebar gets the rest: a 53-column half
+ * around a 12-column mark read as an empty band, not as a logo section.
+ */
+export const DIVIDER_RATIO = 0.42;
+/** Ceiling for the left half: past this the mark floats again on wide screens. */
+export const MAX_LEFT_WIDTH = 40;
 /** The left half must fit the mark plus breathing room. */
 export const MIN_LEFT_WIDTH = LOGO_WIDTH + 4;
 /** Narrowest tips sidebar; below this the sidebar is dropped. */
 export const MIN_TIPS_WIDTH = 16;
-/** Short rule width in the sidebar. */
-export const TIPS_RULE_WIDTH = 22;
 
 /** Show the home directory as `~` so a long cwd keeps its useful part. */
 export function formatCwd(cwd: string, home: string | undefined = process.env.HOME): string {
@@ -44,8 +48,10 @@ export function padRight(text: string, width: number, ellipsis = ''): string {
  * Column widths for the header body.
  *
  * The divider sits at `DIVIDER_RATIO` of the interior, with one space on each
- * side. When the left half could not fit the mark or the sidebar would be too
- * narrow, the sidebar is dropped and the left half takes the whole interior.
+ * side, but the left half never grows past `MAX_LEFT_WIDTH`: ten body rows make
+ * roughly 40 columns the point where the mark section reads square rather than
+ * stretched. When the left half could not fit the mark or the sidebar would be
+ * too narrow, the sidebar is dropped and the left half takes the whole interior.
  */
 export function headerColumnWidths(innerWidth: number): {
 	leftWidth: number;
@@ -57,7 +63,7 @@ export function headerColumnWidths(innerWidth: number): {
 	}
 
 	const dividerIndex = Math.round(innerWidth * DIVIDER_RATIO);
-	const leftWidth = dividerIndex - 1;
+	const leftWidth = Math.min(dividerIndex - 1, MAX_LEFT_WIDTH);
 	const rightWidth = innerWidth - leftWidth - 3;
 
 	if (leftWidth < MIN_LEFT_WIDTH || rightWidth < MIN_TIPS_WIDTH) {
