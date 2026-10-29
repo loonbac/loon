@@ -94,10 +94,14 @@ test('the left half centres the mark, the tagline, the model and the cwd', () =>
 	assert.equal(left[8]!.trim(), 'openai-codex/gpt-5.5 · high effort');
 	assert.equal(left[9]!.trim(), '~/Workspace/mypi');
 
-	// Every left line sits in the middle of its half, within a column of slack.
-	for (const line of left) {
+	// The mark is one rectangle: all four rows start in the same column, so its
+	// left edge is straight. Centring each row on its own ink would stagger it.
+	const starts = lines.slice(3, 7).map((line) => line.indexOf('█'));
+	assert.deepEqual(starts, [21, 21, 21, 21], `staggered mark: ${JSON.stringify(starts)}`);
+
+	// The text lines stay centred within the half, within a column of slack.
+	for (const line of [left[7]!, left[8]!, left[9]!]) {
 		const content = line.trim();
-		if (content.length === 0) continue;
 		const start = line.length - line.trimStart().length;
 		const slack = line.length - content.length - start;
 		assert.ok(Math.abs(start - slack) <= 1, `not centred: ${JSON.stringify(line)}`);
