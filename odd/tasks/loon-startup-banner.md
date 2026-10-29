@@ -34,12 +34,13 @@ S12 — Reset. "Los 48 archivos anteriores aparecen como borrados sin commitear:
 | ID | Spec | Route | Commit |
 | --- | --- | --- | --- |
 | T1 | S12 | inline | 331ec1c |
-| T2 | S6, S7 | inline | pending |
-| T3 | S3, S8a | inline | pending |
-| T4 | S2, S3, S8b, S8c | inline | pending |
-| T5 | S1, S4, S5, S10 | inline | pending |
-| T6 | S9 | inline | pending |
-| T7 | S8, S4 | inline | pending |
+| T2 | S6, S7 | inline | 86fbeca |
+| T3 | S3, S8a | inline | 67e4d76 |
+| T4 | S2, S3, S8b, S8c | inline | 0ca16bb |
+| T5 | S1, S4, S5, S10 | inline | 298b1d2 |
+| T6 | S9 | inline | 86fbeca |
+| T7 | S8, S4 | inline | 298b1d2 (evidence in L3) |
+
 
 ## Log
 
@@ -83,3 +84,16 @@ L2 (verification of the briefing, run before writing code):
 - Correction to the briefing: `LOGO_FRAMES` holds 22 frames, not 15 (4 left + 3 top + 5 right + 10 final). The port keeps the upstream sequence verbatim and the 120 ms interval; `LOGO_FRAME_COUNT` is derived from the array, never hardcoded, so the count cannot drift silently again.
 - gentle-pi registers the banner's `setHeader` after `await readBannerConfig()`, i.e. in a timer created after a synchronous `session_start` handler. A single `setTimeout(0)` from LOON can therefore be overwritten, so LOON installs on the next macrotask and re-asserts at 120 ms and 400 ms. The animation clock is shared across installs, so a re-assert never restarts the logo.
 - `Theme.fg()` in pi 1.4.0 throws `Unknown theme color: <token>` for a role a theme does not carry. The test stub therefore rejects unknown roles instead of painting them, which turns 'only roles Gentle defines' into a checked property.
+
+L3 (verification evidence, T7):
+
+- `npm test` (node --experimental-strip-types --test): 18 tests, 18 pass, 0 fail.
+  - palette: mapping, role set, painter-by-painter resolution, no role outside the Gentle set, unknown-role error.
+  - banner: golden render at 80 columns, no raw colour escape in any of the 22 frames at widths 24/40/80/120/200, every escape in a themed render is one the theme emitted, every row is exactly the requested width, dark and light stubs render differently, the Gentle-only stub renders every frame.
+  - extension: both commands registered, install happens after the event (not synchronously), the installed header renders and keeps the restore tip, restore clears header/footer/spinner and no pending re-assert reinstalls the banner, look re-applies, non-TUI contexts are untouched.
+- `npx tsc --noEmit`: clean.
+- Real themes: loaded the three gentle-pi themes plus pi's dark.json and light.json with pi's own `loadThemeFromPath` and rendered frame 21 at 80 columns. For all five: every escape belongs to that theme's role set (`foreign=none`), the plain shape is identical, and the code sets differ per theme (Gentle accent #7FB4CA, Cute #F095C8, Sexy #F43888, dark #A798D7, light #7489B4). Script kept outside the repo (`/tmp`), not committed.
+- pi loader smoke test: `pi -e . -p x --api-key ...` produced no extension error, while the negative control `pi -e . -e /tmp/broken-ext.ts ...` printed a parse error for the broken extension, so pi did load and parse both files.
+- NOT verified: the rendered banner in a real terminal session (no TUI was started), and the ordering race against gentle-pi's banner in a live run. The 120 ms / 400 ms re-assert is designed for it and the clock is frame-preserving, but only a real startup can show which header wins.
+
+L4 (native review): `assess` over the committed range master..feat/loon-startup-banner returned risk medium, reviewDue false (under_budget), plan writerSelfVerification with no independent verifier. Self-verification above is the applied plan.
