@@ -79,10 +79,17 @@ No alcanzables desde `extension/index.ts` ni importados por ningún módulo vivo
 | **Total** | **4.896** |
 
 Moverlos a `pi-loon-ui` sería trasladar basura a un repo nuevo y obligar a mantenerla. El
-paso 0 del plan los borra. Efecto colateral útil: las dos únicas dependencias de
-`package.json:29-32` las usa **solo** `tools/diff.ts` (`from "diff"` en `diff.ts:11`) y
-`tools/builtins.ts` (shiki) → ambas desaparecen, y con ellas el `npmDepsHash` de
-`default.nix:11` baja.
+paso 0 del plan los borra, y ese borrado está **autorizado por el dueño** en estos términos:
+«Bórralos: git ya es el archivo». Sustituye la decisión registrada en
+`odd/tasks/revert-pi-ui-overrides.md` («Deleting them was offered and declined»), que queda
+*Superseded*: conservarlos era defendible con un solo repo y deja de serlo al repartir el código
+en cuatro.
+
+Efecto colateral: las dos únicas dependencias de `package.json:29-32` las usa **solo**
+`tools/diff.ts` (`from "diff"` en `diff.ts:11`) y `tools/builtins.ts` (shiki). Tras el borrado
+quedan **sin uso pero se dejan**: quitarlas exige regenerar `package-lock.json` y el
+`npmDepsHash` de `default.nix:11`, y confirmarlo con un build. Es una unidad de trabajo aparte,
+no un efecto colateral de esta.
 
 ### 0.4 La cadena de carga real no es la que asume el inventario
 
@@ -134,7 +141,11 @@ Dos detalles menores pero reales, encontrados de paso:
   no tienen ninguno). Son **separadores intencionados** que se unen con `.join("\x00")`, no
   corrupción: al moverlos se trasladan tal cual. Efecto doble, y el segundo es peor que el primero.
   1. `rg`, `grep` y `git diff` los tratan como **binarios** y no muestran su contenido:
-     una edición se revisa a ciegas. Al mover hay que usar `rg -a` y `git diff --text`.
+     una edición se revisa a ciegas. Al mover hay que usar `rg -a` y `git diff --text`. Ojo con
+     el alcance: de los diez ficheros que el paso 0 borra, **solo `grouping.ts`** tiene NUL. Para
+     los otros nueve `--text` no hace falta, y sobre ese uno imprime basura en vez de código, así
+     que quien intente revisar el borrado entero con `--text` verá un fichero roto que no lo está.
+     `palette.ts` y `banner.ts` siguen en el árbol con el mismo problema.
   2. Un fichero binario aporta **cero líneas** al diffstat, y con eso el paso 0 produce tres cifras
      que no son intercambiables: los diez ficheros borrados suman **4.936 líneas** (`wc -l`), sus
      borrados se reportan como **3.820** porque `grouping.ts` no se cuenta, y el total del PR es
