@@ -38,6 +38,8 @@ test('the patch targets the gentle-pi build it was written for', () => {
 		TARGETS.map((target) => [target.file, target.md5]),
 		[
 			['extensions/gentle-shell.ts', 'ad1bfce79b655fc4f7cae71449d05d88'],
+			// The view is patched only to hand each row the width it really has.
+			['lib/visual-customize-view.ts', '6f1b71a9aa898fcf55196d73634b0076'],
 			['extensions/startup-banner.ts', '028bd98910468c7076ef31c65f36e09f'],
 		],
 	);
@@ -153,7 +155,7 @@ function bannerStand(): string {
 test('a file patched by the previous version is reported as patched-v1', () => {
 	const pristine = shellStand();
 	const v1 = pristine.replace(ANCHORS.shellRows, '// LOON banner patch v1\n// Banner: loon');
-	const specWithV1: TargetSpec = { ...shellSpec, md5: md5(pristine), md5PatchedV1: md5(v1) };
+	const specWithV1: TargetSpec = { ...shellSpec, md5: md5(pristine), md5PatchedV1: [md5(v1)] };
 	assert.equal(classify(v1, specWithV1), 'patched-v1');
 
 	const v2 = patchText(pristine, shellSpec);
@@ -172,12 +174,26 @@ test('a patched file edited afterwards is a different version, not ours', () => 
 	assert.equal(isMarked(edited, specWithV2), true, 'the refusal should be able to explain itself');
 });
 
+test('the view hands each row the width it really has', () => {
+	const view = TARGETS.find((target) => target.file === 'lib/visual-customize-view.ts');
+	assert.ok(view, 'the view target is missing');
+	const result = patchText(
+		'\tlabel: string | (() => string);\n\t\t\tconst item = navOnly ? this.categories[start + i] : row ? typeof row.label === "function" ? row.label() : row.label : undefined;\n',
+		view!,
+	);
+	assert.ok(result.ok);
+	const text = (result as { text: string }).text;
+	assert.ok(text.includes('label: string | ((width?: number) => string);'), 'the label type does not take a width');
+	assert.ok(text.includes('row.label(rightWidth)'), 'the view never passes the row width');
+});
+
 test('the v2 rows add the wallpaper colour and return the accent to banner', () => {
 	const result = patchText(shellStand(), shellSpec);
 	assert.ok(result.ok);
 	const text = result.text;
 
-	assert.ok(text.includes('Banner color: wallpaper'), 'the wallpaper row is missing');
+	assert.ok(text.includes('Banner color: wallpaper (LOON)'), 'the (LOON) marker is missing from the label');
+	assert.ok(text.includes('labelWidth?: number'), 'the row cannot see the width the layout gives it');
 	assert.ok(text.includes('Wallpaper accent'), 'the preview title is missing');
 	assert.ok(text.includes('saveLoonAccent("wallpaper")'), 'the row does not store the choice');
 	assert.ok(
@@ -186,6 +202,12 @@ test('the v2 rows add the wallpaper colour and return the accent to banner', () 
 	);
 	assert.ok(text.includes('loonSettings.accent !== "wallpaper" && banner.color === color'), 'the current marker ignores the wallpaper mode');
 	assert.ok(text.includes('accent.txt'), 'the wallpaper accent is not read');
+	// The marker is the first thing to go when the row is too narrow; (current) never is.
+	assert.ok(
+		text.includes('labelWidth >= full.length + suffix.length'),
+		'the label must decide on the width the layout reports',
+	);
+	assert.ok(text.includes('return (fits ? full : short) + suffix;'), 'the fallback label is missing');
 	assert.ok(!text.includes('Banner rose:'), 'the old rose row survived');
 });
 
@@ -218,7 +240,7 @@ test('the four patch states, end to end on a copy of the package', async () => {
 			...shellSpec,
 			md5: md5(shellText),
 			md5Patched: md5((shellV2 as { text: string }).text),
-			md5PatchedV1: md5(v1Text),
+			md5PatchedV1: [md5(v1Text)],
 			v2Marker: 'Banner color: wallpaper',
 		},
 		{ ...bannerTarget, md5: md5(bannerText), md5Patched: md5((bannerV2 as { text: string }).text) },

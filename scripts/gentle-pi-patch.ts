@@ -49,8 +49,8 @@ export interface TargetSpec {
 	edits: PatchEdit[];
 	/** md5 of the exact bytes this version writes. */
 	md5Patched?: string;
-	/** md5 of the bytes the previous version wrote, when they differ. */
-	md5PatchedV1?: string;
+	/** md5 of the bytes each earlier version wrote, so they can be upgraded. */
+	md5PatchedV1?: string[];
 	/**
 	 * Text that only the current patch version writes. Used to explain a file that
 	 * carries our marker but matches neither version: it was edited afterwards.
@@ -62,7 +62,7 @@ const SHELL_INIT_ANCHOR = "\t\t\tlet banner = await readBannerConfig(bannerHome)
 const SHELL_INIT_ADDITION = "\t\t\t// LOON banner patch v2: the banner source and the accent choice live in\n\t\t\t// LOON's own settings file, because writeBannerConfig() persists only this\n\t\t\t// file's three keys and would drop anything else written here.\n\t\t\tconst loonSettingsPath = join(process.env.PI_CODING_AGENT_DIR || join(os.homedir(), \".pi\", \"agent\"), \"loon-tui.json\");\n\t\t\tconst readLoonSettings = async (): Promise<Record<string, unknown>> => {\n\t\t\t\ttry {\n\t\t\t\t\tconst parsed: unknown = JSON.parse(await readFile(loonSettingsPath, \"utf8\"));\n\t\t\t\t\treturn typeof parsed === \"object\" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};\n\t\t\t\t} catch {\n\t\t\t\t\treturn {};\n\t\t\t\t}\n\t\t\t};\n\t\t\tlet loonSettings = await readLoonSettings();\n\t\t\tlet loonBannerSource: \"loon\" | \"rose\" | \"off\" = loonSettings.source === \"rose\" || loonSettings.source === \"off\" ? loonSettings.source : \"loon\";\n\t\t\tconst writeLoonSettings = async (next: Record<string, unknown>) => {\n\t\t\t\tconst { mkdir, rename, writeFile } = await import(\"node:fs/promises\");\n\t\t\t\tawait mkdir(dirname(loonSettingsPath), { recursive: true });\n\t\t\t\tconst temporary = `${loonSettingsPath}.${process.pid}.tmp`;\n\t\t\t\tawait writeFile(temporary, `${JSON.stringify(next, null, \"\\t\")}\\n`, { mode: 0o600 });\n\t\t\t\tawait rename(temporary, loonSettingsPath);\n\t\t\t\tloonSettings = next;\n\t\t\t};\n\t\t\tconst saveLoonBannerSource = async (source: \"loon\" | \"rose\" | \"off\") => {\n\t\t\t\tawait writeLoonSettings({ ...loonSettings, source });\n\t\t\t\tloonBannerSource = source;\n\t\t\t};\n\t\t\tconst saveLoonAccent = async (accent: \"banner\" | \"wallpaper\") => {\n\t\t\t\tawait writeLoonSettings({ ...loonSettings, accent });\n\t\t\t};\n\t\t\tconst readWallpaperAccent = async (): Promise<{ hex: string; rgb: [number, number, number] } | undefined> => {\n\t\t\t\ttry {\n\t\t\t\t\tconst { readFile: readText } = await import(\"node:fs/promises\");\n\t\t\t\t\tconst home = process.env.HOME ?? os.homedir();\n\t\t\t\t\tconst raw = await readText(join(home, \".config\", \"mpvpaper\", \"accent.txt\"), \"utf8\");\n\t\t\t\t\tconst match = /^\\s*#?([0-9a-fA-F]{6})\\s*$/.exec(raw);\n\t\t\t\t\tif (match === null) return undefined;\n\t\t\t\t\tconst hex = match[1]!.toUpperCase();\n\t\t\t\t\treturn { hex: \"#\" + hex, rgb: [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)] };\n\t\t\t\t} catch {\n\t\t\t\t\treturn undefined;\n\t\t\t\t}\n\t\t\t};\n\t\t\tlet loonWallpaperAccent = await readWallpaperAccent();";
 
 const SHELL_ROWS_ANCHOR = "\t\t\tadd(() => `Banner rose: ${banner.showRose ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showRose = !next.showRose;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showRose: !banner.showRose }));\n\t\t\tadd(() => `Banner text logo: ${banner.showTextLogo ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showTextLogo = !next.showTextLogo;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showTextLogo: !banner.showTextLogo }));\n\t\t\tfor (const color of BANNER_COLORS) add(\n\t\t\t\t() => `Banner color: ${color}${banner.color === color ? \" (current)\" : \"\"}`,\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { const next = { ...await readBannerConfigForEdit(bannerHome), color }; await writeBannerConfig(next, bannerHome); banner = next; },\n\t\t\t\t() => bannerPreview({ ...banner, color }),\n\t\t\t);";
-const SHELL_ROWS_REPLACEMENT = "\t\t\t// LOON banner patch v2: one source row, three states, cycling on select.\n\t\t\tconst LOON_BANNER_SOURCES = [\"loon\", \"rose\", \"off\"] as const;\n\t\t\tconst nextLoonBannerSource = () => LOON_BANNER_SOURCES[(LOON_BANNER_SOURCES.indexOf(loonBannerSource) + 1) % LOON_BANNER_SOURCES.length];\n\t\t\tadd(() => `Banner: ${loonBannerSource}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tawait saveLoonBannerSource(nextLoonBannerSource());\n\t\t\t}, () => {\n\t\t\t\tconst next = nextLoonBannerSource();\n\t\t\t\tif (next === \"rose\") return bannerPreview(banner);\n\t\t\t\treturn next === \"off\"\n\t\t\t\t\t? { title: \"Banner \u00b7 off (static)\", sample: \"\u00b7  pi's own header at next startup\" }\n\t\t\t\t\t: { title: \"Banner \u00b7 LOON (static)\", sample: \"\u2588  LOON header at next startup\" };\n\t\t\t});\n\t\t\tif (loonBannerSource === \"rose\") add(() => `Banner text logo: ${banner.showTextLogo ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showTextLogo = !next.showTextLogo;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showTextLogo: !banner.showTextLogo }));\n\t\t\t// LOON banner patch v2: the four named colours also return the accent to\n\t\t\t// gentle-pi's palette, so picking pink after wallpaper is not a no-op.\n\t\t\tfor (const color of BANNER_COLORS) add(\n\t\t\t\t() => `Banner color: ${color}${loonSettings.accent !== \"wallpaper\" && banner.color === color ? \" (current)\" : \"\"}`,\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { const next = { ...await readBannerConfigForEdit(bannerHome), color }; await writeBannerConfig(next, bannerHome); banner = next; await saveLoonAccent(\"banner\"); },\n\t\t\t\t() => bannerPreview({ ...banner, color }),\n\t\t\t);\n\t\t\tadd(\n\t\t\t\t() => `Banner color: wallpaper${loonSettings.accent === \"wallpaper\" ? \" (current)\" : \"\"}`,\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { await saveLoonAccent(\"wallpaper\"); loonWallpaperAccent = await readWallpaperAccent(); },\n\t\t\t\t() => loonWallpaperAccent === undefined\n\t\t\t\t\t? { title: \"Wallpaper accent \u00b7 unavailable (static)\", sample: \"\u00b7  falls back to the theme accent\" }\n\t\t\t\t\t: { title: `Wallpaper accent \u00b7 ${loonWallpaperAccent.hex} (static)`, sample: `\\x1b[38;2;${loonWallpaperAccent.rgb[0]};${loonWallpaperAccent.rgb[1]};${loonWallpaperAccent.rgb[2]}m\u2588\\x1b[0m  wallpaper accent` },\n\t\t\t);";
+const SHELL_ROWS_REPLACEMENT = "\t\t\t// LOON banner patch v2: one source row, three states, cycling on select.\n\t\t\tconst LOON_BANNER_SOURCES = [\"loon\", \"rose\", \"off\"] as const;\n\t\t\tconst nextLoonBannerSource = () => LOON_BANNER_SOURCES[(LOON_BANNER_SOURCES.indexOf(loonBannerSource) + 1) % LOON_BANNER_SOURCES.length];\n\t\t\tadd(() => `Banner: ${loonBannerSource}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tawait saveLoonBannerSource(nextLoonBannerSource());\n\t\t\t}, () => {\n\t\t\t\tconst next = nextLoonBannerSource();\n\t\t\t\tif (next === \"rose\") return bannerPreview(banner);\n\t\t\t\treturn next === \"off\"\n\t\t\t\t\t? { title: \"Banner \u00b7 off (static)\", sample: \"\u00b7  pi's own header at next startup\" }\n\t\t\t\t\t: { title: \"Banner \u00b7 LOON (static)\", sample: \"\u2588  LOON header at next startup\" };\n\t\t\t});\n\t\t\tif (loonBannerSource === \"rose\") add(() => `Banner text logo: ${banner.showTextLogo ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showTextLogo = !next.showTextLogo;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showTextLogo: !banner.showTextLogo }));\n\t\t\t// LOON banner patch v2: the four named colours also return the accent to\n\t\t\t// gentle-pi's palette, so picking pink after wallpaper is not a no-op.\n\t\t\tfor (const color of BANNER_COLORS) add(\n\t\t\t\t() => `Banner color: ${color}${loonSettings.accent !== \"wallpaper\" && banner.color === color ? \" (current)\" : \"\"}`,\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { const next = { ...await readBannerConfigForEdit(bannerHome), color }; await writeBannerConfig(next, bannerHome); banner = next; await saveLoonAccent(\"banner\"); },\n\t\t\t\t() => bannerPreview({ ...banner, color }),\n\t\t\t);\n\t\t\tadd(\n\t\t\t\t(labelWidth?: number) => {\n\t\t\t\t\t// The marker is LOON's, and it is the first thing to go when the row\n\t\t\t\t\t// cannot hold the whole label: (current) is never sacrificed.\n\t\t\t\t\tconst suffix = loonSettings.accent === \"wallpaper\" ? \" (current)\" : \"\";\n\t\t\t\t\tconst full = \"Banner color: wallpaper (LOON)\";\n\t\t\t\t\tconst short = \"Banner color: wallpaper\";\n\t\t\t\t\tconst fits = labelWidth === undefined || labelWidth >= full.length + suffix.length;\n\t\t\t\t\treturn (fits ? full : short) + suffix;\n\t\t\t\t},\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { await saveLoonAccent(\"wallpaper\"); loonWallpaperAccent = await readWallpaperAccent(); },\n\t\t\t\t() => loonWallpaperAccent === undefined\n\t\t\t\t\t? { title: \"Wallpaper accent \u00b7 unavailable (static)\", sample: \"\u00b7  falls back to the theme accent\" }\n\t\t\t\t\t: { title: `Wallpaper accent \u00b7 ${loonWallpaperAccent.hex} (static)`, sample: `\\x1b[38;2;${loonWallpaperAccent.rgb[0]};${loonWallpaperAccent.rgb[1]};${loonWallpaperAccent.rgb[2]}m\u2588\\x1b[0m  wallpaper accent` },\n\t\t\t);";
 
 const BANNER_CONFIG_ANCHOR = "    const bannerConfig = await readBannerConfig();";
 const BANNER_CONFIG_ADDITION = "    // LOON banner patch: LOON's own setting decides who paints the header. \"rose\"\n    // - and a missing setting, so an unpatched LOON keeps working - leaves this\n    // banner in charge; \"loon\" and \"off\" both mean it must not install.\n    const loonBannerSource = await readLoonBannerSource();\n    if (loonBannerSource === \"loon\" || loonBannerSource === \"off\") return;";
@@ -78,16 +78,35 @@ export const ANCHORS = {
 	bannerEvent: BANNER_EVENT_ANCHOR,
 };
 
+const VIEW_LABEL_TYPE_ANCHOR = '\tlabel: string | (() => string);';
+const VIEW_LABEL_TYPE_REPLACEMENT = '\tlabel: string | ((width?: number) => string);';
+
+const VIEW_LABEL_CALL_ANCHOR =
+	'\t\t\tconst item = navOnly ? this.categories[start + i] : row ? typeof row.label === "function" ? row.label() : row.label : undefined;';
+const VIEW_LABEL_CALL_REPLACEMENT =
+	'\t\t\tconst item = navOnly ? this.categories[start + i] : row ? typeof row.label === "function" ? row.label(rightWidth) : row.label : undefined;';
+
 export const TARGETS: TargetSpec[] = [
 	{
 		file: 'extensions/gentle-shell.ts',
 		md5: 'ad1bfce79b655fc4f7cae71449d05d88',
-		md5PatchedV1: '8ae96c97de14436e9755608a81579441',
-		md5Patched: 'b808107af050aa1778410fefa67974df',
+		md5PatchedV1: ['8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df'],
+		md5Patched: '945363c38d21403cce653143e0305a6a',
 		v2Marker: 'Banner color: wallpaper',
 		edits: [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
 			{ anchor: SHELL_ROWS_ANCHOR, replacement: SHELL_ROWS_REPLACEMENT },
+		],
+	},
+	{
+		// The view calls a row's label with the width the row actually has, so a long
+		// label can choose a shorter wording instead of being cut mid-word.
+		file: 'lib/visual-customize-view.ts',
+		md5: '6f1b71a9aa898fcf55196d73634b0076',
+		md5Patched: '23bb9997b474842fe5f2a4d652c4178b',
+		edits: [
+			{ anchor: VIEW_LABEL_TYPE_ANCHOR, replacement: VIEW_LABEL_TYPE_REPLACEMENT },
+			{ anchor: VIEW_LABEL_CALL_ANCHOR, replacement: VIEW_LABEL_CALL_REPLACEMENT },
 		],
 	},
 	{
@@ -119,7 +138,7 @@ export function classify(text: string | undefined, spec: TargetSpec): PatchState
 	if (text === undefined) return 'missing';
 	const digest = md5(text);
 	if (digest === spec.md5) return 'clean';
-	if (spec.md5PatchedV1 !== undefined && digest === spec.md5PatchedV1) return 'patched-v1';
+	if (spec.md5PatchedV1 !== undefined && spec.md5PatchedV1.includes(digest)) return 'patched-v1';
 	if (spec.md5Patched !== undefined && digest === spec.md5Patched) return 'patched';
 	return 'different-version';
 }
@@ -233,7 +252,7 @@ export function buildAliases(piRoot: string): Record<string, string> {
 	return aliases;
 }
 
-const VALIDATOR_SOURCE = "const fs = await import('node:fs');\nconst [entry, aliasesPath, target] = process.argv.slice(2);\nconst aliases = JSON.parse(fs.readFileSync(aliasesPath, 'utf8'));\nlet createJiti;\nif (entry) {\n  const mod = await import(entry);\n  createJiti = mod.createJiti ?? mod.default?.createJiti;\n}\nif (typeof createJiti === 'function') {\n  const jiti = createJiti(import.meta.url, { moduleCache: false, interopDefault: true, fsCache: false, alias: aliases });\n  const factory = await jiti.import(target, { default: true });\n  if (typeof factory !== 'function') throw new Error('module has no default factory export');\n} else {\n  const mod = await import(target);\n  if (typeof mod.default !== 'function') throw new Error('module has no default factory export');\n}\nconsole.log('ok');";
+const VALIDATOR_SOURCE = "const fs = await import('node:fs');\nconst [entry, aliasesPath, target] = process.argv.slice(2);\nconst aliases = JSON.parse(fs.readFileSync(aliasesPath, 'utf8'));\nlet createJiti;\nif (entry) {\n  const mod = await import(entry);\n  createJiti = mod.createJiti ?? mod.default?.createJiti;\n}\nconst loaded = typeof createJiti === 'function'\n  ? await createJiti(import.meta.url, { moduleCache: false, interopDefault: true, fsCache: false, alias: aliases }).import(target)\n  : await import(target);\n// A pi extension exports a factory; a library module exports names. Either way the\n// module parsed and evaluated, which is what this gate is for.\nif (loaded === undefined || loaded === null) throw new Error('module did not load');\nif ('default' in loaded && typeof loaded.default !== 'function' && Object.keys(loaded).length === 1) {\n  throw new Error('module default export is not a function');\n}\nif (Object.keys(loaded).length === 0) throw new Error('module exports nothing');\nconsole.log('ok');";
 
 /** Import a file in a child process, the way pi loads extensions. */
 export function validateImport(
