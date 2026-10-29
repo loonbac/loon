@@ -9,7 +9,7 @@ import {
 	readThemeFile,
 	themesDir,
 } from '../extensions/lib/theme-file.ts';
-import { WALLPAPER_THEME_NAME, themeFileName } from '../extensions/lib/wallpaper-theme.ts';
+import { CARD_SURFACE_CONTRAST, WALLPAPER_THEME_NAME, deriveWallpaperTheme, themeFileName } from '../extensions/lib/wallpaper-theme.ts';
 
 const dir = () => mkdtempSync(join(tmpdir(), 'loon-themes-'));
 const ACCENT: [number, number, number] = [213, 169, 240];
@@ -47,6 +47,26 @@ test('a fresh theme is left alone, a stale one is regenerated', () => {
 	// Stale: the wallpaper changed after the theme was written.
 	touch(accentMs - 10_000);
 	assert.equal(ensureWallpaperTheme({ accent: ACCENT, dir: dirPath, accentModifiedAt: accentMs }).result, 'written');
+});
+
+test('a file whose palette rules changed is regenerated even when the accent did not', () => {
+	// The accent is unchanged and the file is newer than it, so an mtime check says
+	// "up to date". The palette rules are what moved - the card surfaces are placed by
+	// contrast now - and a stale file would mean the new rule never reaches the screen.
+	const dirPath = dir();
+	const first = ensureWallpaperTheme({ accent: ACCENT, dir: dirPath });
+	const stored = JSON.parse(readFileSync(first.path, 'utf8')) as { vars: Record<string, string> };
+	stored.vars.toolSuccessBg = '#231D0A';
+	stored.vars.toolPendingBg = '#231D0A';
+	writeFileSync(first.path, JSON.stringify(stored, null, '\t') + '\n');
+	const accentMs = Date.now();
+	utimesSync(first.path, (accentMs + 10_000) / 1000, (accentMs + 10_000) / 1000);
+
+	assert.equal(ensureWallpaperTheme({ accent: ACCENT, dir: dirPath, accentModifiedAt: accentMs }).result, 'written');
+	const rewritten = JSON.parse(readFileSync(first.path, 'utf8')) as { vars: Record<string, string> };
+	assert.equal(rewritten.vars.toolSuccessBg, deriveWallpaperTheme(ACCENT).vars.toolSuccessBg);
+	assert.notEqual(rewritten.vars.toolPendingBg, '#231D0A', 'the collapsed pair came back');
+	assert.ok(CARD_SURFACE_CONTRAST > 1.6);
 });
 
 test('a file that is not ours is never clobbered', () => {

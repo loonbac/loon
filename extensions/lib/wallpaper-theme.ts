@@ -133,16 +133,61 @@ const COLOR_TO_VAR: Record<(typeof COLOR_KEYS)[number], string> = {
 const paint = (L: number, C: number, H: number): string => oklchToHex({ L, C, H });
 
 /**
- * A card surface at a given lightness, with the chroma the caller asked for capped by
- * what the eight-bit hex can actually hold: rounding can push a colour past the ceiling,
- * and the ceiling is a promise to the caller, not a wish.
+ * How far a card surface must sit from the background, in contrast: 1.65, the first rung
+ * of the ladder that reads as a surface on every wallpaper, not just the one it was tuned
+ * on. A fixed lightness cannot promise that: the same L is 1.16 against one background and
+ * 1.5 against another, which is how the band once came out green and then vanished.
  */
-function cardSurface(lightness: number, hue: number, chroma: number): string {
-	for (let candidate = chroma; candidate >= 0.01; candidate -= 0.001) {
-		const hex = paint(lightness, candidate, hue);
-		if (rgbToOklch(hexToRgb(hex) as Rgb).C <= 0.035) return hex;
+export const CARD_SURFACE_CONTRAST = 1.65;
+
+/**
+ * The gap between the three card surfaces. They are one accent surface, not three
+ * signals, so the gap is small - but it has to survive eight-bit rounding: at 0.0015 of
+ * lightness two of them collapsed into the same hex and gentle-pi painted INFO, PENDING
+ * and ERROR cards in one flat colour.
+ */
+export const CARD_SURFACE_STEP = 0.02;
+
+/**
+ * A card surface at a target contrast against the background, tinted with the accent's
+ * hue. The lightness is solved, not assumed; the chroma is whatever survives the sRGB
+ * gamut at that lightness, stepping down only when the gamut refuses the tint entirely.
+ */
+function cardSurfaceAtContrast(background: Rgb, hue: number, chroma: number, target: number): string {
+	const ceiling = 3.2;
+	// A finer lightness grid than the accent surfaces use: two card kinds are one step of
+	// contrast apart, and on a 0.005 grid both round to the same lightness - and therefore
+	// to the same hex, which is the defect this is here to prevent.
+	const step = 0.001;
+	const attempt = (tint: number) => surfaceAtChroma(hue, tint, background, target, ceiling, step);
+	// The chroma ceiling is a promise to the caller, and eight-bit rounding crosses it:
+	// step the tint down until the surface it produces really is under 0.035.
+	for (let tint = chroma; tint >= 0.012; tint -= 0.002) {
+		const hex = attempt(tint);
+		if (hex !== undefined && rgbToOklch(hexToRgb(hex) as Rgb).C <= 0.035) return hex;
 	}
-	return paint(lightness, 0.01, hue);
+	// The gamut refused every tint: a neutral surface at the same contrast still beats a
+	// surface the caller cannot see.
+	return attempt(0.012) ?? surfaceAtChroma(hue, 0, background, target, ceiling, step) ?? paint(0.42, 0.01, hue);
+}
+
+/**
+ * The three card surfaces, one accent surface at three rungs of the same ladder. A rung
+ * that rounds onto a rung below it climbs higher instead: INFO, PENDING and ERROR cards
+ * have to stay three colours, and eight-bit hex will collapse them otherwise.
+ */
+function cardSurfaces(background: Rgb, hue: number, chroma: number): [string, string, string] {
+	const surfaces: string[] = [];
+	for (const target of [CARD_SURFACE_CONTRAST, CARD_SURFACE_CONTRAST + CARD_SURFACE_STEP, CARD_SURFACE_CONTRAST + 2 * CARD_SURFACE_STEP]) {
+		let hex = cardSurfaceAtContrast(background, hue, chroma, target);
+		let climb = 1;
+		while (surfaces.includes(hex) && climb <= 20) {
+			hex = cardSurfaceAtContrast(background, hue, chroma, target + 0.005 * climb);
+			climb += 1;
+		}
+		surfaces.push(hex);
+	}
+	return [surfaces[0]!, surfaces[1]!, surfaces[2]!];
 }
 
 /**
@@ -150,8 +195,8 @@ function cardSurface(lightness: number, hue: number, chroma: number): string {
  * contrast against `background` reaches `minContrast` while its chroma survives the
  * sRGB gamut, and undefined when the range cannot hold it.
  */
-function surfaceAtChroma(hue: number, chroma: number, background: Rgb, minContrast: number, maxContrast: number): string | undefined {
-	for (let lightness = 0.18; lightness <= 0.7; lightness += 0.005) {
+function surfaceAtChroma(hue: number, chroma: number, background: Rgb, minContrast: number, maxContrast: number, step = 0.005): string | undefined {
+	for (let lightness = 0.18; lightness <= 0.7; lightness += step) {
 		const hex = paint(lightness, chroma, hue);
 		const rgb = hexToRgb(hex) as Rgb;
 		const contrast = contrastRatio(rgb, background);
@@ -215,6 +260,7 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 	// allowed range, because the lightness window below is narrow and a dull grey is
 	// worse than a visible tint.
 	const surface = Math.min(0.034, Math.max(0.02, tint * 0.6));
+	const [cardSuccess, cardPending, cardError] = cardSurfaces(bg, H, surface);
 
 	const vars: Record<string, string> = {
 		bg: paint(0.16, low, H),
@@ -241,9 +287,9 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 		warning: paint(0.82, 0.13, 75),
 		error: paint(0.72, 0.15, 25),
 		success: paint(0.8, 0.12, 150),
-		toolSuccessBg: cardSurface(0.2335, H, surface),
-		toolPendingBg: cardSurface(0.2343, H, surface),
-		toolErrorBg: cardSurface(0.235, H, surface),
+		toolSuccessBg: cardSuccess,
+		toolPendingBg: cardPending,
+		toolErrorBg: cardError,
 		syntaxComment: paint(0.62, 0.05, rotateHue(H, 30)),
 		syntaxKeyword: paint(0.78, 0.1, rotateHue(H, 60)),
 		syntaxFunction: paint(0.82, 0.1, rotateHue(H, 120)),

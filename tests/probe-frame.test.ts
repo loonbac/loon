@@ -211,6 +211,20 @@ test('a probe that never draws a frame fails, and still restores the configurati
 	}
 });
 
+test('--sgr keeps the escape sequences, so a frame carries its colours', () => {
+	const home = scratchHome();
+	try {
+		const out = join(home.root, 'sgr.txt');
+		const captured = run(['capture', '--label', 'sgr', '--settle', '1', '--sgr', '--command', 'printf \'\\033[48;2;61;56;35mBAND\\033[0m\n\'; sleep 30', '--out', out], home.env);
+		// The frame is drawn, so the capture succeeds even though the session never exits.
+		assert.equal(captured.status, 0, captured.stderr);
+		const frame = readFileSync(out, 'utf8');
+		assert.match(frame, /\u001b\[48;2;61;56;35m/, 'the background SGR must survive the capture');
+	} finally {
+		rmSync(home.root, { recursive: true, force: true });
+	}
+});
+
 test('a failed probe never deletes a file the caller already had', () => {
 	const home = scratchHome();
 	try {
