@@ -77,7 +77,8 @@ S26 — Square logo section, wider sidebar. The left half drops from 69% to 42% 
 | T13 | S13, S15, S21, S23, S24 | inline | 1768abb |
 | T14 | S13, S21 | inline | f2c9b00 |
 | T15 | S24, S25 | inline | 7d580b8 |
-| T16 | S26 | inline | pending |
+| T16 | S26 | inline | be5b1a2 |
+| T17 | S27 | inline | pending |
 ## Log
 
 L1 (user request, verbatim):
@@ -272,3 +273,11 @@ L14 (T16 evidence):
 - The plain-theme split helper now strips escapes before slicing columns: with the narrower left half more rows are truncated, and pi-tui appends `\x1b[0m` when it truncates, which shifted code-unit slicing.
 - Real capture with the installed package (path install, so `pi --use-theme Gentle` reads this tree): `tmux new-session -d -x 80 -y 32 "cd /home/loonbac && pi --use-theme Gentle"`, 12 s, `tmux capture-pane -pt`. Frame shows the box with the mark section at 32 columns and the sidebar at 44; mark ink starts at column 11 on all four rows (0-based index 11). At 120x32: left 40, sidebar 76, ink starts at 15 on all four rows, rule 74 columns ending one short of the border.
 - Consequence reported, not fixed because the owner asked not to touch the model label: at 32 columns a long id truncates earlier than before, so at 80 columns `river/deepseek-ai/DeepSeek-V4.1-Flash-1017 · high effort` becomes `river/deepseek-ai/DeepSeek-V4…` and the effort word disappears. Options if it matters: drop the effort suffix when the full label does not fit, or raise the ceiling to ~44.
+S27 — Model label wraps instead of truncating. Only the `model · effort` row wraps; the tagline and the cwd keep truncating. The wrap width is `leftWidth - 2`, the same one-column margin `centerClipped` uses. Break preference is `/`, then `-`, then a space; a run with no separator left is cut at the width, with no invented ellipsis; every resulting row is centred like the rest of the column. There is no line cap: a 57-column id in a 30-column window becomes `river/deepseek-ai/` / `DeepSeek-V4.1-Flash-1017` / `· high effort`. The body height follows `max(left, right)`, so the box stays rectangular and the sidebar only gains blank rows below its last label.
+L15 (T17 evidence):
+
+- `wrapLabel(text, width)` in `extensions/lib/layout.ts`: splits words at spaces, breaks an over-long token at `/` then `-` then hard-cuts at the width, and a token that had to be split closes its line so the remaining words start on a fresh one. That last rule is what puts `· high effort` on its own row instead of gluing it to the tail of the id.
+- `extensions/lib/banner.ts` builds `model · effort effort` as plain text, wraps it at `Math.max(1, leftWidth - 2)` and paints each row with `palette.body` before centring, so the escapes never enter the measurement.
+- Tests: one row when it fits; two and three rows with the exact break points; hard cut with no ellipsis and the dash preference; and a rectangular-box check at 80 and 120 with the real 42-column id, asserting no `…`, the sidebar keeps its 8 content rows, the two extra rows under it are blank, and every body row still starts and ends with a border. 35 tests pass, `tsc --noEmit` clean, goldens regenerated.
+- Real capture (`pi --use-theme Gentle`, 13 s), 80x32 and 120x32: the model block is exactly the three expected rows, each centred; the frame keeps 80 and 120 visible columns on every row; body 12 rows with the sidebar content ending at row 9 and three blank rows below it; the bottom border moves down two rows versus the one-line version, which is `max(left, right)` doing its job.
+- Known rough edge, left as specified (greedy packing, no balance heuristic): a label that is just over the window with ordinary words can orphan its last word, e.g. `openai-codex/gpt-5.5 · high effort` at 30 columns gives `openai-codex/gpt-5.5 · high` / `effort`.

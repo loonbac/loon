@@ -6,7 +6,7 @@
  * the exact output at a fixed width.
  */
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
-import { center, headerColumnWidths, padRight } from './layout.ts';
+import { center, headerColumnWidths, padRight, wrapLabel } from './layout.ts';
 import { renderLogo } from './logo.ts';
 import type { Palette } from './palette.ts';
 
@@ -80,13 +80,18 @@ export function renderBanner(input: BannerInput): string[] {
 	// The captured arrangement, measured from the reference: the mark starts two
 	// rows below the top border (level with `Ask Pi to build it`), a blank row
 	// separates it from the tagline, and the cwd closes the interior.
+	// A model id is long enough to overrun the half; it wraps instead of losing
+	// its tail to an ellipsis, and the box grows to whatever the wrap needs.
+	const modelLines = wrapLabel(`${input.model} · ${input.effort} effort`, Math.max(1, leftWidth - 2)).map(
+		(line) => centerClipped(palette.body(line), leftWidth),
+	);
 	const leftLines = [
 		'',
 		'',
 		...renderLogo(palette).map((line) => center(line, leftWidth)),
 		'',
 		centerClipped(palette.tagline("Let's build something great"), leftWidth),
-		centerClipped(palette.body(`${input.model} · ${input.effort} effort`), leftWidth),
+		...modelLines,
 		centerClipped(palette.subtle(input.cwd), leftWidth),
 	];
 

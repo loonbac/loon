@@ -38,6 +38,109 @@ export function center(text: string, width: number): string {
 	return `${' '.repeat(Math.floor((width - w) / 2))}${text}`;
 }
 
+/** Preferred places to break a long token, best first: path, then words. */
+const BREAK_PREFERENCE = ['/', '-'] as const;
+
+/** Split after every separator it contains, keeping the separator attached. */
+function unitsBy(text: string, separator: string): string[] {
+	const units: string[] = [];
+	let current = '';
+	for (const char of text) {
+		current += char;
+		if (char === separator) {
+			units.push(current);
+			current = '';
+		}
+	}
+	if (current) units.push(current);
+	return units;
+}
+
+/** Last resort: cut at the width, without inventing a character. */
+function hardSplit(text: string, width: number): string[] {
+	const lines: string[] = [];
+	let current = '';
+	let used = 0;
+	for (const char of text) {
+		const w = visibleWidth(char);
+		if (current && used + w > width) {
+			lines.push(current);
+			current = '';
+			used = 0;
+		}
+		current += char;
+		used += w;
+	}
+	if (current) lines.push(current);
+	return lines;
+}
+
+/** Break one token that does not fit, following BREAK_PREFERENCE. */
+function breakToken(token: string, width: number, depth = 0): string[] {
+	if (visibleWidth(token) <= width) return [token];
+	const separator = BREAK_PREFERENCE[depth];
+	if (separator === undefined) return hardSplit(token, width);
+
+	const lines: string[] = [];
+	let current = '';
+	for (const unit of unitsBy(token, separator)) {
+		for (const piece of breakToken(unit, width, depth + 1)) {
+			if (current && visibleWidth(current) + visibleWidth(piece) > width) {
+				lines.push(current);
+				current = '';
+			}
+			current += piece;
+		}
+	}
+	if (current) lines.push(current);
+	return lines;
+}
+
+/**
+ * Break a label into lines that fit the width, so a long model id keeps every
+ * character instead of losing its tail to an ellipsis. Breaks at a space when
+ * there is one, splits an over-long token at a slash and then a dash, and cuts
+ * at the width only when a single run has no separator left. A token that had
+ * to be split ends its line, so the words after it start on a fresh one.
+ */
+export function wrapLabel(text: string, width: number): string[] {
+	if (width <= 0) return [];
+	const lines: string[] = [];
+	let current = '';
+	let fresh = false;
+	const flush = () => {
+		if (current) {
+			lines.push(current);
+			current = '';
+		}
+	};
+
+	for (const word of text.split(' ').filter((word) => word.length > 0)) {
+		if (fresh) {
+			flush();
+			fresh = false;
+		}
+		if (visibleWidth(word) <= width) {
+			if (!current) current = word;
+			else if (visibleWidth(current) + 1 + visibleWidth(word) <= width) current = current + ' ' + word;
+			else {
+				flush();
+				current = word;
+			}
+			continue;
+		}
+
+		flush();
+		const pieces = breakToken(word, width);
+		current = pieces.pop() ?? '';
+		lines.push(...pieces);
+		fresh = true;
+	}
+
+	flush();
+	return lines.length > 0 ? lines : [''];
+}
+
 /** Pad to exactly `width` columns, optionally truncating with `ellipsis`. */
 export function padRight(text: string, width: number, ellipsis = ''): string {
 	const clipped = truncateToWidth(text, width, ellipsis);
