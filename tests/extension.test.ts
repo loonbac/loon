@@ -105,6 +105,8 @@ interface FakeConfig {
 	writes: LoonSettings[];
 	state: LoonState;
 	wallpaperRgb: [number, number, number] | undefined;
+	themeCalls: unknown[];
+	themeResult: 'written' | 'up-to-date' | 'skipped-foreign' | 'skipped-no-accent';
 	set(next: Partial<LoonState>): void;
 	emit(): void;
 	disposed(): number;
@@ -123,6 +125,8 @@ function fakeConfig(initial: Partial<LoonState> = {}): FakeConfig {
 		writes,
 		state,
 		wallpaperRgb: undefined,
+		themeCalls: [],
+		themeResult: 'written',
 		deps: {
 			read: () => ({ loon: { ...state.loon }, gentle: { ...state.gentle } }),
 			write: (settings) => {
@@ -131,6 +135,10 @@ function fakeConfig(initial: Partial<LoonState> = {}): FakeConfig {
 				config.state = state;
 			},
 			wallpaper: () => config.wallpaperRgb,
+			ensureTheme: (accent) => {
+				config.themeCalls.push(accent);
+				return { result: config.themeResult, path: '/tmp/themes/Wallpaper (LOON).json' };
+			},
 			watch: (onChange) => {
 				emitHandler = onChange;
 				return () => {
@@ -176,8 +184,14 @@ function widgets(ctx: FakeContext): [string, { content: unknown; options: unknow
 type Factory = (tui: unknown, theme: unknown) => { render(width: number): string[] };
 
 function renderHeader(ctx: FakeContext, width = 80): string[] {
+	const name = (ctx.ui.theme as { name?: string } | undefined)?.name;
+	return renderHeaderWith(ctx, name, width);
+}
+
+/** Render with a specific active theme name, as pi would after a theme change. */
+function renderHeaderWith(ctx: FakeContext, themeName: string | undefined, width = 80): string[] {
 	const factory = headerFactories(ctx).at(-1) as Factory;
-	ctx.ui.theme = plainTheme();
+	ctx.ui.theme = { ...plainTheme(), name: themeName };
 	return factory({ requestRender: () => {} }, ctx.ui.theme).render(width);
 }
 
@@ -470,6 +484,59 @@ test('a wallpaper change repaints a running session', async () => {
 	const rendered = renderHeader(ctx).join('\n');
 	assert.ok(rendered.includes('\x1b[38;2;30;144;255m'), 'the new wallpaper colour was not painted');
 	assert.ok(!rendered.includes('\x1b[38;2;155;72;74m'), 'the old wallpaper colour is still on screen');
+});
+
+/* S6/S8: the generated theme, and the banner following it. */
+
+test('the theme is generated on session start and again when the wallpaper changes', async () => {
+	const { pi, ctx, config } = boot();
+	config.wallpaperRgb = [213, 169, 240];
+	startSession(pi, ctx);
+	await wait(50);
+	assert.deepEqual(config.themeCalls, [[213, 169, 240]], 'the theme was not generated from the accent');
+
+	config.wallpaperRgb = [30, 144, 255];
+	config.emit();
+	assert.deepEqual(config.themeCalls, [[213, 169, 240], [30, 144, 255]], 'a wallpaper change did not regenerate the theme');
+});
+
+test('with the generated theme active the banner follows the wallpaper, whatever the accent setting', async () => {
+	const { pi, ctx, config } = boot({
+		loon: { ...DEFAULT_LOON_SETTINGS, accent: 'banner' },
+		gentle: { ...DEFAULT_GENTLE_SETTINGS, accentColor: 'pink' },
+	});
+	config.wallpaperRgb = [213, 169, 240];
+	ctx.ui.theme = { ...plainTheme(), name: 'Wallpaper (LOON)' };
+	startSession(pi, ctx);
+	await wait(50);
+
+	const rendered = renderHeaderWith(ctx, 'Wallpaper (LOON)').join('\n');
+	assert.ok(rendered.includes('\x1b[38;2;213;169;240m'), 'the banner did not follow the wallpaper');
+	assert.ok(!rendered.includes('\x1b[38;2;255;118;195m'), 'gentle-pi\'s pink won over the active theme');
+
+	// Any other theme leaves the setting in charge.
+	const other = renderHeaderWith(ctx, 'Gentle').join('\n');
+	assert.ok(other.includes('\x1b[38;2;255;118;195m'), 'the accent setting was ignored for a foreign theme');
+});
+
+test('status reports the theme file and whether it is active', async () => {
+	const { pi, ctx, config } = boot();
+	config.wallpaperRgb = [213, 169, 240];
+	config.themeResult = 'skipped-foreign';
+	startSession(pi, ctx);
+	await wait(50);
+	const menu = pi.commands.get(MENU_COMMAND)!;
+	const status = menu.handler as (args: string, ctx: FakeContext) => Promise<void>;
+	await status('status', ctx);
+	assert.match(ctx.ui.notifyQueue.at(-1) ?? '', /theme Wallpaper \(LOON\) skipped-foreign/, 'a foreign file must be reported');
+
+	// A wallpaper change regenerates it, and the status follows the active theme.
+	config.themeResult = 'written';
+	ctx.ui.theme = { ...plainTheme(), name: 'Wallpaper (LOON)' } as never;
+	config.wallpaperRgb = [30, 144, 255];
+	config.emit();
+	await status('status', ctx);
+	assert.match(ctx.ui.notifyQueue.at(-1) ?? '', /theme Wallpaper \(LOON\) written, active/);
 });
 
 test('the settings command reports what it is following', async () => {
