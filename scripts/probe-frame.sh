@@ -37,6 +37,9 @@ THEMES_DIR="$AGENT_DIR/themes"
 STATE_DIR=""
 RESTORED=0
 PENDING=0
+# The tmux session a capture is running, so an interrupted script can stop pi before it
+# restores: a pi that keeps running writes the configuration again after the restore.
+ACTIVE_SESSION=""
 
 die() { printf 'probe-frame: %s\n' "$*" >&2; exit 2; }
 
@@ -49,8 +52,10 @@ usage() {
 digest_path() {
 	local path=$1
 	if [ -d "$path" ]; then
+		# Relative names, so a snapshot copy in the state directory digests to the same
+		# value as the directory it was taken from.
 		local inner
-		inner=$(find "$path" -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}')
+		inner=$(cd -- "$path" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}')
 		printf 'dir:%s\n' "$inner"
 	elif [ -f "$path" ]; then
 		printf 'file:%s\n' "$(sha256sum "$path" | awk '{print $1}')"
@@ -166,9 +171,40 @@ verify_state() {
 	return 0
 }
 
+# Every copy is checked against the digest recorded when it was taken, before anything
+# is written back: a corrupted snapshot must fail, not overwrite the real file with it.
+verify_copies() {
+	local index path recorded failures=0 copy actual expected
+	while IFS=$'\t' read -r index path recorded; do
+		[ -n "${index:-}" ] || continue
+		case "$recorded" in
+			absent) continue ;;
+			file:*) expected=${recorded#file:} ;;
+			dir:*) expected=${recorded#dir:} ;;
+			*) printf 'probe-frame: unrecognised snapshot entry %s\n' "$recorded" >&2; failures=$((failures + 1)); continue ;;
+		esac
+		copy="$STATE_DIR/files/$index"
+		if [ ! -e "$copy" ]; then
+			printf 'probe-frame: no snapshot copy for slot %s (%s)\n' "$index" "$path" >&2
+			failures=$((failures + 1))
+			continue
+		fi
+		actual=$(digest_path "$copy")
+		if [ "$actual" != "$recorded" ]; then
+			printf 'probe-frame: snapshot copy %s is corrupt\n  recorded %s\n  now %s\n' "$copy" "$recorded" "$actual" >&2
+			failures=$((failures + 1))
+		fi
+	done < "$(manifest_path)"
+	[ "$failures" -eq 0 ] || return 3
+	return 0
+}
+
 restore_state() {
 	[ -n "$STATE_DIR" ] || die "no snapshot to restore from"
 	[ -f "$(manifest_path)" ] || die "no manifest in $STATE_DIR; refusing to guess"
+
+	# Nothing is written until every copy proves it is the one we recorded.
+	verify_copies || { printf 'probe-frame: nothing was restored\n' >&2; return 3; }
 
 	local index path recorded failures=0
 	while IFS=$'\t' read -r index path recorded; do
@@ -187,6 +223,12 @@ restore_state() {
 
 restore_on_exit() {
 	local status=$?
+	if [ -n "$ACTIVE_SESSION" ]; then
+		# Order matters: a pi that is still running would write the configuration again
+		# after the restore, so the session dies first.
+		tmux kill-session -t "$ACTIVE_SESSION" 2>/dev/null
+		ACTIVE_SESSION=""
+	fi
 	if [ "$PENDING" -eq 1 ] && [ "$RESTORED" -eq 0 ]; then
 		printf 'probe-frame: exiting early, restoring the configuration first\n' >&2
 		restore_state || status=3
@@ -261,6 +303,7 @@ capture() {
 		printf 'probe-frame: tmux could not start the session\n' >&2
 		exit 4
 	fi
+	ACTIVE_SESSION=$session
 	# The settle budget is time, not a trigger: pi draws its frame over several
 	# seconds, and capturing the first non-blank pane photographs a half-drawn UI.
 	local waited=0
@@ -279,6 +322,7 @@ capture() {
 		sleep 1
 	done
 	tmux kill-session -t "$session" 2>/dev/null
+	ACTIVE_SESSION=""
 	if [ "$captured" -ne 1 ]; then
 		# An empty file is worse than none: it looks like evidence.
 		rm -f -- "$out"

@@ -127,6 +127,27 @@ test('a restore that cannot reproduce the snapshot fails loudly', () => {
 	}
 });
 
+test('a corrupted snapshot copy is refused before it can overwrite the real file', () => {
+	const home = scratchHome();
+	try {
+		const state = snapshot(home.env);
+		const before = readFileSync(join(home.agent, 'loon-tui.json'), 'utf8');
+		// Two corruptions: bytes that are not what was recorded. The restore has to
+		// notice before copying, because copying first would leave the person's file
+		// holding the corrupted bytes.
+		writeFileSync(join(state, 'files', '1'), '{"garbage":true}\n');
+		writeFileSync(join(home.agent, 'loon-tui.json'), '{"enabled":true}\n');
+		const restored = run(['restore', '--state', state], home.env);
+		assert.equal(restored.status, 3, 'a corrupt snapshot must fail the restore');
+		assert.match(restored.stderr, /is corrupt/);
+		assert.match(restored.stderr, /nothing was restored/);
+		assert.equal(readFileSync(join(home.agent, 'loon-tui.json'), 'utf8'), '{"enabled":true}\n', 'the live file must not be overwritten with corrupt bytes');
+		assert.equal(before, '{\n\t"accent": "wallpaper"\n}\n');
+	} finally {
+		rmSync(home.root, { recursive: true, force: true });
+	}
+});
+
 test('a manifest cannot name a file the slot does not own', () => {
 	const home = scratchHome();
 	try {
@@ -134,10 +155,13 @@ test('a manifest cannot name a file the slot does not own', () => {
 		writeFileSync(outside, 'keep me\n');
 
 		// An absolute path elsewhere, and a traversal dressed up as a path inside the
-		// agent home. Both must be refused: the slot decides the path, not the file.
+		// agent home. The digest stays valid so the slot check is what refuses them:
+		// the slot decides the path, not the manifest.
 		for (const escape of [outside, join(home.agent, '..', 'outside.json')]) {
 			const state = snapshot(home.env);
-			writeFileSync(join(state, 'manifest'), '0\t' + escape + '\tfile:0000\n');
+			const lines = readFileSync(join(state, 'manifest'), 'utf8').trim().split('\n');
+			lines[0] = '0\t' + escape + '\t' + lines[0]!.split('\t')[2];
+			writeFileSync(join(state, 'manifest'), lines.join('\n') + '\n');
 			const restored = run(['restore', '--state', state], home.env);
 			assert.notEqual(restored.status, 0, 'restore must refuse ' + escape);
 			assert.match(restored.stderr, /refusing slot 0/);
