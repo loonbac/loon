@@ -5,14 +5,14 @@ else: the pi-claude-code-tui box, painted entirely by the theme you already use.
 
 ```
 ╭─── Pi v1.4.0 ────────────────────────────────────────────────────────────────╮
-│           ███████████████      █████████             │                       │
-│           ███         ███                            │ Getting started       │
-│           ███         ███      █████████             │ Ask Pi to build it    │
-│           ███████████████      █████████             │ ──────────────────────│
-│           ███                  █████████             │ Commands              │
-│           ███                  █████████             │ /use-default-tui      │
-│           ███                  █████████             │ /model                │
-│             Let’s build something great              │ /theme                │
+│                                                      │                       │
+│                                                      │ Getting started       │
+│                      █████████                       │ Ask Pi to build it    │
+│                      ███   ███                       │ ──────────────────────│
+│                    ██████   ███                      │ Commands              │
+│                    ███      ███                      │ /use-default-tui      │
+│                                                      │ /model                │
+│             Let's build something great              │ /theme                │
 │         openai-codex/gpt-5.5 · high effort           │ /compact              │
 │                  ~/Workspace/mypi                    │                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
@@ -21,10 +21,14 @@ else: the pi-claude-code-tui box, painted entirely by the theme you already use.
 ## What it does
 
 - Draws one rounded box across the terminal width: the `Pi v<version>` label in
-  the top border, the block Pi mark, `Let’s build something great` in bold, the
-  `provider/model · <effort> effort` line and the `~`-shortened cwd on the left,
-  one accent divider at 69% of the interior, and the tips sidebar on the right.
-- The mark is static and single-coloured; there is no animation.
+  the top border, then on the left the block Pi mark, `Let's build something
+  great` in bold, the `provider/model · <effort> effort` line and the
+  `~`-shortened cwd, with one accent divider at 69% of the interior and the tips
+  sidebar on the right.
+- The mark is static and single-coloured: a 4 × 4 grid of three-column cells,
+  12 columns wide and 4 rows tall, drawn in the theme accent. No animation. It
+  starts two rows below the top border, level with `Ask Pi to build it`, with one
+  blank row before the tagline, so the rhythm matches the captured header.
 - Resolves every colour from the active theme through one mapping
   (`extensions/lib/palette.ts`): box, label, divider, headings and the mark use
   `accent`, the tagline uses `text` in bold, tips and the model line use `muted`,
@@ -35,8 +39,11 @@ else: the pi-claude-code-tui box, painted entirely by the theme you already use.
   the left half takes the whole width. Below the mark width only the version
   label is printed.
 - Installs on the next macrotask after `session_start` and re-asserts at 120 ms
-  and 400 ms, so it wins over another extension's startup header (gentle-pi
-  paints its own).
+  and 400 ms. gentle-pi installs its own banner ~50 ms after `session_start`
+  (its `setTimeout(..., 50)` opens at `extensions/startup-banner.ts:757` after an
+  `await readBannerConfig()` at line 666) and its resize handler only calls
+  `tui.requestRender()` (line 794), so the 120 ms re-assert wins and nothing
+  reclaims the header later.
 
 ## Commands
 
@@ -72,8 +79,8 @@ npm run typecheck
 
 The tests pin the palette mapping against a stub theme that only knows the roles
 the three gentle-pi themes define, the golden header at 80 and 120 columns, the
-divider position, the literal sidebar order, and the absence of raw colour
-escapes.
+divider position, the mark grid, the literal sidebar order, the vertical rhythm
+of the left column, and the absence of raw colour escapes.
 
 ## What it does NOT do
 
@@ -89,5 +96,5 @@ escapes.
 
 MIT. The box layout, the tips sidebar and the width helpers derive from
 [pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui) (MIT); the
-static Pi mark is LOON’s own. See `NOTICE` for the attribution and the upstream
+static Pi mark is LOON's own. See `NOTICE` for the attribution and the upstream
 licence text.

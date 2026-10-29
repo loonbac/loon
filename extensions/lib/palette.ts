@@ -32,7 +32,7 @@ export const PALETTE_ROLES = {
 	heading: 'accent',
 	/** The large static Pi mark. */
 	logo: 'accent',
-	/** `Let’s build something great`, in the theme’s normal text colour. */
+	/** `Let's build something great`, in the theme's normal text colour. */
 	tagline: 'text',
 	/** Model line, tip lines, `Ask Pi to build it`. */
 	body: 'muted',

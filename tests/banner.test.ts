@@ -80,17 +80,35 @@ test('the left half centres the mark, the tagline, the model and the cwd', () =>
 	const lines = renderBanner(bannerInput());
 	const { left } = splitColumns(80, lines);
 	const cell = '███';
-	assert.equal(left[0]!.trim(), cell.repeat(5) + ' '.repeat(2 * cell.length) + cell.repeat(3));
-	assert.equal(left[7]!.trim(), 'Let’s build something great');
+	// The captured vertical rhythm: two blank rows, the four mark rows, one blank
+	// row, then the tagline, the model line and the cwd.
+	assert.deepEqual(left.slice(0, 2).map((line) => line.trim()), ['', '']);
+	assert.deepEqual(left.slice(2, 6).map((line) => line.trim()), [
+		'█████████',
+		'███   ███',
+		'██████   ███',
+		'███      ███',
+	]);
+	assert.equal(left[6]!.trim(), '');
+	assert.equal(left[7]!.trim(), "Let's build something great");
 	assert.equal(left[8]!.trim(), 'openai-codex/gpt-5.5 · high effort');
 	assert.equal(left[9]!.trim(), '~/Workspace/mypi');
+
+	// Every left line sits in the middle of its half, within a column of slack.
+	for (const line of left) {
+		const content = line.trim();
+		if (content.length === 0) continue;
+		const start = line.length - line.trimStart().length;
+		const slack = line.length - content.length - start;
+		assert.ok(Math.abs(start - slack) <= 1, `not centred: ${JSON.stringify(line)}`);
+	}
 });
 
-test('the mark is a single colour of the theme, on a 10 x 7 grid', () => {
-	assert.equal(LOGO_GRID.length, 7);
-	assert.equal(LOGO_WIDTH, 30);
+test('the mark is a single colour of the theme, on a 4 x 4 grid', () => {
+	assert.deepEqual([...LOGO_GRID], ['###.', '#.#.', '##.#', '#..#']);
+	assert.equal(LOGO_WIDTH, 12);
 	const lines = renderLogo(resolvePalette(strictTheme()));
-	assert.equal(lines.length, 7);
+	assert.equal(lines.length, 4);
 	for (const line of lines) {
 		const painted = line.replace(/accent<███>/g, '');
 		assert.ok(!painted.includes('<'), `the mark used another role: ${JSON.stringify(line)}`);
