@@ -135,3 +135,22 @@ L3 — implementation notes and evidence:
   (3.2:1) instead of disappearing.
 - pi's own `loadThemeFromPath` loads the generated file and resolves `accent` to
   the wallpaper colour, which is asserted when pi is installed.
+L4 — the prompt band, and why the role is `selectedBg` and not `selection`:
+
+- gentle-pi painted the prompt card's band with `toolSuccessBg`
+(`lib/shell-prompt.ts:151`), a role that means "a tool succeeded", only because it
+  needed *some* background. A surface is not a success.
+- pi resolves `fg`/`bg` over **colour keys**, not over `vars`: `theme.bg("selection")`
+  throws `Unknown theme color`, gentle-pi catches it into an empty background, and the
+  card silently falls back to its no-background path. The colour key bound to the
+  `selection` var is `selectedBg`, and `theme.bg("selectedBg", " ")` returns
+  `48;2;86;77;43m` for the live palette. That is what the patch uses.
+- Palette: `selection` and `border` are now tinted surfaces of the accent hue -
+  selection at 2.3:1 against the background, border at 2.5:1, both inside the 3.2
+  ceiling, with chroma preferred at 1.6x the floor and the floor as fallback.
+  `toolSuccessBg` stays green (hue 149.6 for the live accent) and a test pins it.
+- Measured with the live accent `#AB9A5E` (hue 94.1): band `#564D2B` (hue 95.0,
+  delta 0.9), border `#60521E` (hue 94.1), rows 29-31 of a 100-column frame.
+- The shell's top status bar still paints `#101F13` (hue 149.6): it borrows
+  `toolSuccessBg` for its INFO/SUCCESS card tones in `lib/shell-card.ts:268-269`. Out
+  of the scope of this slice; reported with the number.
