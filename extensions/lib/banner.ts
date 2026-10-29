@@ -68,9 +68,15 @@ export function renderBanner(input: BannerInput): string[] {
 	const innerWidth = width - 2;
 	const { leftWidth, rightWidth, useTips } = headerColumnWidths(innerWidth);
 
+	// The captured arrangement, measured from the reference: the mark starts two
+	// rows below the top border (level with `Ask Pi to build it`), a blank row
+	// separates it from the tagline, and the cwd closes the interior.
 	const leftLines = [
+		'',
+		'',
 		...renderLogo(palette).map((line) => center(line, leftWidth)),
-		center(palette.tagline('Let’s build something great'), leftWidth),
+		'',
+		center(palette.tagline("Let's build something great"), leftWidth),
 		center(palette.body(`${input.model} · ${input.effort} effort`), leftWidth),
 		center(palette.subtle(input.cwd), leftWidth),
 	];
@@ -90,11 +96,19 @@ export function renderBanner(input: BannerInput): string[] {
 		'',
 	];
 
+	// Both columns carry the same number of rows; a shorter one is padded at the
+	// bottom so the box never grows a ragged edge.
+	const bodyRows = Math.max(leftLines.length, tipLines.length);
+	const leftPadded = [
+		...leftLines,
+		...Array<string>(Math.max(0, bodyRows - leftLines.length)).fill(''),
+	];
+
 	const lines = [borderLine('╭', title, '╮', width, palette.frame)];
-	for (let i = 0; i < leftLines.length; i++) {
+	for (let i = 0; i < bodyRows; i++) {
 		const content = useTips
-			? twoColumn(leftLines[i] ?? '', tipLines[i] ?? '', leftWidth, rightWidth, palette.frame)
-			: padRight(leftLines[i] ?? '', leftWidth);
+			? twoColumn(leftPadded[i] ?? '', tipLines[i] ?? '', leftWidth, rightWidth, palette.frame)
+			: padRight(leftPadded[i] ?? '', leftWidth);
 		lines.push(boxedLine(content, width, palette.frame));
 	}
 	lines.push(borderLine('╰', '', '╯', width, palette.frame));

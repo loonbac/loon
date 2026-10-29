@@ -30,11 +30,11 @@ S11 — Boundary. "Trabaja solo dentro de /home/loonbac/Proyectos/pi-loon/loon. 
 
 S12 — Reset. "Los 48 archivos anteriores aparecen como borrados sin commitear: son intencionales, el contenido viejo se reemplaza por completo. Puedes commitear ese reset como primer slice."
 
-S13 — Static mark. "Logo \"Pi\" grande y estático: marca de bloques cuadrados (celdas tipo \"███\") formando la P y la i, en UN SOLO color = acento del tema. En la captura ocupa unas 7 filas de alto y ~10 celdas de ancho."
+S13 — Static mark. "Logo \"Pi\" grande y estático: marca de bloques cuadrados (celdas tipo \"███\") formando la P y la i, en UN SOLO color = acento del tema. En la captura ocupa unas 7 filas de alto y ~10 celdas de ancho." Grid corrected against the measured reference: **4 x 4 cells** (12 columns x 4 rows), rows `###.` / `#.#.` / `##.#` / `#..#`. The first reading (10 x 7) was wrong; see L7.
 
 S14 — Box. "Caja de borde fino redondeado, con el color de acento del tema activo, ocupando el ancho completo. En el borde superior, cerca de la izquierda, la etiqueta \"─ Pi v<version> ─\" con los guiones y el texto en acento".
 
-S15 — Left column. "todo centrado horizontalmente dentro de su mitad: … \"Let's build something great\" en bold, color de texto normal. \"openai-codex/gpt-5.5 · high effort\" en muted (formato: provider/modelo · <effort> effort). \"~/Workspace/mypi\" en dim (cwd con ~ abreviado)."
+S15 — Left column. "todo centrado horizontalmente dentro de su mitad: … \"Let's build something great\" en bold, color de texto normal. \"openai-codex/gpt-5.5 · high effort\" en muted (formato: provider/modelo · <effort> effort). \"~/Workspace/mypi\" en dim (cwd con ~ abreviado)." The tagline uses the **straight apostrophe** U+0027, as the capture does; see L7.
 
 S16 — Divider. "Divisor vertical de una columna, en acento, a ~69% del ancho interior, recorriendo toda la altura interior de la caja."
 
@@ -49,6 +49,10 @@ S20 — Two commands. "Nada de /use-claude-code-tui con ese nombre: solo dos com
 S21 — Acceptance. "a 80 y a 120 columnas, el render del frame final coincide con la estructura descrita y todos los colores salen del tema activo (probar con Gentle, Gentleman-Cute y Gentleman-Sexy)."
 
 S22 — Animation. "La animación de 15 frames del upstream está permitida si termina exactamente en ese estado, pero el criterio de aceptación es el frame final: logo en un único color del tema, sin ANSI crudo." — resolved by dropping the animation: the only frame is the accepted one.
+
+S23 — Vertical rhythm. Measured from the reference (L8): the mark occupies interior rows 3-6 (level with `Ask Pi to build it`, the rule, `Commands` and the first tip), row 7 is blank, the tagline is row 8, the model line row 9 and the cwd row 10. Two blank rows sit above the mark, and the body is the sidebar's ten lines.
+
+S24 — Startup race. The 120 ms re-assert must land after gentle-pi installs its own header; its install is `setTimeout(..., 50)` opened at `gentle-pi/extensions/startup-banner.ts:757` and closed at line 1113, after `await readBannerConfig()` at line 666 inside its async `session_start` (line 652). Its resize handler (lines 784-801) only calls `tui.requestRender()` (line 794), so nothing re-registers the header later.
 
 ## Tasks
 
@@ -66,6 +70,7 @@ S22 — Animation. "La animación de 15 frames del upstream está permitida si t
 | T10 | S5, S20, S22 | inline | 64475db |
 | T11 | S8, S21 | inline | 64475db |
 | T12 | S6, S9 | inline | 2ef6b01 |
+| T13 | S13, S15, S21, S23, S24 | inline | pending |
 ## Log
 
 L1 (user request, verbatim):
@@ -159,3 +164,28 @@ L6 (verification evidence for the corrected scope, T8–T12):
 - Bold check: `theme.bold()` goes through chalk, which is a no-op on a pipe. Under a pty (`script -qec …`) the tagline emits `\x1b[1m` + the `text` colour + `\x1b[22m`, which is what the capture asks for; on a pipe it is plain, which is chalk behaviour, not the header.
 - The 15-frame animation of L1 is not ported: the accepted frame is the only frame, so S22's criterion holds by construction and no timer runs after startup.
 - NOT verified: the rendered header inside a live pi TUI, and the startup race against gentle-pi's own banner. Also not verified: pixel-exact agreement with the owner's capture — the mark glyph was built from the written description (7 rows, ~10 cells, P and i, single colour) because the image itself is not available in this session. `LOGO_GRID` in extensions/lib/logo.ts is the single place to adjust it.
+L7 (owner review of 37e4fec, verbatim):
+
+> Revisión de mi lado, sobre 37e4fec. El banner está bien montado y cierra tus puntos 2 y 3. Dos defectos concretos, y una de tus dudas la puedo cerrar con evidencia.
+>
+> 1) EL GLIFO ESTÁ MAL (tu punto no verificado #3 — ahora sí medido). Yo sí tengo la captura del humano. La extraje de mi transcript, la medí a nivel de píxel (crop del logo: 228 x 212 px dentro de un banner de 80 columnas; celda ≈ 57 x 53 px; ancho de carácter ≈ 19 px, así que la marca son 12 columnas de terminal de ancho y 4 filas de alto, no 30 x 7). El glifo real es una rejilla de 4 x 4 celdas, no 10 x 7. LOGO_GRID debe ser exactamente: "###.", "#.#.", "##.#", "#..#". Lectura por celda (A=col0, B=col1, C=col2, D=col3; R0 arriba): R0: A B C → barra superior de 3 celdas; R1: A . C → el contrafuerte de la P (hueco en B); R2: A B . D → barra media de 2 celdas + bloque lejano en D; R3: A . . D → tallo y el bloque bajo de la "i". Diferencias con lo que hay hoy: el de ahora tiene 7 filas con un tallo que baja solo, una columna derecha de 3 de ancho con un hueco arriba, y el bloque bajo de la "i" pegado; la referencia tiene 4 filas, la "i" es una sola celda de ancho que arranca en R2 (no en R0), y el hueco está en R1-B, no bajo el bloque derecho. LOGO_WIDTH pasa a 12.
+>
+> 2) APÓSTROFO EQUIVOCADO. La captura dice "Let's build something great" con apóstrofo recto. El código usa el curvo U+2019: extensions/lib/banner.ts:73, el comentario de extensions/lib/palette.ts:35, la aserción de tests/banner.test.ts:84 y los dos goldens. Corrígelo en los cuatro sitios.
+>
+> 3) GOLDENS: hay que regenerarlos, porque el logo pasa de 30 a 12 columnas y cambia el centrado de la columna izquierda.
+>
+> 4) TU PUNTO NO VERIFICADO #2 (carrera con gentle-pi): SE PUEDE CERRAR SIN LEVANTAR TUI. Leí el banner de gentle-pi. Su "session_start" es async: hace "await readBannerConfig()", programa estadísticas a 100/150/200 ms, y luego abre "setTimeout(() => { ctx.ui.setHeader(...) }, 50)" — el timer se abre en la línea 757 y cierra en la 1113 con "}, 50);". O sea: instala su header ~50 ms después de un read de archivo. Tu re-assert a 120 ms cae después y gana; el de 400 ms es la segunda red. Y su handler de "resize" (línea ~782) solo llama a "tui.requestRender()"; NO vuelve a registrar el header. Así que no hay reconquista posterior. Documenta esto como evidencia con los números de línea, en vez de dejarlo como "no verificado".
+>
+> 5) TU PUNTO NO VERIFICADO #1 (TUI real) sigue abierto; no lo declares cubierto.
+>
+> REFERENCIA DISPONIBLE: la captura está en /home/loonbac/Proyectos/pi-loon/.scratch/ref.png (1464x702, banner de 80 columnas). Puedes leerla para comparar, pero no la muevas ni la agregues al repo sin pedirlo; el dato que manda es la rejilla de arriba.
+L8 (T13 evidence, corrections applied on top of 37e4fec):
+
+- Grid re-measured independently from `.scratch/ref.png` (raw RGBA through `magick ... rgba:-`, parsed in node, no PIL available): mark bbox x 388-615, y 190-401 = 228 x 212 px; four 53 px row bands with densities 7/5/7/5; four 57 px columns. Per-cell occupancy at 40 % threshold gives exactly `###.` / `#.#.` / `##.#` / `#..#`. The review's grid is confirmed by measurement, not only by report.
+- Vertical rhythm measured the same way: sidebar line centres 165, 215, 269, 321, 375, 429, 482, 535 with a 53 px pitch; mark bands 190-243 / 243-296 / 296-349 / 349-402. So the mark's first row is level with `Ask Pi to build it`, the rule, `Commands` and the first tip; the tagline centre 483 is level with the third tip and the model line 535 with the fourth. The cwd is dim enough to fall under the brightness threshold but closes the interior (row 10). S23 implements this rhythm instead of the previous vertical centring.
+- Extra defect found while implementing S23: `renderLogo` emitted trailing blank cells, so `center()` centred the padded row and the mark sat two columns left of centre in every render. It now trims the trailing blanks; the new centring assertion in `tests/banner.test.ts` is what caught it (left column start/slack 22/22 and 20/21).
+- Apostrophe: U+0027 in `extensions/lib/banner.ts`, the `palette.ts` painter comment, the `banner.test.ts` assertion, both goldens and the README sample.
+- Goldens regenerated at 80 and 120 columns; the left column now reads mark rows 3-6, blank 7, tagline 8, model 9, cwd 10.
+- `npm test`: 26 tests, 26 pass. `npx tsc --noEmit`: clean.
+- Startup race (S24), verified by reading gentle-pi's source at `~/.pi/agent/npm/node_modules/gentle-pi/extensions/startup-banner.ts`: `pi.on("session_start", async ...)` at line 652, `await readBannerConfig()` at 666, `setTimeout(() => { ctx.ui.setHeader(...)` at 757 closing with `}, 50)` at 1113; resize handler lines 784-801 calls `tui.requestRender()` at 794 only. LOON's 120 ms re-assert therefore lands after gentle-pi's install and nothing re-registers the header afterwards; the 400 ms re-assert stays as a second net.
+- Still not verified: the header inside a live pi TUI (L7 point 5). Everything else above is measured or run.

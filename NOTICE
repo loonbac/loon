@@ -20,8 +20,9 @@ LOON changes:
 - Every colour resolves from the active pi theme through
   extensions/lib/palette.ts, so the header never emits an SGR colour of its own.
 - The animated upstream logo (22 frames of three-column cells, each frame
-  coloured with raw SGR codes) is replaced by a static 10 x 7 block Pi mark
-  drawn in the theme accent: extensions/lib/logo.ts.
+  coloured with raw SGR codes) is replaced by a static 4 x 4 block Pi mark
+  (12 x 4 cells) drawn in the theme accent: extensions/lib/logo.ts. It is LOON's
+  own glyph, measured from the owner's reference capture.
 - The vertical divider sits at a fixed 69% of the interior.
 - Commands are use-loon-tui (reapply) and use-default-tui (restore).
 - The working-message verbs, footer, spinner and window title are not touched.
