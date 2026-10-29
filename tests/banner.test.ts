@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { MIN_BANNER_WIDTH, renderBanner, type BannerInput } from '../extensions/lib/banner.ts';
-import { MAX_LEFT_WIDTH, MIN_LEFT_WIDTH, MIN_TIPS_WIDTH, headerColumnWidths } from '../extensions/lib/layout.ts';
+import {
+	MAX_LEFT_WIDTH,
+	MIN_LEFT_WIDTH,
+	MIN_TIPS_WIDTH,
+	headerColumnWidths,
+	wrapLabel,
+} from '../extensions/lib/layout.ts';
 import { LOGO_GRID, LOGO_WIDTH, renderLogo } from '../extensions/lib/logo.ts';
 import { resolvePalette } from '../extensions/lib/palette.ts';
 import { ansiTheme, darkTheme, lightTheme, plainTheme, strictTheme } from './support/themes.ts';
@@ -104,9 +110,12 @@ test('the left half centres the mark, the tagline, the model and the cwd', () =>
 	]);
 	assert.equal(left[6]!.trim(), '');
 	assert.equal(left[7]!.trim(), "Let's build something great");
-	// At 32 columns the model line no longer fits; the label keeps its head.
-	assert.ok(left[8]!.trim().startsWith('openai-codex/gpt-5.5'), `model line: ${JSON.stringify(left[8])}`);
-	assert.equal(left[9]!.trim(), '~/Workspace/mypi');
+	// At 32 columns the model line wraps over two rows; the cwd closes the block.
+	assert.equal(
+		[left[8]!, left[9]!].map((line) => line.trim()).join(' '),
+		'openai-codex/gpt-5.5 · high effort',
+	);
+	assert.equal(left[left.length - 1]!.trim(), '~/Workspace/mypi');
 
 	// The mark is one rectangle: all four rows start in the same column, so its
 	// left edge is straight. Centring each row on its own ink would stagger it.
@@ -121,7 +130,7 @@ test('the left half centres the mark, the tagline, the model and the cwd', () =>
 	);
 
 	// The text lines stay centred within the half, within a column of slack.
-	for (const line of [left[7]!, left[8]!, left[9]!]) {
+	for (const line of [left[7]!, left[8]!, left[9]!, left[left.length - 1]!]) {
 		const content = line.trim();
 		const start = line.length - line.trimStart().length;
 		const slack = line.length - content.length - start;
@@ -179,7 +188,9 @@ test('the header follows whichever theme is active', () => {
 
 test('a theme restricted to the gentle roles renders the whole header', () => {
 	const lines = renderBanner(bannerInput({ palette: resolvePalette(strictTheme()) }));
-	assert.equal(lines.length, 12);
+	// Ten sidebar rows are the floor; a wrapped model label can add rows. The exact
+	// height is pinned by the goldens, not here.
+	assert.ok(lines.length >= 12, `short header: ${lines.length} rows`);
 });
 
 test('the sidebar is dropped when the columns do not fit', () => {
@@ -197,13 +208,47 @@ test('below the mark width only the version label is printed', () => {
 	assert.deepEqual(lines, ['Pi v1.4.0']);
 });
 
-test('a model label wider than the half is clipped and keeps its padding', () => {
-	const lines = renderBanner(
-		bannerInput({ model: 'river/deepseek-ai/DeepSeek-V4.1-Flash-1017' }),
-	);
-	const modelLine = lines[9] ?? '';
-	assert.equal(visibleWidth(modelLine), 80);
-	assert.match(modelLine, /…/, 'a label that does not fit must be clipped');
-	assert.ok(!/│river/.test(modelLine), 'the label is flush against the border');
-	assert.ok(modelLine.startsWith('│ '), `no leading padding: ${JSON.stringify(modelLine)}`);
+test('a label that fits stays on one row', () => {
+	assert.deepEqual(wrapLabel('openai/gpt-5.5 · high effort', 30), ['openai/gpt-5.5 · high effort']);
+});
+
+test('a label that does not fit breaks at the slash, then keeps the words together', () => {
+	assert.deepEqual(wrapLabel('river/deepseek-ai/DeepSeek-V4.1-Flash-1017', 30), [
+		'river/deepseek-ai/',
+		'DeepSeek-V4.1-Flash-1017',
+	]);
+	// The real user label, 57 columns in a 30-column window: three rows, and the
+	// effort is not attached to the tail of the id.
+	assert.deepEqual(wrapLabel('river/deepseek-ai/DeepSeek-V4.1-Flash-1017 · high effort', 30), [
+		'river/deepseek-ai/',
+		'DeepSeek-V4.1-Flash-1017',
+		'· high effort',
+	]);
+});
+
+test('a long run with no separator is cut at the width, without an invented ellipsis', () => {
+	assert.deepEqual(wrapLabel('abcdefghij', 4), ['abcd', 'efgh', 'ij']);
+	assert.deepEqual(wrapLabel('alpha-beta-gamma', 8), ['alpha-', 'beta-', 'gamma']);
+	for (const line of wrapLabel('abcdefghij', 4)) assert.ok(!line.includes('…'));
+});
+
+test('a model label wider than the half wraps and the box stays rectangular', () => {
+	const input = bannerInput({ model: 'river/deepseek-ai/DeepSeek-V4.1-Flash-1017' });
+	for (const width of [80, 120]) {
+		const lines = renderBanner({ ...input, width });
+		assert.ok(
+			lines.every((line) => visibleWidth(line) === width),
+			`ragged box at ${width}: ${JSON.stringify(lines.map(visibleWidth))}`,
+		);
+		assert.ok(!lines.join('\n').includes('…'), 'the wrap must not invent an ellipsis');
+	}
+
+	// At 80 columns the wrap adds two rows; the sidebar keeps its rows and only
+	// gains blank ones below, so its labels do not move.
+	const lines = renderBanner({ ...input, width: 80 });
+	const { left, right } = splitColumns(80, lines);
+	assert.equal(right.filter((line) => line.trim() !== '').length, 8);
+	assert.equal(left.length, right.length);
+	assert.deepEqual(right.slice(-2).map((line) => line.trim()), ['', '']);
+	for (const line of lines.slice(1, -1)) assert.ok(line.startsWith('│') && line.endsWith('│'));
 });
