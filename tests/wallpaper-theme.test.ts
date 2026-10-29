@@ -156,10 +156,61 @@ test('border keeps the accent hue and is no longer mud', () => {
 	}
 });
 
-test('toolSuccessBg stays green: a success signal is not a surface', () => {
-	for (const accent of [[213, 169, 240], [171, 154, 94], [30, 144, 255], [255, 0, 0]] as [number, number, number][]) {
+/* A card surface is not a status: gentle-pi paints INFO/SUCCESS/PENDING/ERROR card
+ * backgrounds with the tool*Bg roles and carries the tone in the border and title. */
+
+const SURFACE_ACCESSENTS: [number, number, number][] = [
+	[213, 169, 240], // violeta
+	[171, 154, 94], // dorado
+	[155, 72, 74], // rojo
+	[30, 144, 255], // azul
+	[34, 197, 94], // verde
+	[0, 0, 0], // pared negra
+];
+
+test('the card surfaces follow the accent hue and stay low-chroma', () => {
+	const CARD_SURFACES = ['toolSuccessBg', 'toolPendingBg', 'toolErrorBg'] as const;
+	for (const accent of SURFACE_ACCESSENTS) {
 		const theme = deriveWallpaperTheme(accent);
-		const lch = rgbToOklch(hexToRgb((theme.vars as Record<string, string>).toolSuccessBg!)!);
-		assert.ok(lch.H >= 100 && lch.H <= 160, 'toolSuccessBg hue ' + lch.H.toFixed(1) + ' is no longer green');
+		const vars = theme.vars as Record<string, string>;
+		const source = rgbToOklch(accent);
+		const bg = hexToRgb(vars.bg!)!;
+		const text = hexToRgb(vars.text!)!;
+		for (const role of CARD_SURFACES) {
+			const hex = vars[role];
+			assert.ok(hex, role + ' is missing from the theme');
+			const rgb = hexToRgb(hex!)!;
+			const lch = rgbToOklch(rgb);
+			const hueDelta = Math.abs(((lch.H - source.H + 540) % 360) - 180);
+			const ratio = contrastRatio(rgb, bg);
+			const label = role + ' on accent ' + accent.join(',') + ' (' + hex + ')';
+			assert.ok(hueDelta <= 15, label + ' hue ' + lch.H.toFixed(1) + ' is ' + hueDelta.toFixed(1) + ' from the accent');
+			assert.ok(lch.C >= 0.01 && lch.C <= 0.035, label + ' chroma ' + lch.C.toFixed(3) + ' is outside 0.010..0.035');
+			assert.ok(ratio >= 1.15 && ratio <= 1.6, label + ' /bg ' + ratio.toFixed(2) + ' is outside 1.15..1.6');
+			assert.ok(contrastRatio(text, rgb) >= 7, label + ' text/surface ' + contrastRatio(text, rgb).toFixed(2) + ' is below 7');
+		}
+	}
+});
+
+test('the plain card surfaces sit between the panel and the element', () => {
+	const theme = deriveWallpaperTheme([171, 154, 94]);
+	const vars = theme.vars as Record<string, string>;
+	const panel = rgbToOklch(hexToRgb(vars.bgPanel!)!).L;
+	const element = rgbToOklch(hexToRgb(vars.bgElement!)!).L;
+	for (const role of ['toolSuccessBg', 'toolPendingBg', 'toolErrorBg']) {
+		const light = rgbToOklch(hexToRgb(vars[role]!)!).L;
+		assert.ok(light >= panel - 0.005 && light <= element + 0.005, role + ' lightness ' + light.toFixed(3) + ' is outside panel..element');
+	}
+});
+
+test('the tone signal stays semantic: success, warning and error keep their hues', () => {
+	for (const accent of SURFACE_ACCESSENTS) {
+		const theme = deriveWallpaperTheme(accent);
+		const vars = theme.vars as Record<string, string>;
+		const hueOf = (role: string) => rgbToOklch(hexToRgb(vars[role]!)!).H;
+		const near = (hue: number, target: number) => Math.abs(((hue - target + 540) % 360) - 180) <= 15;
+		assert.ok(near(hueOf('success'), 150), 'success hue ' + hueOf('success').toFixed(1));
+		assert.ok(near(hueOf('warning'), 75), 'warning hue ' + hueOf('warning').toFixed(1));
+		assert.ok(near(hueOf('error'), 25), 'error hue ' + hueOf('error').toFixed(1));
 	}
 });

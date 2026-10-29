@@ -77,8 +77,6 @@ const BANNER_EVENT_REPLACEMENT = "  // LOON banner patch: read the banner source
 // pi only accepts colour keys here, not vars: `selection` is a var, and the colour key
 // bound to it is `selectedBg`. Passing `selection` throws "Unknown theme color", which
 // gentle-pi catches into an empty background, so the card silently falls back.
-const PROMPT_BAND_ANCHOR = '\t\t\tconst painted = bg("toolSuccessBg", " ");';
-const PROMPT_BAND_REPLACEMENT = '\t\t\tconst painted = bg("selectedBg", " ");';
 
 const VIEW_LABEL_TYPE_ANCHOR = '\tlabel: string | (() => string);';
 const VIEW_LABEL_TYPE_REPLACEMENT = '\tlabel: string | ((width?: number) => string);';
@@ -95,7 +93,6 @@ export const ANCHORS = {
 	bannerEvent: BANNER_EVENT_ANCHOR,
 	viewLabelType: VIEW_LABEL_TYPE_ANCHOR,
 	viewLabelCall: VIEW_LABEL_CALL_ANCHOR,
-	promptBand: PROMPT_BAND_ANCHOR,
 };
 
 export const TARGETS: TargetSpec[] = [
@@ -109,13 +106,6 @@ export const TARGETS: TargetSpec[] = [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
 			{ anchor: SHELL_ROWS_ANCHOR, replacement: SHELL_ROWS_REPLACEMENT },
 		],
-	},
-	{
-		file: 'lib/shell-prompt.ts',
-		md5: '6dccc1c4bf36e217d308a67c5e690c14',
-		md5PatchedV1: ['4e357af84fcafc01f3e240ea6331b066'],
-		md5Patched: 'ddb8bd748ae664cb28f9f0307e0917e5',
-		edits: [{ anchor: PROMPT_BAND_ANCHOR, replacement: PROMPT_BAND_REPLACEMENT }],
 	},
 	{
 		// The view calls a row's label with the width the row actually has, so a long

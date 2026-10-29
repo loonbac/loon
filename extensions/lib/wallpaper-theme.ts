@@ -84,7 +84,7 @@ const COLOR_TO_VAR: Record<(typeof COLOR_KEYS)[number], string> = {
 	customMessageBg: 'bgElement',
 	customMessageText: 'text',
 	customMessageLabel: 'accent',
-	toolPendingBg: 'bgPanel',
+	toolPendingBg: 'toolPendingBg',
 	toolSuccessBg: 'toolSuccessBg',
 	toolErrorBg: 'toolErrorBg',
 	toolTitle: 'accent',
@@ -189,6 +189,8 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 
 	const bg = hexToRgb(paint(0.16, low, H)) as Rgb;
 	const accentHex = liftToContrast(accent, bg, 3);
+	// Card surfaces: barely tinted with the accent, never a semantic colour.
+	const surface = Math.min(0.03, Math.max(0.012, tint * 0.45));
 
 	const vars: Record<string, string> = {
 		bg: paint(0.16, low, H),
@@ -207,11 +209,17 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 		accent: accentHex,
 		accentBright: liftToContrast(hexToRgb(paint(Math.min(1, source.L + 0.12), Math.min(source.C, 0.14), H)) as Rgb, bg, 3),
 		accentDim: paint(Math.max(0.3, source.L - 0.2), Math.min(source.C, 0.1), H),
+		// The tone signal lives in `success`/`warning`/`error`, which stay semantic. The
+		// tool backgrounds are only card surfaces: gentle-pi paints INFO, SUCCESS,
+		// PENDING and ERROR cards with them and carries the tone in the border and the
+		// title. A surface therefore takes the accent's own hue, barely tinted, and sits
+		// between the panel and the element so the card floats over the background.
 		warning: paint(0.82, 0.13, 75),
 		error: paint(0.72, 0.15, 25),
 		success: paint(0.8, 0.12, 150),
-		toolSuccessBg: paint(0.22, 0.03, 150),
-		toolErrorBg: paint(0.22, 0.04, 25),
+		toolSuccessBg: paint(0.2335, surface, H),
+		toolPendingBg: paint(0.2343, surface, H),
+		toolErrorBg: paint(0.235, surface, H),
 		syntaxComment: paint(0.62, 0.05, rotateHue(H, 30)),
 		syntaxKeyword: paint(0.78, 0.1, rotateHue(H, 60)),
 		syntaxFunction: paint(0.82, 0.1, rotateHue(H, 120)),
