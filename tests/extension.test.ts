@@ -296,6 +296,48 @@ test('a live change from below-input to top restores the header, and back again'
 	assert.deepEqual(widgets(ctx).at(-1)?.[1].options, { placement: 'belowEditor' });
 });
 
+/* S4/S5: `source` decides who paints, and LOON never reclaims what it does not own. */
+
+test('source rose leaves the header to gentle-pi', async () => {
+	const { pi, ctx } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, source: 'rose' } });
+	startSession(pi, ctx);
+	await wait(500);
+
+	assert.equal(headerFactories(ctx).at(-1), undefined, 'LOON took the slot gentle-pi was asked to paint');
+	assert.deepEqual(widgets(ctx), []);
+});
+
+test('source off leaves pi its own header', async () => {
+	const { pi, ctx } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, source: 'off' } });
+	startSession(pi, ctx);
+	await wait(500);
+
+	assert.equal(headerFactories(ctx).at(-1), undefined);
+	assert.deepEqual(widgets(ctx), []);
+});
+
+test('a live change of source hands the slot over and takes it back', async () => {
+	const { pi, ctx, config } = boot();
+	startSession(pi, ctx);
+	await wait(50);
+	assert.equal(typeof headerFactories(ctx).at(-1), 'function');
+
+	config.set({ loon: { ...DEFAULT_LOON_SETTINGS, source: 'rose' } });
+	config.emit();
+	assert.equal(headerFactories(ctx).at(-1), undefined, 'LOON kept the slot after source became rose');
+
+	config.set({ loon: { ...DEFAULT_LOON_SETTINGS, source: 'loon' } });
+	config.emit();
+	assert.equal(typeof headerFactories(ctx).at(-1), 'function', 'LOON did not come back');
+});
+
+test('the status line reports the source', async () => {
+	const { pi, ctx } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, source: 'off' } });
+	const menu = pi.commands.get(MENU_COMMAND)!;
+	await (menu.handler as (args: string, ctx: FakeContext) => Promise<void>)('status', ctx);
+	assert.match(ctx.ui.notifyQueue.at(-1) ?? '', /source off/);
+});
+
 /* S6: off means off — nothing painted, nothing reclaimed. */
 
 test('a disabled banner installs nothing at all', async () => {

@@ -259,6 +259,7 @@ function describe(state: LoonState): string {
 		`density ${state.gentle.density}`,
 		`placement ${state.gentle.headerPlacement}`,
 		state.loon.mark ? 'mark on' : 'mark off',
+		`source ${state.loon.source}`,
 	].join(' · ');
 }
 
@@ -289,8 +290,11 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 		attached = 'none';
 	}
 
+	/** True when LOON paints at all: on, and asked for by gentle-pi's banner source. */
+	const loonPaints = () => state?.loon.enabled === true && state.loon.source === 'loon';
+
 	/** True when LOON should own the top slot right now. */
-	const ownsTopSlot = () => state?.loon.enabled === true && state.gentle.headerPlacement === 'top';
+	const ownsTopSlot = () => loonPaints() && state?.gentle.headerPlacement === 'top';
 
 	/**
 	 * Paint with the settings already in hand. Never reads the files: the caller
@@ -313,7 +317,9 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 				health,
 			});
 
-		if (!loon.enabled) {
+		if (!loon.enabled || loon.source !== 'loon') {
+			// Off, or gentle-pi's menu asked for its own banner (`rose`) or for none
+			// (`off`): LOON gives the slot back and never reclaims it.
 			cancelWatchdog();
 			release(ctx);
 			return false;
