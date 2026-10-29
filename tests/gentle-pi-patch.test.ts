@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import {
 	ANCHORS,
 	GENTLE_PI_VERSION,
 	apply,
 	isMarked,
+	planRestore,
 	revert,
 	PATCH_MARKER,
 	TARGETS,
@@ -299,4 +300,115 @@ test('patched-v1 without a verified pristine backup refuses instead of nesting a
 	];
 	assert.equal(apply({ install, backups: join(root, 'backups') }, standTargets), 2);
 	assert.equal(readFileSync(join(install, 'extensions', 'gentle-shell.ts'), 'utf8'), v1, 'the file was touched');
+});
+
+/* Revert resolves the pristine snapshot per file, so backups may be split. */
+
+const viewSpec = TARGETS.find((target) => target.file === 'lib/visual-customize-view.ts')!;
+
+function viewStand(): string {
+	return ['export class View {', ANCHORS.viewLabelType, '}', '', 'export const pick = (start: number) => {', ANCHORS.viewLabelCall, '};', ''].join('\n');
+}
+
+function threeTargets(): TargetSpec[] {
+	const shellText = shellStand();
+	const bannerText = bannerStand();
+	const viewText = viewStand();
+	const shellV2 = patchText(shellText, shellSpec);
+	const bannerV2 = patchText(bannerText, TARGETS.find((target) => target.file === 'extensions/startup-banner.ts')!);
+	const viewV2 = patchText(viewText, viewSpec);
+	assert.ok(shellV2.ok && bannerV2.ok && viewV2.ok);
+	return [
+		{
+			...shellSpec,
+			md5: md5(shellText),
+			md5Patched: md5((shellV2 as { text: string }).text),
+			v2Marker: 'Banner color: wallpaper',
+		},
+		{ ...TARGETS.find((target) => target.file === 'extensions/startup-banner.ts')!, md5: md5(bannerText), md5Patched: md5((bannerV2 as { text: string }).text) },
+		{ ...viewSpec, md5: md5(viewText), md5Patched: md5((viewV2 as { text: string }).text) },
+	];
+}
+
+function plantBackup(backups: string, stamp: string, files: Record<string, string>): void {
+	for (const [file, text] of Object.entries(files)) {
+		const path = join(backups, stamp, file);
+		mkdirSync(dirname(path), { recursive: true });
+		writeFileSync(path, text);
+	}
+}
+
+test('revert restores every target from snapshots split across backups', async () => {
+	const { mkdtempSync } = await import('node:fs');
+	const { tmpdir } = await import('node:os');
+
+	const root = mkdtempSync(join(tmpdir(), 'loon-revert-split-'));
+	const install = join(root, 'gentle-pi');
+	const backups = join(root, 'backups');
+	mkdirSync(join(install, 'extensions'), { recursive: true });
+	mkdirSync(join(install, 'lib'), { recursive: true });
+	const targets = threeTargets();
+	const pristine = {
+		'extensions/gentle-shell.ts': shellStand(),
+		'extensions/startup-banner.ts': bannerStand(),
+		'lib/visual-customize-view.ts': viewStand(),
+	};
+	// The installation is patched; the snapshots live in two different backups.
+	for (const spec of targets) {
+		const patched = patchText(pristine[spec.file as keyof typeof pristine]!, spec);
+		assert.ok(patched.ok);
+		writeFileSync(join(install, spec.file), (patched as { text: string }).text);
+	}
+	plantBackup(backups, 'gentle-pi-banner-patch-20260101000001', { 'extensions/gentle-shell.ts': pristine['extensions/gentle-shell.ts'] });
+	plantBackup(backups, 'gentle-pi-banner-patch-20260101000002', {
+		'extensions/startup-banner.ts': pristine['extensions/startup-banner.ts'],
+		'lib/visual-customize-view.ts': pristine['lib/visual-customize-view.ts'],
+	});
+
+	assert.equal(revert({ install, backups }, targets), 0);
+	for (const spec of targets) {
+		assert.equal(readFileSync(join(install, spec.file), 'utf8'), pristine[spec.file as keyof typeof pristine], spec.file + ' was not restored');
+	}
+});
+
+test('a missing snapshot names the file and copies nothing at all', async () => {
+	const { mkdtempSync } = await import('node:fs');
+	const { tmpdir } = await import('node:os');
+
+	const root = mkdtempSync(join(tmpdir(), 'loon-revert-missing-'));
+	const install = join(root, 'gentle-pi');
+	const backups = join(root, 'backups');
+	mkdirSync(join(install, 'extensions'), { recursive: true });
+	mkdirSync(join(install, 'lib'), { recursive: true });
+	const targets = threeTargets();
+	const pristine = {
+		'extensions/gentle-shell.ts': shellStand(),
+		'extensions/startup-banner.ts': bannerStand(),
+		'lib/visual-customize-view.ts': viewStand(),
+	};
+	const patchedText: Record<string, string> = {};
+	for (const spec of targets) {
+		const patched = patchText(pristine[spec.file as keyof typeof pristine]!, spec);
+		assert.ok(patched.ok);
+		patchedText[spec.file] = (patched as { text: string }).text;
+		writeFileSync(join(install, spec.file), patchedText[spec.file]!);
+	}
+	// Only the first two have a snapshot: the view's is missing everywhere.
+	plantBackup(backups, 'gentle-pi-banner-patch-20260101000001', {
+		'extensions/gentle-shell.ts': pristine['extensions/gentle-shell.ts'],
+		'extensions/startup-banner.ts': pristine['extensions/startup-banner.ts'],
+	});
+
+	assert.equal(revert({ install, backups }, targets), 2);
+	for (const spec of targets) {
+		assert.equal(
+			readFileSync(join(install, spec.file), 'utf8'),
+			patchedText[spec.file],
+			spec.file + ' was touched even though the restore could not complete',
+		);
+	}
+	assert.deepEqual(planRestore({ install, backups }, targets), {
+		ok: false,
+		missing: [{ file: 'lib/visual-customize-view.ts', md5: targets[2]!.md5 }],
+	});
 });

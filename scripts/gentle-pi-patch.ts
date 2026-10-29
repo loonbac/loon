@@ -71,13 +71,6 @@ const BANNER_EVENT_ANCHOR = "  pi.on(\"session_start\", async (_event, ctx) => {
 const BANNER_EVENT_REPLACEMENT = "  // LOON banner patch: read the banner source from LOON's own settings file.\n  async function readLoonBannerSource(): Promise<string | undefined> {\n    try {\n      const { readFile } = await import(\"node:fs/promises\");\n      const { join } = await import(\"node:path\");\n      const { homedir } = await import(\"node:os\");\n      const home = process.env.PI_CODING_AGENT_DIR || join(homedir(), \".pi\", \"agent\");\n      const parsed: unknown = JSON.parse(await readFile(join(home, \"loon-tui.json\"), \"utf8\"));\n      if (typeof parsed !== \"object\" || parsed === null) return undefined;\n      const source = (parsed as Record<string, unknown>).source;\n      return typeof source === \"string\" ? source : undefined;\n    } catch {\n      return undefined;\n    }\n  }\n  pi.on(\"session_start\", async (_event, ctx) => {";
 
 /** The exact anchors, so a test can build a stand-in file around them. */
-export const ANCHORS = {
-	shellInit: SHELL_INIT_ANCHOR,
-	shellRows: SHELL_ROWS_ANCHOR,
-	bannerConfig: BANNER_CONFIG_ANCHOR,
-	bannerEvent: BANNER_EVENT_ANCHOR,
-};
-
 const VIEW_LABEL_TYPE_ANCHOR = '\tlabel: string | (() => string);';
 const VIEW_LABEL_TYPE_REPLACEMENT = '\tlabel: string | ((width?: number) => string);';
 
@@ -85,6 +78,15 @@ const VIEW_LABEL_CALL_ANCHOR =
 	'\t\t\tconst item = navOnly ? this.categories[start + i] : row ? typeof row.label === "function" ? row.label() : row.label : undefined;';
 const VIEW_LABEL_CALL_REPLACEMENT =
 	'\t\t\tconst item = navOnly ? this.categories[start + i] : row ? typeof row.label === "function" ? row.label(rightWidth) : row.label : undefined;';
+
+export const ANCHORS = {
+	shellInit: SHELL_INIT_ANCHOR,
+	shellRows: SHELL_ROWS_ANCHOR,
+	bannerConfig: BANNER_CONFIG_ANCHOR,
+	bannerEvent: BANNER_EVENT_ANCHOR,
+	viewLabelType: VIEW_LABEL_TYPE_ANCHOR,
+	viewLabelCall: VIEW_LABEL_CALL_ANCHOR,
+};
 
 export const TARGETS: TargetSpec[] = [
 	{
@@ -417,13 +419,24 @@ export function apply(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numbe
  * The pristine file recorded by an earlier run, newest backup first. Needed to
  * upgrade over our own previous patch: the installed file is not the build.
  */
-export function findPristineBackup(paths: PatchPaths, spec: TargetSpec): string | undefined {
-	if (!existsSync(paths.backups)) return undefined;
-	const dirs = readdirSync(paths.backups)
+/** Every backup directory, newest first. */
+function backupDirs(paths: PatchPaths): string[] {
+	if (!existsSync(paths.backups)) return [];
+	return readdirSync(paths.backups)
 		.filter((name) => name.startsWith('gentle-pi-banner-patch-'))
 		.sort()
 		.reverse();
-	for (const dir of dirs) {
+}
+
+/**
+ * The pristine copy of one target recorded by an earlier run, newest first.
+ *
+ * Resolution is per file, not per directory: a run that only had to patch one file
+ * writes a backup with only that file, and another run covers the rest. Requiring one
+ * directory to hold every target would find nothing even when the bytes exist.
+ */
+export function findPristineBackup(paths: PatchPaths, spec: TargetSpec): string | undefined {
+	for (const dir of backupDirs(paths)) {
 		const candidate = join(paths.backups, dir, spec.file);
 		if (!existsSync(candidate)) continue;
 		const text = readFileSync(candidate, 'utf8');
@@ -432,10 +445,69 @@ export function findPristineBackup(paths: PatchPaths, spec: TargetSpec): string 
 	return undefined;
 }
 
+export interface RestoreStep {
+	spec: TargetSpec;
+	/** Where the verified pristine bytes were found. */
+	source: string;
+	text: string;
+}
+
+export type RestorePlan =
+	| { ok: true; steps: RestoreStep[] }
+	| { ok: false; missing: { file: string; md5: string }[] };
+
 /**
- * The newest backup that holds every target: a run that only upgraded one file
- * writes only that file, and a partial backup cannot restore the other one.
+ * Resolve and verify every target before anything is written, so a missing or wrong
+ * snapshot cannot leave the installation half restored.
  */
+export function planRestore(paths: PatchPaths, targets: TargetSpec[] = TARGETS): RestorePlan {
+	const steps: RestoreStep[] = [];
+	const missing: { file: string; md5: string }[] = [];
+	for (const spec of targets) {
+		const dir = backupDirs(paths).find((name) => {
+			const candidate = join(paths.backups, name, spec.file);
+			return existsSync(candidate) && md5(readFileSync(candidate, 'utf8')) === spec.md5;
+		});
+		if (dir === undefined) {
+			missing.push({ file: spec.file, md5: spec.md5 });
+			continue;
+		}
+		const source = join(paths.backups, dir, spec.file);
+		steps.push({ spec, source, text: readFileSync(source, 'utf8') });
+	}
+	return missing.length > 0 ? { ok: false, missing } : { ok: true, steps };
+}
+
+export function revert(paths: PatchPaths, targets: TargetSpec[] = TARGETS): number {
+	const plan = planRestore(paths, targets);
+	if (!plan.ok) {
+		for (const item of plan.missing) {
+			console.error(item.file + ': no pristine snapshot with md5 ' + item.md5 + ' in any backup under ' + paths.backups);
+		}
+		console.error('nothing was restored');
+		return 2;
+	}
+
+	// Verified once when the plan was built; every step is checked again here, before
+	// a single byte is copied, because a plan is not a promise about the disk.
+	for (const step of plan.steps) {
+		if (md5(step.text) !== step.spec.md5) {
+			console.error(step.spec.file + ': the snapshot changed while planning; nothing was restored');
+			return 2;
+		}
+	}
+
+	for (const step of plan.steps) {
+		copyFileSync(step.source, join(paths.install, step.spec.file));
+		const restored = readFileSync(join(paths.install, step.spec.file), 'utf8');
+		if (md5(restored) !== step.spec.md5) {
+			console.error(step.spec.file + ': restore did not produce the original bytes');
+			return 2;
+		}
+		console.log(step.spec.file + ': restored (' + step.spec.md5 + ') from ' + step.source);
+	}
+	return 0;
+}
 export function latestBackup(paths: PatchPaths, targets: TargetSpec[] = TARGETS): string | undefined {
 	if (!existsSync(paths.backups)) return undefined;
 	const dirs = readdirSync(paths.backups)
@@ -448,33 +520,6 @@ export function latestBackup(paths: PatchPaths, targets: TargetSpec[] = TARGETS)
 	return undefined;
 }
 
-export function revert(paths: PatchPaths, targets: TargetSpec[] = TARGETS): number {
-	const dir = latestBackup(paths, targets);
-	if (dir === undefined) {
-		console.error('no backup under ' + paths.backups + '; nothing was restored');
-		return 1;
-	}
-	for (const spec of targets) {
-		const saved = join(dir, spec.file);
-		if (!existsSync(saved)) {
-			console.error('backup is missing ' + spec.file + '; nothing was restored');
-			return 1;
-		}
-		const text = readFileSync(saved, 'utf8');
-		if (md5(text) !== spec.md5) {
-			console.error('backup of ' + spec.file + ' is md5 ' + md5(text) + ', expected ' + spec.md5 + '; nothing was restored');
-			return 2;
-		}
-		copyFileSync(saved, join(paths.install, spec.file));
-		if (md5(readFileSync(join(paths.install, spec.file), 'utf8')) !== spec.md5) {
-			console.error(spec.file + ': restore did not produce the original bytes');
-			return 2;
-		}
-		console.log(spec.file + ': restored (' + spec.md5 + ')');
-	}
-	console.log('restored from ' + dir);
-	return 0;
-}
 
 export function main(argv: string[]): number {
 	const paths = defaultPaths();
