@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import {
 	ANCHORS,
 	GENTLE_PI_VERSION,
+	apply,
+	isMarked,
+	revert,
 	PATCH_MARKER,
 	TARGETS,
 	anchorsFit,
@@ -15,11 +18,16 @@ import {
 	type TargetSpec,
 } from '../scripts/gentle-pi-patch.ts';
 
-const spec = (file: string, text: string, anchors: string[]): TargetSpec => ({
-	file,
-	md5: md5(text),
-	edits: anchors.map((anchor) => ({ anchor, replacement: anchor + '\n// ' + PATCH_MARKER })),
-});
+const spec = (file: string, text: string, anchors: string[]): TargetSpec => {
+	const base: TargetSpec = {
+		file,
+		md5: md5(text),
+		edits: anchors.map((anchor) => ({ anchor, replacement: anchor + '\n// ' + PATCH_MARKER })),
+	};
+	// Mirror the tool's contract: a patched state is decided by the bytes written.
+	const patched = patchText(text, base);
+	return patched.ok ? { ...base, md5Patched: md5(patched.text) } : base;
+};
 
 const shellFixture = ['// head', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '// tail'].join('\n');
 const bannerFixture = ['// head', ANCHORS.bannerEvent, '// body', ANCHORS.bannerConfig, '// tail'].join('\n');
@@ -122,9 +130,151 @@ test('the real installed files still match the anchors, when they are here', () 
 		const text = readFileSync(path, 'utf8');
 		const state = classify(text, target);
 		assert.ok(
-			state === 'clean' || state === 'patched',
+			state === 'clean' || state === 'patched' || state === 'patched-v1',
 			`${target.file} is ${state}: the anchors no longer match the installed build`,
 		);
 		if (state === 'clean') assert.ok(anchorsFit(text, target), 'an anchor is not exactly once');
+		if (state === 'patched-v1') assert.ok(!anchorsFit(text, target), 'a v1 file should not match the v2 anchors');
 	}
+});
+
+/* S7: the state machine, including the upgrade over our own previous patch. */
+
+const shellSpec = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
+
+function shellStand(): string {
+	return ['export default async function stand() {', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '}', ''].join('\n');
+}
+
+function bannerStand(): string {
+	return ['export default function stand(pi: any) {', ANCHORS.bannerEvent, '// body', ANCHORS.bannerConfig, '  });', '}', ''].join('\n');
+}
+
+test('a file patched by the previous version is reported as patched-v1', () => {
+	const pristine = shellStand();
+	const v1 = pristine.replace(ANCHORS.shellRows, '// LOON banner patch v1\n// Banner: loon');
+	const specWithV1: TargetSpec = { ...shellSpec, md5: md5(pristine), md5PatchedV1: md5(v1) };
+	assert.equal(classify(v1, specWithV1), 'patched-v1');
+
+	const v2 = patchText(pristine, shellSpec);
+	assert.ok(v2.ok);
+	const specWithV2: TargetSpec = { ...shellSpec, md5: md5(pristine), md5Patched: md5((v2 as { text: string }).text) };
+	assert.equal(classify((v2 as { text: string }).text, specWithV2), 'patched');
+});
+
+test('a patched file edited afterwards is a different version, not ours', () => {
+	const pristine = shellStand();
+	const v2 = patchText(pristine, shellSpec);
+	assert.ok(v2.ok);
+	const edited = (v2 as { text: string }).text + '// someone edited this after patching\n';
+	const specWithV2: TargetSpec = { ...shellSpec, md5: md5(pristine), md5Patched: md5((v2 as { text: string }).text) };
+	assert.equal(classify(edited, specWithV2), 'different-version');
+	assert.equal(isMarked(edited, specWithV2), true, 'the refusal should be able to explain itself');
+});
+
+test('the v2 rows add the wallpaper colour and return the accent to banner', () => {
+	const result = patchText(shellStand(), shellSpec);
+	assert.ok(result.ok);
+	const text = result.text;
+
+	assert.ok(text.includes('Banner color: wallpaper'), 'the wallpaper row is missing');
+	assert.ok(text.includes('Wallpaper accent'), 'the preview title is missing');
+	assert.ok(text.includes('saveLoonAccent("wallpaper")'), 'the row does not store the choice');
+	assert.ok(
+		text.includes('await saveLoonAccent("banner")'),
+		'the four named colours must return the accent to gentle-pi, or picking pink is a no-op',
+	);
+	assert.ok(text.includes('loonSettings.accent !== "wallpaper" && banner.color === color'), 'the current marker ignores the wallpaper mode');
+	assert.ok(text.includes('accent.txt'), 'the wallpaper accent is not read');
+	assert.ok(!text.includes('Banner rose:'), 'the old rose row survived');
+});
+
+test('the four patch states, end to end on a copy of the package', async () => {
+	const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs');
+	const { join } = await import('node:path');
+	const { tmpdir } = await import('node:os');
+
+	const root = mkdtempSync(join(tmpdir(), 'loon-patch-e2e-'));
+	const install = join(root, 'gentle-pi');
+	const backups = join(root, 'backups');
+	mkdirSync(join(install, 'extensions'), { recursive: true });
+	const shellPath = join(install, 'extensions', 'gentle-shell.ts');
+	const bannerPath = join(install, 'extensions', 'startup-banner.ts');
+	const shellText = shellStand();
+	const bannerText = bannerStand();
+	writeFileSync(shellPath, shellText);
+	writeFileSync(bannerPath, bannerText);
+
+	// The stand-ins are not the 4.5.1 build, so the run uses targets pinned to them;
+	// everything else - anchors, backup, jiti gate, atomic write - is the real path.
+	const shellV2 = patchText(shellText, shellSpec);
+	assert.ok(shellV2.ok);
+	const bannerTarget = TARGETS.find((target) => target.file === 'extensions/startup-banner.ts')!;
+	const bannerV2 = patchText(bannerText, bannerTarget);
+	assert.ok(bannerV2.ok);
+	const v1Text = '// LOON banner patch v1\nexport default async function stand() { }\n';
+	const standTargets: TargetSpec[] = [
+		{
+			...shellSpec,
+			md5: md5(shellText),
+			md5Patched: md5((shellV2 as { text: string }).text),
+			md5PatchedV1: md5(v1Text),
+			v2Marker: 'Banner color: wallpaper',
+		},
+		{ ...bannerTarget, md5: md5(bannerText), md5Patched: md5((bannerV2 as { text: string }).text) },
+	];
+	const paths = { install, backups };
+
+	// clean -> patched
+	assert.equal(classify(readFileSync(shellPath, 'utf8'), standTargets[0]!), 'clean');
+	assert.equal(apply(paths, standTargets), 0);
+	assert.equal(classify(readFileSync(shellPath, 'utf8'), standTargets[0]!), 'patched');
+	assert.equal(classify(readFileSync(bannerPath, 'utf8'), standTargets[1]!), 'patched');
+	assert.ok(readFileSync(shellPath, 'utf8').includes('Banner color: wallpaper'));
+
+	// idempotent
+	assert.equal(apply(paths, standTargets), 0);
+	assert.match(readFileSync(shellPath, 'utf8'), /Banner color: wallpaper/);
+
+	// patched-v1 -> patched, over the recorded pristine backup
+	writeFileSync(shellPath, v1Text);
+	assert.equal(classify(readFileSync(shellPath, 'utf8'), standTargets[0]!), 'patched-v1');
+	assert.equal(apply(paths, standTargets), 0, 'the upgrade from v1 must succeed');
+	assert.equal(classify(readFileSync(shellPath, 'utf8'), standTargets[0]!), 'patched');
+	assert.ok(readFileSync(shellPath, 'utf8').includes('Banner color: wallpaper'));
+
+	// a different build is refused and left alone
+	const altered = shellText + '// a build this patch does not know\n';
+	writeFileSync(shellPath, altered);
+	assert.equal(apply(paths, standTargets), 2);
+	assert.equal(readFileSync(shellPath, 'utf8'), altered, 'a refused apply modified the file');
+
+	// revert goes back to the pristine bytes of both files
+	assert.equal(revert(paths, standTargets), 0);
+	assert.equal(readFileSync(shellPath, 'utf8'), shellText);
+	assert.equal(readFileSync(bannerPath, 'utf8'), bannerText);
+});
+
+test('patched-v1 without a verified pristine backup refuses instead of nesting anchors', async () => {
+	const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs');
+	const { join } = await import('node:path');
+	const { tmpdir } = await import('node:os');
+
+	const root = mkdtempSync(join(tmpdir(), 'loon-patch-nov1-'));
+	const install = join(root, 'gentle-pi');
+	mkdirSync(join(install, 'extensions'), { recursive: true });
+	const v1 = '// LOON banner patch v1\nexport default function stand() { }\n';
+	writeFileSync(join(install, 'extensions', 'gentle-shell.ts'), v1);
+	const bannerText = bannerStand();
+	writeFileSync(join(install, 'extensions', 'startup-banner.ts'), bannerText);
+
+	const bannerTarget = TARGETS.find((target) => target.file === 'extensions/startup-banner.ts')!;
+	const bannerV2 = patchText(bannerText, bannerTarget);
+	assert.ok(bannerV2.ok);
+	const standTargets: TargetSpec[] = [
+		{ ...shellSpec, md5: md5(shellStand()), v2Marker: 'Banner color: wallpaper' },
+		{ ...bannerTarget, md5: md5(bannerText), md5Patched: md5((bannerV2 as { text: string }).text) },
+	];
+	assert.equal(apply({ install, backups: join(root, 'backups') }, standTargets), 2);
+	assert.equal(readFileSync(join(install, 'extensions', 'gentle-shell.ts'), 'utf8'), v1, 'the file was touched');
 });

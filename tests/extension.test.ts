@@ -104,6 +104,7 @@ interface FakeConfig {
 	deps: LoonDeps;
 	writes: LoonSettings[];
 	state: LoonState;
+	wallpaperRgb: [number, number, number] | undefined;
 	set(next: Partial<LoonState>): void;
 	emit(): void;
 	disposed(): number;
@@ -121,6 +122,7 @@ function fakeConfig(initial: Partial<LoonState> = {}): FakeConfig {
 	const config: FakeConfig = {
 		writes,
 		state,
+		wallpaperRgb: undefined,
 		deps: {
 			read: () => ({ loon: { ...state.loon }, gentle: { ...state.gentle } }),
 			write: (settings) => {
@@ -128,6 +130,7 @@ function fakeConfig(initial: Partial<LoonState> = {}): FakeConfig {
 				state = { ...state, loon: settings };
 				config.state = state;
 			},
+			wallpaper: () => config.wallpaperRgb,
 			watch: (onChange) => {
 				emitHandler = onChange;
 				return () => {
@@ -419,6 +422,54 @@ test('compact keeps the mark while the mark switch is on', async () => {
 	await wait(50);
 	assert.equal(markRows(renderHeader(ctx)), 4);
 	assert.equal(renderHeader(ctx).length, 9, 'two borders plus seven body rows');
+});
+
+test('the wallpaper accent paints the box and keeps the text roles themed', async () => {
+	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, accent: 'wallpaper' } });
+	config.wallpaperRgb = [155, 72, 74];
+	startSession(pi, ctx);
+	await wait(50);
+
+	const rendered = renderHeader(ctx).join('\n');
+	assert.ok(rendered.includes('\x1b[38;2;155;72;74m'), 'the wallpaper colour was not painted');
+	assert.ok(!rendered.includes('\x1b[38;2;255;118;195m'), 'gentle-pi\'s pink leaked into the wallpaper accent');
+});
+
+test('an unreadable wallpaper accent falls back to the theme and says so', async () => {
+	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, accent: 'wallpaper' } });
+	config.wallpaperRgb = undefined;
+	startSession(pi, ctx);
+	await wait(50);
+
+	assert.ok(!renderHeader(ctx).join('\n').includes('\x1b[38;2;'), 'the theme accent was overridden by nothing');
+	const menu = pi.commands.get(MENU_COMMAND)!;
+	await (menu.handler as (args: string, ctx: FakeContext) => Promise<void>)('status', ctx);
+	assert.match(ctx.ui.notifyQueue.at(-1) ?? '', /accent wallpaper \(unavailable, theme fallback\)/);
+});
+
+test('status names the wallpaper colour that is in effect', async () => {
+	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, accent: 'wallpaper' } });
+	config.wallpaperRgb = [155, 72, 74];
+	startSession(pi, ctx);
+	await wait(50);
+	const menu = pi.commands.get(MENU_COMMAND)!;
+	await (menu.handler as (args: string, ctx: FakeContext) => Promise<void>)('status', ctx);
+	assert.match(ctx.ui.notifyQueue.at(-1) ?? '', /accent wallpaper #9B484A/);
+});
+
+test('a wallpaper change repaints a running session', async () => {
+	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, accent: 'wallpaper' } });
+	config.wallpaperRgb = [155, 72, 74];
+	startSession(pi, ctx);
+	await wait(50);
+	assert.ok(renderHeader(ctx).join('\n').includes('\x1b[38;2;155;72;74m'));
+
+	// The accent file was replaced: the watcher reports it, the header recolours.
+	config.wallpaperRgb = [30, 144, 255];
+	config.emit();
+	const rendered = renderHeader(ctx).join('\n');
+	assert.ok(rendered.includes('\x1b[38;2;30;144;255m'), 'the new wallpaper colour was not painted');
+	assert.ok(!rendered.includes('\x1b[38;2;155;72;74m'), 'the old wallpaper colour is still on screen');
 });
 
 test('the settings command reports what it is following', async () => {

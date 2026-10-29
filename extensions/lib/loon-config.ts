@@ -16,8 +16,12 @@ export function piConfigHome(env: NodeJS.ProcessEnv = process.env, home: string 
 
 export const LOON_CONFIG_FILE_NAME = 'loon-tui.json';
 
-/** The accent is either the theme's own or gentle-pi's `banner.json` colour. */
-export const ACCENT_SOURCES = ['theme', 'banner'] as const;
+/**
+ * Where the accent comes from: the theme itself, gentle-pi's `banner.json` colour,
+ * or the wallpaper accent published by the desktop. `banner` stays the default, so
+ * a colour already chosen in gentle-pi's menu is honoured.
+ */
+export const ACCENT_SOURCES = ['theme', 'banner', 'wallpaper'] as const;
 
 export type AccentSource = (typeof ACCENT_SOURCES)[number];
 

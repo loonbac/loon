@@ -47,13 +47,22 @@ export interface TargetSpec {
 	/** md5 of the untouched 4.5.1 build. */
 	md5: string;
 	edits: PatchEdit[];
+	/** md5 of the exact bytes this version writes. */
+	md5Patched?: string;
+	/** md5 of the bytes the previous version wrote, when they differ. */
+	md5PatchedV1?: string;
+	/**
+	 * Text that only the current patch version writes. Used to explain a file that
+	 * carries our marker but matches neither version: it was edited afterwards.
+	 */
+	v2Marker?: string;
 }
 
 const SHELL_INIT_ANCHOR = "\t\t\tlet banner = await readBannerConfig(bannerHome).catch(error => { close(); throw error; });\n\t\t\tif (closed) return;";
-const SHELL_INIT_ADDITION = "\t\t\t// LOON banner patch: the banner source lives in LOON's own settings file,\n\t\t\t// because writeBannerConfig() persists only this file's three keys and would\n\t\t\t// drop anything else written here.\n\t\t\tconst loonSettingsPath = join(process.env.PI_CODING_AGENT_DIR || join(os.homedir(), \".pi\", \"agent\"), \"loon-tui.json\");\n\t\t\tconst readLoonSettings = async (): Promise<Record<string, unknown>> => {\n\t\t\t\ttry {\n\t\t\t\t\tconst parsed: unknown = JSON.parse(await readFile(loonSettingsPath, \"utf8\"));\n\t\t\t\t\treturn typeof parsed === \"object\" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};\n\t\t\t\t} catch {\n\t\t\t\t\treturn {};\n\t\t\t\t}\n\t\t\t};\n\t\t\tlet loonSettings = await readLoonSettings();\n\t\t\tlet loonBannerSource: \"loon\" | \"rose\" | \"off\" = loonSettings.source === \"rose\" || loonSettings.source === \"off\" ? loonSettings.source : \"loon\";\n\t\t\tconst saveLoonBannerSource = async (source: \"loon\" | \"rose\" | \"off\") => {\n\t\t\t\tconst { mkdir, rename, writeFile } = await import(\"node:fs/promises\");\n\t\t\t\tconst next = { ...loonSettings, source };\n\t\t\t\tawait mkdir(dirname(loonSettingsPath), { recursive: true });\n\t\t\t\tconst temporary = `${loonSettingsPath}.${process.pid}.tmp`;\n\t\t\t\tawait writeFile(temporary, `${JSON.stringify(next, null, \"\\t\")}\\n`, { mode: 0o600 });\n\t\t\t\tawait rename(temporary, loonSettingsPath);\n\t\t\t\tloonSettings = next;\n\t\t\t\tloonBannerSource = source;\n\t\t\t};";
+const SHELL_INIT_ADDITION = "\t\t\t// LOON banner patch v2: the banner source and the accent choice live in\n\t\t\t// LOON's own settings file, because writeBannerConfig() persists only this\n\t\t\t// file's three keys and would drop anything else written here.\n\t\t\tconst loonSettingsPath = join(process.env.PI_CODING_AGENT_DIR || join(os.homedir(), \".pi\", \"agent\"), \"loon-tui.json\");\n\t\t\tconst readLoonSettings = async (): Promise<Record<string, unknown>> => {\n\t\t\t\ttry {\n\t\t\t\t\tconst parsed: unknown = JSON.parse(await readFile(loonSettingsPath, \"utf8\"));\n\t\t\t\t\treturn typeof parsed === \"object\" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};\n\t\t\t\t} catch {\n\t\t\t\t\treturn {};\n\t\t\t\t}\n\t\t\t};\n\t\t\tlet loonSettings = await readLoonSettings();\n\t\t\tlet loonBannerSource: \"loon\" | \"rose\" | \"off\" = loonSettings.source === \"rose\" || loonSettings.source === \"off\" ? loonSettings.source : \"loon\";\n\t\t\tconst writeLoonSettings = async (next: Record<string, unknown>) => {\n\t\t\t\tconst { mkdir, rename, writeFile } = await import(\"node:fs/promises\");\n\t\t\t\tawait mkdir(dirname(loonSettingsPath), { recursive: true });\n\t\t\t\tconst temporary = `${loonSettingsPath}.${process.pid}.tmp`;\n\t\t\t\tawait writeFile(temporary, `${JSON.stringify(next, null, \"\\t\")}\\n`, { mode: 0o600 });\n\t\t\t\tawait rename(temporary, loonSettingsPath);\n\t\t\t\tloonSettings = next;\n\t\t\t};\n\t\t\tconst saveLoonBannerSource = async (source: \"loon\" | \"rose\" | \"off\") => {\n\t\t\t\tawait writeLoonSettings({ ...loonSettings, source });\n\t\t\t\tloonBannerSource = source;\n\t\t\t};\n\t\t\tconst saveLoonAccent = async (accent: \"banner\" | \"wallpaper\") => {\n\t\t\t\tawait writeLoonSettings({ ...loonSettings, accent });\n\t\t\t};\n\t\t\tconst readWallpaperAccent = async (): Promise<{ hex: string; rgb: [number, number, number] } | undefined> => {\n\t\t\t\ttry {\n\t\t\t\t\tconst { readFile: readText } = await import(\"node:fs/promises\");\n\t\t\t\t\tconst home = process.env.HOME ?? os.homedir();\n\t\t\t\t\tconst raw = await readText(join(home, \".config\", \"mpvpaper\", \"accent.txt\"), \"utf8\");\n\t\t\t\t\tconst match = /^\\s*#?([0-9a-fA-F]{6})\\s*$/.exec(raw);\n\t\t\t\t\tif (match === null) return undefined;\n\t\t\t\t\tconst hex = match[1]!.toUpperCase();\n\t\t\t\t\treturn { hex: \"#\" + hex, rgb: [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)] };\n\t\t\t\t} catch {\n\t\t\t\t\treturn undefined;\n\t\t\t\t}\n\t\t\t};\n\t\t\tlet loonWallpaperAccent = await readWallpaperAccent();";
 
-const SHELL_ROWS_ANCHOR = "\t\t\tadd(() => `Banner rose: ${banner.showRose ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showRose = !next.showRose;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showRose: !banner.showRose }));\n\t\t\tadd(() => `Banner text logo: ${banner.showTextLogo ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showTextLogo = !next.showTextLogo;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showTextLogo: !banner.showTextLogo }));";
-const SHELL_ROWS_REPLACEMENT = "\t\t\t// LOON banner patch: one row, three states, cycling on select.\n\t\t\tconst LOON_BANNER_SOURCES = [\"loon\", \"rose\", \"off\"] as const;\n\t\t\tconst nextLoonBannerSource = () => LOON_BANNER_SOURCES[(LOON_BANNER_SOURCES.indexOf(loonBannerSource) + 1) % LOON_BANNER_SOURCES.length];\n\t\t\tadd(() => `Banner: ${loonBannerSource}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tawait saveLoonBannerSource(nextLoonBannerSource());\n\t\t\t}, () => {\n\t\t\t\tconst next = nextLoonBannerSource();\n\t\t\t\tif (next === \"rose\") return bannerPreview(banner);\n\t\t\t\treturn next === \"off\"\n\t\t\t\t\t? { title: \"Banner · off (static)\", sample: \"·  pi's own header at next startup\" }\n\t\t\t\t\t: { title: \"Banner · LOON (static)\", sample: \"█  LOON header at next startup\" };\n\t\t\t});\n\t\t\tif (loonBannerSource === \"rose\") add(() => `Banner text logo: ${banner.showTextLogo ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showTextLogo = !next.showTextLogo;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showTextLogo: !banner.showTextLogo }));";
+const SHELL_ROWS_ANCHOR = "\t\t\tadd(() => `Banner rose: ${banner.showRose ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showRose = !next.showRose;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showRose: !banner.showRose }));\n\t\t\tadd(() => `Banner text logo: ${banner.showTextLogo ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showTextLogo = !next.showTextLogo;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showTextLogo: !banner.showTextLogo }));\n\t\t\tfor (const color of BANNER_COLORS) add(\n\t\t\t\t() => `Banner color: ${color}${banner.color === color ? \" (current)\" : \"\"}`,\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { const next = { ...await readBannerConfigForEdit(bannerHome), color }; await writeBannerConfig(next, bannerHome); banner = next; },\n\t\t\t\t() => bannerPreview({ ...banner, color }),\n\t\t\t);";
+const SHELL_ROWS_REPLACEMENT = "\t\t\t// LOON banner patch v2: one source row, three states, cycling on select.\n\t\t\tconst LOON_BANNER_SOURCES = [\"loon\", \"rose\", \"off\"] as const;\n\t\t\tconst nextLoonBannerSource = () => LOON_BANNER_SOURCES[(LOON_BANNER_SOURCES.indexOf(loonBannerSource) + 1) % LOON_BANNER_SOURCES.length];\n\t\t\tadd(() => `Banner: ${loonBannerSource}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tawait saveLoonBannerSource(nextLoonBannerSource());\n\t\t\t}, () => {\n\t\t\t\tconst next = nextLoonBannerSource();\n\t\t\t\tif (next === \"rose\") return bannerPreview(banner);\n\t\t\t\treturn next === \"off\"\n\t\t\t\t\t? { title: \"Banner \u00b7 off (static)\", sample: \"\u00b7  pi's own header at next startup\" }\n\t\t\t\t\t: { title: \"Banner \u00b7 LOON (static)\", sample: \"\u2588  LOON header at next startup\" };\n\t\t\t});\n\t\t\tif (loonBannerSource === \"rose\") add(() => `Banner text logo: ${banner.showTextLogo ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showTextLogo = !next.showTextLogo;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showTextLogo: !banner.showTextLogo }));\n\t\t\t// LOON banner patch v2: the four named colours also return the accent to\n\t\t\t// gentle-pi's palette, so picking pink after wallpaper is not a no-op.\n\t\t\tfor (const color of BANNER_COLORS) add(\n\t\t\t\t() => `Banner color: ${color}${loonSettings.accent !== \"wallpaper\" && banner.color === color ? \" (current)\" : \"\"}`,\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { const next = { ...await readBannerConfigForEdit(bannerHome), color }; await writeBannerConfig(next, bannerHome); banner = next; await saveLoonAccent(\"banner\"); },\n\t\t\t\t() => bannerPreview({ ...banner, color }),\n\t\t\t);\n\t\t\tadd(\n\t\t\t\t() => `Banner color: wallpaper${loonSettings.accent === \"wallpaper\" ? \" (current)\" : \"\"}`,\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { await saveLoonAccent(\"wallpaper\"); loonWallpaperAccent = await readWallpaperAccent(); },\n\t\t\t\t() => loonWallpaperAccent === undefined\n\t\t\t\t\t? { title: \"Wallpaper accent \u00b7 unavailable (static)\", sample: \"\u00b7  falls back to the theme accent\" }\n\t\t\t\t\t: { title: `Wallpaper accent \u00b7 ${loonWallpaperAccent.hex} (static)`, sample: `\\x1b[38;2;${loonWallpaperAccent.rgb[0]};${loonWallpaperAccent.rgb[1]};${loonWallpaperAccent.rgb[2]}m\u2588\\x1b[0m  wallpaper accent` },\n\t\t\t);";
 
 const BANNER_CONFIG_ANCHOR = "    const bannerConfig = await readBannerConfig();";
 const BANNER_CONFIG_ADDITION = "    // LOON banner patch: LOON's own setting decides who paints the header. \"rose\"\n    // - and a missing setting, so an unpatched LOON keeps working - leaves this\n    // banner in charge; \"loon\" and \"off\" both mean it must not install.\n    const loonBannerSource = await readLoonBannerSource();\n    if (loonBannerSource === \"loon\" || loonBannerSource === \"off\") return;";
@@ -73,6 +82,9 @@ export const TARGETS: TargetSpec[] = [
 	{
 		file: 'extensions/gentle-shell.ts',
 		md5: 'ad1bfce79b655fc4f7cae71449d05d88',
+		md5PatchedV1: '8ae96c97de14436e9755608a81579441',
+		md5Patched: 'b808107af050aa1778410fefa67974df',
+		v2Marker: 'Banner color: wallpaper',
 		edits: [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
 			{ anchor: SHELL_ROWS_ANCHOR, replacement: SHELL_ROWS_REPLACEMENT },
@@ -81,6 +93,8 @@ export const TARGETS: TargetSpec[] = [
 	{
 		file: 'extensions/startup-banner.ts',
 		md5: '028bd98910468c7076ef31c65f36e09f',
+		// Its patched bytes are the same in both versions: the guard did not change.
+		md5Patched: '79167d2ce9c12de796f7c751778d0b18',
 		edits: [
 			{ anchor: BANNER_EVENT_ANCHOR, replacement: BANNER_EVENT_REPLACEMENT },
 			{ anchor: BANNER_CONFIG_ANCHOR, replacement: BANNER_CONFIG_ANCHOR + '\n' + BANNER_CONFIG_ADDITION },
@@ -88,18 +102,31 @@ export const TARGETS: TargetSpec[] = [
 	},
 ];
 
-export type PatchState = 'missing' | 'patched' | 'clean' | 'different-version';
+export type PatchState = 'missing' | 'patched' | 'patched-v1' | 'clean' | 'different-version';
 
 export function md5(text: string): string {
 	return createHash('md5').update(text).digest('hex');
 }
 
-/** What the file on disk is, relative to this patch. */
+/**
+ * What the file on disk is, relative to this patch.
+ *
+ * The patched states are decided by md5, not by the marker alone: a file that
+ * carries our marker but no longer matches the bytes we write was edited after
+ * the patch, and `apply` must refuse it instead of pretending it is ours.
+ */
 export function classify(text: string | undefined, spec: TargetSpec): PatchState {
 	if (text === undefined) return 'missing';
-	if (text.includes(PATCH_MARKER)) return 'patched';
-	if (md5(text) === spec.md5) return 'clean';
+	const digest = md5(text);
+	if (digest === spec.md5) return 'clean';
+	if (spec.md5PatchedV1 !== undefined && digest === spec.md5PatchedV1) return 'patched-v1';
+	if (spec.md5Patched !== undefined && digest === spec.md5Patched) return 'patched';
 	return 'different-version';
+}
+
+/** True when the file carries our marker, so a refusal can say what happened. */
+export function isMarked(text: string | undefined, spec: TargetSpec): boolean {
+	return text !== undefined && text.includes(PATCH_MARKER) && (spec.v2Marker === undefined || text.includes(spec.v2Marker));
 }
 
 export type PatchResult = { ok: true; text: string; changed: boolean } | { ok: false; reason: string };
@@ -241,7 +268,11 @@ function timestamp(): string {
 }
 
 function backupOriginals(paths: PatchPaths, specs: { spec: TargetSpec; text: string }[]): string {
-	const dir = join(paths.backups, 'gentle-pi-banner-patch-' + timestamp());
+	// Two runs inside the same second must not share a directory: the second could
+	// mix its pristine copies with the first one's.
+	const base = 'gentle-pi-banner-patch-' + timestamp();
+	let dir = join(paths.backups, base);
+	for (let copy = 2; existsSync(dir); copy += 1) dir = join(paths.backups, base + '-' + copy);
 	for (const { spec, text } of specs) {
 		const target = join(dir, spec.file);
 		mkdirSync(dirname(target), { recursive: true });
@@ -262,8 +293,8 @@ function writeAtomically(path: string, text: string): void {
 	renameSync(temporary, path);
 }
 
-export function report(paths: PatchPaths): number {
-	for (const spec of TARGETS) {
+export function report(paths: PatchPaths, targets: TargetSpec[] = TARGETS): number {
+	for (const spec of targets) {
 		const text = readTarget(spec, paths);
 		const state = classify(text, spec);
 		const extra = state === 'different-version' ? ' (md5 ' + md5(text ?? '') + ', expected ' + spec.md5 + ')' : '';
@@ -272,10 +303,10 @@ export function report(paths: PatchPaths): number {
 	return 0;
 }
 
-export function apply(paths: PatchPaths): number {
-	const prepared: { spec: TargetSpec; text: string; patched: string }[] = [];
+export function apply(paths: PatchPaths, targets: TargetSpec[] = TARGETS): number {
+	const prepared: { spec: TargetSpec; pristine: string; patched: string }[] = [];
 
-	for (const spec of TARGETS) {
+	for (const spec of targets) {
 		const text = readTarget(spec, paths);
 		const state = classify(text, spec);
 		if (state === 'missing') {
@@ -288,15 +319,34 @@ export function apply(paths: PatchPaths): number {
 		}
 		if (state === 'different-version') {
 			console.error(spec.file + ': md5 ' + md5(text ?? '') + ', expected ' + spec.md5 + ' for gentle-pi ' + GENTLE_PI_VERSION);
-			console.error('this file is not the build the patch was written against; nothing was changed');
+			console.error(
+				isMarked(text, spec)
+					? 'this file was patched and edited afterwards; restore it before patching again; nothing was changed'
+					: 'this file is not the build the patch was written against; nothing was changed',
+			);
 			return 2;
 		}
-		const result = patchText(text ?? '', spec);
+
+		// A file we patched in an earlier version is upgraded from the pristine copy
+		// recorded in its backup: patching over a patched file would nest anchors.
+		let base = text ?? '';
+		if (state === 'patched-v1') {
+			const pristine = findPristineBackup(paths, spec);
+			if (pristine === undefined) {
+				console.error(spec.file + ': patched by an earlier version, and no verified pristine backup was found');
+				console.error('reinstall gentle-pi ' + GENTLE_PI_VERSION + ' or restore the file by hand; nothing was changed');
+				return 2;
+			}
+			console.log(spec.file + ': upgrading over the recorded pristine copy');
+			base = pristine;
+		}
+
+		const result = patchText(base, spec);
 		if (!result.ok) {
 			console.error(spec.file + ': ' + result.reason + '; nothing was changed');
 			return 2;
 		}
-		prepared.push({ spec, text: text ?? '', patched: result.text });
+		prepared.push({ spec, pristine: base, patched: result.text });
 	}
 
 	if (prepared.length === 0) {
@@ -306,16 +356,20 @@ export function apply(paths: PatchPaths): number {
 
 	const piRoot = findPiInstall(paths);
 	const jiti = piRoot === undefined ? undefined : { entry: jitiEntry(piRoot), aliases: buildAliases(piRoot) };
-	for (const { spec, patched } of prepared) {
+	for (const { spec, pristine, patched } of prepared) {
 		const original = join(paths.install, spec.file);
 		const probe = original + '.' + process.pid + '.loon-patch.tmp.ts';
-		const baseline = validateImport(original, jiti);
-		if (!baseline.ok) {
-			console.error(spec.file + ': the loader cannot import the untouched file, so a validation would prove nothing');
-			console.error(baseline.detail);
-			return 3;
-		}
+		// The baseline is the pristine copy this version will build on: if the loader
+		// cannot import that, a validation of the patched output would prove nothing.
+		const baselineProbe = original + '.' + process.pid + '.loon-baseline.tmp.ts';
 		try {
+			writeFileSync(baselineProbe, pristine);
+			const baseline = validateImport(baselineProbe, jiti);
+			if (!baseline.ok) {
+				console.error(spec.file + ': the loader cannot import the untouched file, so a validation would prove nothing');
+				console.error(baseline.detail);
+				return 3;
+			}
 			writeFileSync(probe, patched);
 			const check = validateImport(probe, jiti);
 			if (!check.ok) {
@@ -326,10 +380,13 @@ export function apply(paths: PatchPaths): number {
 			console.log(spec.file + ': patched copy loads with ' + check.detail);
 		} finally {
 			rmSync(probe, { force: true });
+			rmSync(baselineProbe, { force: true });
 		}
 	}
 
-	const dir = backupOriginals(paths, prepared.map(({ spec, text }) => ({ spec, text })));
+	// Every backup holds the pristine 4.5.1 bytes, so `revert` always has something
+	// to verify against - including when this run upgraded our own earlier patch.
+	const dir = backupOriginals(paths, prepared.map(({ spec, pristine }) => ({ spec, text: pristine })));
 	console.log('backup: ' + dir);
 	for (const { spec, patched } of prepared) {
 		writeAtomically(join(paths.install, spec.file), patched);
@@ -337,21 +394,48 @@ export function apply(paths: PatchPaths): number {
 	}
 	return 0;
 }
-
-export function latestBackup(paths: PatchPaths): string | undefined {
+/**
+ * The pristine file recorded by an earlier run, newest backup first. Needed to
+ * upgrade over our own previous patch: the installed file is not the build.
+ */
+export function findPristineBackup(paths: PatchPaths, spec: TargetSpec): string | undefined {
 	if (!existsSync(paths.backups)) return undefined;
-	const dirs = readdirSync(paths.backups).filter((name) => name.startsWith('gentle-pi-banner-patch-')).sort();
-	const latest = dirs.at(-1);
-	return latest === undefined ? undefined : join(paths.backups, latest);
+	const dirs = readdirSync(paths.backups)
+		.filter((name) => name.startsWith('gentle-pi-banner-patch-'))
+		.sort()
+		.reverse();
+	for (const dir of dirs) {
+		const candidate = join(paths.backups, dir, spec.file);
+		if (!existsSync(candidate)) continue;
+		const text = readFileSync(candidate, 'utf8');
+		if (md5(text) === spec.md5) return text;
+	}
+	return undefined;
 }
 
-export function revert(paths: PatchPaths): number {
-	const dir = latestBackup(paths);
+/**
+ * The newest backup that holds every target: a run that only upgraded one file
+ * writes only that file, and a partial backup cannot restore the other one.
+ */
+export function latestBackup(paths: PatchPaths, targets: TargetSpec[] = TARGETS): string | undefined {
+	if (!existsSync(paths.backups)) return undefined;
+	const dirs = readdirSync(paths.backups)
+		.filter((name) => name.startsWith('gentle-pi-banner-patch-'))
+		.sort()
+		.reverse();
+	for (const name of dirs) {
+		if (targets.every((spec) => existsSync(join(paths.backups, name, spec.file)))) return join(paths.backups, name);
+	}
+	return undefined;
+}
+
+export function revert(paths: PatchPaths, targets: TargetSpec[] = TARGETS): number {
+	const dir = latestBackup(paths, targets);
 	if (dir === undefined) {
 		console.error('no backup under ' + paths.backups + '; nothing was restored');
 		return 1;
 	}
-	for (const spec of TARGETS) {
+	for (const spec of targets) {
 		const saved = join(dir, spec.file);
 		if (!existsSync(saved)) {
 			console.error('backup is missing ' + spec.file + '; nothing was restored');
@@ -375,11 +459,16 @@ export function revert(paths: PatchPaths): number {
 
 export function main(argv: string[]): number {
 	const paths = defaultPaths();
-	const command = argv[0];
+	// Test seams: a copy of the package and a scratch backup directory.
+	for (let index = 0; index < argv.length; index += 1) {
+		if (argv[index] === '--install' && argv[index + 1] !== undefined) paths.install = argv[index + 1] as string;
+		if (argv[index] === '--backups' && argv[index + 1] !== undefined) paths.backups = argv[index + 1] as string;
+	}
+	const command = argv.find((value, index) => !value.startsWith('--') && argv[index - 1] !== '--install' && argv[index - 1] !== '--backups');
 	if (command === 'check') return report(paths);
 	if (command === 'apply') return apply(paths);
 	if (command === 'revert') return revert(paths);
-	console.error('usage: gentle-pi-patch.ts <check|apply|revert>');
+	console.error('usage: gentle-pi-patch.ts <check|apply|revert> [--install <gentle-pi dir>] [--backups <dir>]');
 	return 64;
 }
 
