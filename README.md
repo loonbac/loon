@@ -38,12 +38,17 @@ else: the pi-claude-code-tui box, painted entirely by the theme you already use.
 - When the terminal is too narrow for both columns, the sidebar is dropped and
   the left half takes the whole width. Below the mark width only the version
   label is printed.
-- Installs on the next macrotask after `session_start` and re-asserts at 120 ms
-  and 400 ms. gentle-pi installs its own banner ~50 ms after `session_start`
-  (its `setTimeout(..., 50)` opens at `extensions/startup-banner.ts:757` after an
-  `await readBannerConfig()` at line 666) and its resize handler only calls
-  `tui.requestRender()` (line 794), so the 120 ms re-assert wins and nothing
-  reclaims the header later.
+- Installs on the next macrotask after `session_start` and then watches the
+  header instead of guessing the boot time. pi calls `render` on the installed
+  component, so a render gap is proof that the header on screen is not ours: the
+  watchdog re-asserts (at most once a second) for up to 10 s and stops as soon as
+  a render follows a reclaim.
+- Fixed delays do not work and are not used: measured in a real start, the TUI
+  begins painting ~1.9 s in and gentle-pi registers its own banner ~2.7 s in
+  (`setTimeout(..., 50)` opened at `gentle-pi/extensions/startup-banner.ts:757`
+  after `await readBannerConfig()` at line 666 — the awaits, not the 50 ms, are
+  what push it that late). Re-asserts at 0/120/400 ms were spent during boot and
+  gentle-pi kept the header; the watchdog reclaims it at ~1.6 s into its watch.
 
 ## Commands
 
