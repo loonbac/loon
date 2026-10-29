@@ -6,11 +6,14 @@
  * reads gentle-pi's files instead of importing a module of it, so the settings a
  * person changes in /gentle:customization also reach this header.
  */
+import { statSync } from 'node:fs';
 import { VERSION, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { Component, TUI } from '@earendil-works/pi-tui';
 import { renderBanner } from './lib/banner.ts';
 import { watchConfigDirs } from './lib/config-watch.ts';
-import { readWallpaperAccent, wallpaperAccentDir } from './lib/wallpaper-accent.ts';
+import { readWallpaperAccent, wallpaperAccentDir, wallpaperAccentPath } from './lib/wallpaper-accent.ts';
+import { ensureWallpaperTheme, themesDir, type EnsureOutcome } from './lib/theme-file.ts';
+import { WALLPAPER_THEME_NAME } from './lib/wallpaper-theme.ts';
 import {
 	gentleConfigHome,
 	readGentleSettings,
@@ -223,7 +226,7 @@ interface HeaderDeps {
 	/** The wallpaper accent, already parsed; undefined falls back to the theme. */
 	wallpaper(): Rgb | undefined;
 	/** Read per render so a theme change is picked up without reinstalling. */
-	theme(): LoonTheme;
+	theme(): LoonTheme & { name?: string };
 	/** Shared with the watchdog: a render is the proof that we own the header. */
 	health: HeaderHealth;
 }
@@ -240,7 +243,15 @@ class LoonHeader implements Component {
 		const snapshot = this.deps.snapshot();
 		const gentle = this.deps.gentle();
 		const bannerRgb = gentle.accentColor === undefined ? undefined : ACCENT_RGB[gentle.accentColor];
-		const accentRgb = resolveAccentRgb(this.deps.accent(), bannerRgb, this.deps.wallpaper());
+		const theme = this.deps.theme();
+		const wallpaperRgb = this.deps.wallpaper();
+		// With the generated theme active, the banner follows the wallpaper too, so the
+		// box and the interface cannot disagree about the colour. Derived here, at paint
+		// time; the setting file is never rewritten for it.
+		const accentRgb =
+			theme.name === WALLPAPER_THEME_NAME && wallpaperRgb !== undefined
+				? wallpaperRgb
+				: resolveAccentRgb(this.deps.accent(), bannerRgb, wallpaperRgb);
 		return renderBanner({
 			width,
 			version: snapshot.version,
@@ -250,7 +261,7 @@ class LoonHeader implements Component {
 			tips: snapshot.tips,
 			density: gentle.density,
 			showLogo: this.deps.mark(),
-			palette: resolvePalette(this.deps.theme(), { accentRgb }),
+			palette: resolvePalette(theme, { accentRgb }),
 		});
 	}
 
@@ -274,6 +285,8 @@ export interface LoonDeps {
 	watch(onChange: () => void): () => void;
 	/** The wallpaper accent, parsed; undefined falls back to the theme. */
 	wallpaper(): Rgb | undefined;
+	/** Make sure the generated theme exists and matches this accent. */
+	ensureTheme(accent: Rgb | undefined): EnsureOutcome;
 	/** Seam for the tests: the watchdog's clock. */
 	clock?: WatchdogClock;
 }
@@ -284,6 +297,12 @@ export const defaultLoonDeps: LoonDeps = {
 		writeLoonSettings(settings, piConfigHome());
 	},
 	wallpaper: () => readWallpaperAccent(),
+	ensureTheme: (accent) =>
+		ensureWallpaperTheme({
+			accent,
+			dir: themesDir(),
+			accentModifiedAt: accentModifiedAt(wallpaperAccentPath()),
+		}),
 	// The wallpaper script replaces accent.txt atomically, so its inode changes on
 	// every wallpaper: the directory is watched, never the file.
 	watch: (onChange) => watchConfigDirs([gentleConfigHome(), piConfigHome(), wallpaperAccentDir()], onChange),
@@ -301,8 +320,18 @@ function describeAccent(state: LoonState, wallpaper: Rgb | undefined): string {
 		: 'accent wallpaper #' + wallpaper.map((channel) => channel.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
 
+/**
+ * The generated theme, in one phrase: what happened to its file and whether it is
+ * the one in effect. Nothing is claimed when no attempt has run yet.
+ */
+function describeTheme(theme: EnsureOutcome | undefined, activeTheme: string | undefined): string {
+	if (theme === undefined) return 'theme not generated yet';
+	const active = activeTheme === WALLPAPER_THEME_NAME ? ', active' : '';
+	return 'theme ' + WALLPAPER_THEME_NAME + ' ' + theme.result + active;
+}
+
 /** One sentence for notifications: what LOON is doing and why. */
-function describe(state: LoonState, wallpaper: Rgb | undefined): string {
+function describe(state: LoonState, wallpaper: Rgb | undefined, theme?: EnsureOutcome, activeTheme?: string): string {
 	const banner = state.loon.enabled ? 'on' : 'off';
 	const accent = describeAccent(state, wallpaper);
 	return [
@@ -312,6 +341,7 @@ function describe(state: LoonState, wallpaper: Rgb | undefined): string {
 		`placement ${state.gentle.headerPlacement}`,
 		state.loon.mark ? 'mark on' : 'mark off',
 		`source ${state.loon.source}`,
+		describeTheme(theme, activeTheme),
 	].join(' · ');
 }
 
@@ -325,6 +355,8 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 	let attached: 'none' | 'header' | 'widget' = 'none';
 	/** The wallpaper accent, parsed once per read and reused for every render. */
 	let wallpaperRgb: Rgb | undefined;
+	/** What the last attempt to write the generated theme did. */
+	let themeOutcome: EnsureOutcome | undefined;
 	const health: HeaderHealth = { lastRenderAt: 0 };
 
 	const cancelPending = () => {
@@ -402,6 +434,10 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 		health.lastRenderAt = 0;
 		state = deps.read();
 		wallpaperRgb = deps.wallpaper();
+		// Regenerate the theme when it is missing or older than the accent it came
+		// from; on a wallpaper change this runs again, which is what makes the open
+		// session recolour through pi's own theme watcher.
+		themeOutcome = deps.ensureTheme(wallpaperRgb);
 		if (options.refreshSnapshot) snapshot = undefined;
 		const applied = apply(ctx);
 		cancelWatchdog();
@@ -448,7 +484,7 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 						: { ...current.loon, mark: !current.loon.mark };
 			persist(next);
 			refresh(ctx);
-			ctx.ui.notify(describe({ loon: next, gentle: current.gentle }, wallpaperRgb), 'info');
+			ctx.ui.notify(describe({ loon: next, gentle: current.gentle }, wallpaperRgb, themeOutcome, ctx.ui.theme?.name), 'info');
 		}
 	}
 
@@ -507,25 +543,25 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 			const current = deps.read();
 
 			if (verb === 'status') {
-				ctx.ui.notify(describe(current, wallpaperRgb), 'info');
+				ctx.ui.notify(describe(current, wallpaperRgb, themeOutcome, ctx.ui.theme?.name), 'info');
 				return;
 			}
 			if (verb === 'on' || verb === 'off') {
 				persist({ ...current.loon, enabled: verb === 'on' });
 				refresh(ctx);
-				ctx.ui.notify(describe(deps.read(), wallpaperRgb), 'info');
+				ctx.ui.notify(describe(deps.read(), wallpaperRgb, themeOutcome, ctx.ui.theme?.name), 'info');
 				return;
 			}
 			if (verb === 'accent' && (value === 'theme' || value === 'banner' || value === 'wallpaper')) {
 				persist({ ...current.loon, accent: value });
 				refresh(ctx);
-				ctx.ui.notify(describe(deps.read(), wallpaperRgb), 'info');
+				ctx.ui.notify(describe(deps.read(), wallpaperRgb, themeOutcome, ctx.ui.theme?.name), 'info');
 				return;
 			}
 			if (verb === 'mark' && (value === 'on' || value === 'off')) {
 				persist({ ...current.loon, mark: value === 'on' });
 				refresh(ctx);
-				ctx.ui.notify(describe(deps.read(), wallpaperRgb), 'info');
+				ctx.ui.notify(describe(deps.read(), wallpaperRgb, themeOutcome, ctx.ui.theme?.name), 'info');
 				return;
 			}
 			if (verb) {
@@ -538,6 +574,15 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 			await openMenu(ctx);
 		},
 	});
+}
+
+/** mtime in milliseconds, or undefined when the file is not there. */
+export function accentModifiedAt(path: string): number | undefined {
+	try {
+		return statSync(path).mtimeMs;
+	} catch {
+		return undefined;
+	}
 }
 
 export default function loonPi(pi: ExtensionAPI): void {

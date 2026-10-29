@@ -162,6 +162,39 @@ theme.
 /loon:tui accent theme       # back to the theme
 ```
 
+
+### The wallpaper theme
+
+LOON can install a real pi theme, so choosing it in gentle-pi's Themes list
+recolours the whole interface - not just the banner. It is called
+`Wallpaper (LOON)`: every theme this package ships or generates ends in ` (LOON)`,
+and the file name derives from the name (`Wallpaper (LOON).json` in pi's agent
+`themes/` directory), so the two cannot drift.
+
+- The palette is derived from the wallpaper accent in OKLCH: UI roles stay at very
+  low chroma around that hue, syntax roles are hue rotations with clamped chroma,
+  and the wallpaper colour itself is the accent.
+- The floors are hard and enforced by tests: text on background >= 7:1, muted
+  >= 4.5:1, accent >= 3:1. A wallpaper that cannot reach them keeps its hue and
+  has its lightness pushed until it does, so even black or white yields a valid
+  theme.
+- The file is written atomically and only when it is missing, unreadable or older
+  than `accent.txt`; a file with that name whose own `name` is not ours is left
+  untouched and reported as `skipped-foreign`.
+- `/loon:tui status` says which theme was generated, what happened to the file and
+  whether it is the active one.
+- While `Wallpaper (LOON)` is active, the banner follows the wallpaper too, derived
+  at paint time - the settings file is never rewritten for it.
+
+Nothing about gentle-pi is patched for this: its Themes category is built at
+runtime from the installed themes, so a real theme file produces the row
+`Theme: Wallpaper (LOON)` by itself. Regenerating the file while a session runs
+recolours it, because pi hot-reloads the active theme.
+
+```sh
+/gentle:customize   # Themes -> Theme: Wallpaper (LOON)
+```
+
 ### Who paints the banner: the optional gentle-pi patch
 
 gentle-pi's menu is the one place a person configures its banner, so LOON can also
