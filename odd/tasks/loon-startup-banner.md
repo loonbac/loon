@@ -52,7 +52,9 @@ S22 — Animation. "La animación de 15 frames del upstream está permitida si t
 
 S23 — Vertical rhythm. Measured from the reference (L8): the mark occupies interior rows 3-6 (level with `Ask Pi to build it`, the rule, `Commands` and the first tip), row 7 is blank, the tagline is row 8, the model line row 9 and the cwd row 10. Two blank rows sit above the mark, and the body is the sidebar's ten lines.
 
-S24 — Startup race. The 120 ms re-assert must land after gentle-pi installs its own header; its install is `setTimeout(..., 50)` opened at `gentle-pi/extensions/startup-banner.ts:757` and closed at line 1113, after `await readBannerConfig()` at line 666 inside its async `session_start` (line 652). Its resize handler (lines 784-801) only calls `tui.requestRender()` (line 794), so nothing re-registers the header later.
+S24 — Startup race. SUPERSEDED by S25 after L11. Original claim: the 120 ms re-assert lands after gentle-pi's install (`setTimeout(..., 50)` opened at `gentle-pi/extensions/startup-banner.ts:757`, closed at 1113, after `await readBannerConfig()` at 666) and its resize handler only calls `tui.requestRender()` (794), so the race is closed. That reasoning was right about the order of the timers and wrong about the runtime: the TUI does not paint until ~1.9 s.
+
+S25 — Install watchdog. The header installs on the next macrotask after `session_start` and then a watchdog re-asserts whenever our component stops being rendered: pi calls `render` on the installed component, so a render gap is the signal. Tick 250 ms, a render older than 1 s counts as gone, at most one re-assert per stale period, ceiling 10 s, and the loop stops as soon as a render follows a reclaim. Re-asserts never assume how long boot takes.
 
 ## Tasks
 
@@ -71,7 +73,8 @@ S24 — Startup race. The 120 ms re-assert must land after gentle-pi installs it
 | T11 | S8, S21 | inline | 64475db |
 | T12 | S6, S9 | inline | 2ef6b01 |
 | T13 | S13, S15, S21, S23, S24 | inline | 1768abb |
-| T14 | S13, S21 | inline | pending |
+| T14 | S13, S21 | inline | f2c9b00 |
+| T15 | S24, S25 | inline | pending |
 ## Log
 
 L1 (user request, verbatim):
@@ -215,3 +218,29 @@ L10 (T14 evidence):
 - Goldens regenerated: the diff is exactly the two upper mark rows shifting two columns left (`██...` starting at index 23 -> 21); no other line moves, at 80 or 120.
 - `npm test`: 26 tests, 26 pass. `npx tsc --noEmit`: clean.
 - Prose apostrophes (README, test titles, comments) stay as they are, per the owner: only rendered UI text uses the straight apostrophe.
+L11 (owner review of f2c9b00, verbatim):
+
+> DEFECTO REAL, REPRODUCIDO EN UN PI DE VERDAD: el header de LOON-Pi NO queda en pantalla con el setup completo. La corrección anterior del glifo está bien; lo que falla es la instalación.
+>
+> EVIDENCIA 1 — frame final real (tmux, 80x30, captura a los 9 s): `pi -e . --use-theme Gentle` y `pi --use-theme Gentle` (control) producen frames finales IDÉNTICOS: el banner de gentle-pi con el panel GIT / PATH / MCP / PLUGINS / AGENTS / SKILLS / EXTENSIONS / VER / TOOLS. No aparece la caja de LOON.
+>
+> EVIDENCIA 2 — tiempos (PTY 80x30 con timestamps por chunk, 12 s): test (`pi -e .`): "Let's build something great" y "Pi v1.4.0" aparecen a 2280 ms y a 2740 ms; el aviso "Gentle Shell" a 2740 ms. control: ninguna marca nuestra; "Gentle Shell" a 2742 ms.
+>
+> LECTURA: el TUI recién empieza a pintar a ~2280 ms. Tus re-asserts a 120 y 400 ms se gastaron durante el boot, cuando no había TUI pintada ni header de gentle registrado todavía. Cuando gentle-pi registra el suyo (50 ms después de su `await readBannerConfig()`, ya dentro de la ventana de boot) se queda dueño. Por eso mi conclusión anterior —"la carrera está resuelta por diseño"— era correcta en el papel y falsa en el runtime: medí el orden de los `setTimeout`, no el momento en que el TUI existe. Corrige eso también en el README/S24: la carrera NO estaba cerrada.
+>
+> FIX PROPUESTO (determinista, sin números mágicos): no adivines el tiempo de boot. Que el componente del header marque la hora en cada `render()`, y que un watchdog cada 250-500 ms (techo ~8 s) compruebe si el componente pintó recientemente: si nunca pintó o dejó de pintar, re-assert. Se detiene en cuanto hay un render propio sostenido. Coste: un intervalo corto durante el arranque. Si prefieres algo más simple, una escalera ancha (0/500/1000/2000/3000/4500 ms) cubre este caso, pero sigue siendo una apuesta al tiempo de boot: con más paquetes se rompe otra vez.
+>
+> TEST QUE FALTA: el watchdog re-asserta cuando el componente no pintó, y NO re-asserta cuando ya pintó.
+>
+> REPRODUCIBLE: las capturas crudas están en /home/loonbac/Proyectos/pi-loon/.scratch/{loon-t80,loon-c80}.txt y timed-{test,control}.json.
+>
+> El punto "TUI real" sigue abierto hasta que el frame final muestre la caja de LOON. Cuando lo tengas, dime cómo lo verificaste y con qué ancho, y lo confirmo de mi lado con la misma captura.
+L12 (T15 evidence — the install defect and its fix):
+
+- Reproduced on this machine before touching anything: `tmux new-session -d -x 80 -y 30 "cd loon && pi -e . --use-theme Gentle"`, 11 s, `tmux capture-pane -pt`. The frame was byte-identical to the `pi --use-theme Gentle` control: gentle-pi's GIT/PATH/MCP panel and no LOON box.
+- Instrumented temporarily (stderr file, removed before committing): `session_start` at 2145 ms, our `install` at 2148 ms, renders at 2149/2185/2345/2516/2684/2722 ms, then nothing. So our header *did* paint and was replaced afterwards: gentle-pi's registration lands ~2.7 s in, because its `await readBannerConfig()` is slow, not because of its `setTimeout(..., 50)`. The old 0/120/400 ms re-asserts were long spent by then, and the 1.5 s settle-stop had already declared victory. S24 was wrong.
+- Read pi's `setExtensionHeader` (`dist/modes/interactive/interactive-mode.js:1977`): it returns early when `builtInHeader` does not exist yet (so every early re-assert is a no-op), and on success it calls `this.ui.requestRender()`. That is what makes the watchdog self-proving: an assert always produces a render.
+- Fix: `HeaderWatchdog` in `extensions/loon-startup.ts`. The component stamps `health.lastRenderAt` on every `render`; the loop ticks at 250 ms, treats a render older than 1 s as "not ours", re-asserts at most once per stale period and only after our own last assert is stale, stops as soon as a render follows a reclaim, and stops unconditionally at 10 s.
+- Tests (30 → 31): re-asserts while the header never paints; re-asserts after a later registration takes the header over and stops once the reclaim paints; leaves a header that keeps painting alone; gives up at the ceiling. The loop takes an injected clock, so no real timers.
+- Real verification after the fix, `tmux`, 80x32: the final frame shows the LOON box (border, mark, tagline, model line, cwd, divider, sidebar) in place of gentle-pi's panel, and the control frame is unchanged. At 120x32 the box renders with the full model label. Widths used: 80 and 120 columns.
+- Extra defect found in that frame: the model label (`river/deepseek-ai/DeepSeek-V4.1-Flash-1017 · high effort`, 57 columns) overflowed the 53-column left half, so the line sat flush against the border with no padding. `centerClipped` now truncates to `leftWidth - 2` before centring; a test pins the padding and the ellipsis.

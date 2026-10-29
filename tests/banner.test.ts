@@ -173,3 +173,14 @@ test('below the mark width only the version label is printed', () => {
 	const lines = renderBanner(bannerInput({ width: MIN_BANNER_WIDTH - 1 }));
 	assert.deepEqual(lines, ['Pi v1.4.0']);
 });
+
+test('a model label wider than the half is clipped and keeps its padding', () => {
+	const lines = renderBanner(
+		bannerInput({ model: 'river/deepseek-ai/DeepSeek-V4.1-Flash-1017' }),
+	);
+	const modelLine = lines[9] ?? '';
+	assert.equal(visibleWidth(modelLine), 80);
+	assert.match(modelLine, /…/, 'a label that does not fit must be clipped');
+	assert.ok(!/│river/.test(modelLine), 'the label is flush against the border');
+	assert.ok(modelLine.startsWith('│ '), `no leading padding: ${JSON.stringify(modelLine)}`);
+});

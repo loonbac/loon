@@ -45,6 +45,15 @@ function borderLine(left: string, label: string, right: string, width: number, p
 	return paint(`${left}${before}${label}${after}${'─'.repeat(fill)}${right}`);
 }
 
+/**
+ * Centre a text line, clipping it first so a long model label keeps a blank
+ * column on each side instead of sitting flush against the border.
+ */
+function centerClipped(text: string, width: number): string {
+	if (visibleWidth(text) <= width) return center(text, width);
+	return center(truncateToWidth(text, Math.max(1, width - 2), '…'), width);
+}
+
 /** One body row, framed by painted vertical rules. */
 function boxedLine(content: string, width: number, paint: Paint): string {
 	if (width <= 2) return truncateToWidth(content, width, '');
@@ -76,9 +85,9 @@ export function renderBanner(input: BannerInput): string[] {
 		'',
 		...renderLogo(palette).map((line) => center(line, leftWidth)),
 		'',
-		center(palette.tagline("Let's build something great"), leftWidth),
-		center(palette.body(`${input.model} · ${input.effort} effort`), leftWidth),
-		center(palette.subtle(input.cwd), leftWidth),
+		centerClipped(palette.tagline("Let's build something great"), leftWidth),
+		centerClipped(palette.body(`${input.model} · ${input.effort} effort`), leftWidth),
+		centerClipped(palette.subtle(input.cwd), leftWidth),
 	];
 
 	const rule = palette.divider('─'.repeat(Math.max(8, Math.min(rightWidth, TIPS_RULE_WIDTH))));
