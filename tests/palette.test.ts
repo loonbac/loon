@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { BANNER_COLORS } from '../extensions/lib/accent.ts';
 import {
 	LOON_THEME_ROLES,
 	PALETTE_ROLES,
@@ -57,4 +58,43 @@ test('the palette never asks the theme for a role outside the gentle set', () =>
 test('an unknown role surfaces the theme error instead of a colour', () => {
 	const theme = { ...strictTheme(), fg: () => { throw new Error('Unknown theme color: nope'); } };
 	assert.throws(() => resolvePalette(theme).frame('x'), /Unknown theme color/);
+});
+test('gentle-pi’s accent overrides exactly the four accent roles', () => {
+	const theme = strictTheme();
+	const palette = resolvePalette(theme, { accentColor: 'cyan' });
+	const painted = '\x1b[38;2;95;210;255m';
+
+	for (const paint of [palette.frame, palette.divider, palette.heading, palette.logo]) {
+		assert.equal(paint('X'), painted + 'X\x1b[39m');
+	}
+	// The other roles still come from the theme, so text, muted and dim keep it.
+	assert.equal(palette.tagline('X'), 'text<X>');
+	assert.equal(palette.body('X'), 'muted<X>');
+	assert.equal(palette.subtle('X'), 'dim<X>');
+	assert.deepEqual(theme.requested, ['text', 'muted', 'dim']);
+});
+
+test('the theme accent is used when no colour is asked for', () => {
+	const palette = resolvePalette(strictTheme(), { accentColor: undefined });
+	assert.equal(palette.frame('X'), 'accent<X>');
+	assert.equal(palette.logo('X'), 'accent<X>');
+});
+
+test('each of gentle-pi’s four accents has its own painter', () => {
+	const expected: Record<string, string> = {
+		pink: '\x1b[38;2;255;118;195m',
+		cyan: '\x1b[38;2;95;210;255m',
+		yellow: '\x1b[38;2;255;210;95m',
+		green: '\x1b[38;2;110;220;145m',
+	};
+	for (const [colour, open] of Object.entries(expected)) {
+		const palette = resolvePalette(strictTheme(), { accentColor: colour as never });
+		assert.equal(palette.frame('X'), open + 'X\x1b[39m', colour);
+	}
+	assert.deepEqual([...BANNER_COLORS], ['pink', 'cyan', 'yellow', 'green']);
+});
+
+test('the accent painter emits nothing for an empty run', () => {
+	const palette = resolvePalette(strictTheme(), { accentColor: 'pink' });
+	assert.equal(palette.frame(''), '');
 });

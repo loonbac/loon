@@ -273,3 +273,78 @@ test('a model label wider than the half wraps and the box stays rectangular', ()
 	assert.deepEqual(right.slice(-2).map((line) => line.trim()), ['', '']);
 	for (const line of lines.slice(1, -1)) assert.ok(line.startsWith('│') && line.endsWith('│'));
 });
+
+/* S2: gentle-pi's density changes what the banner draws. comfortable is the
+ * captured layout; the other two are exactly the shapes the spec fixes. */
+
+test('comfortable is today’s layout, byte for byte', () => {
+	const explicit = renderBanner(bannerInput({ density: 'comfortable', showLogo: true }));
+	assert.deepEqual(explicit, renderBanner(bannerInput()));
+	assert.deepEqual(explicit, golden('header-80.txt'));
+});
+
+test('compact drops the blank row above the mark and the tagline', () => {
+	const lines = renderBanner(bannerInput({ density: 'compact' }));
+	const { left, right } = splitColumns(80, lines);
+
+	assert.equal(lines.length, 9, 'a compact box is two borders plus seven body rows');
+	assert.equal(lines.filter((line) => line.includes('███')).length, LOGO_WIDTH / 3, 'the mark keeps four rows');
+	assert.ok(!lines.join('\n').includes("Let's build something great"), 'compact has no tagline');
+	// After the four mark rows come the model rows (wrapped here) and the cwd.
+	const afterMark = left.slice(4).map((line) => line.trim()).filter((line) => line.length > 0);
+	assert.match(afterMark[0] ?? '', /^openai-codex\/gpt-5\.5/);
+	assert.equal(afterMark.at(-1), '~/Workspace/mypi', 'the cwd closes the compact column');
+
+	// Sidebar: the two headings and the commands, without the short rule.
+	assert.deepEqual(
+		right.map((line) => line.trim()),
+		['Getting started', 'Ask Pi to build it', 'Commands', '/use-default-tui', '/model', '/theme', '/compact'],
+	);
+	assert.ok(!right.join('\n').includes('─'), 'compact drops the short rule');
+	for (const line of lines) assert.equal(visibleWidth(line), 80);
+});
+
+test('compact stays rectangular on a wide terminal', () => {
+	for (const width of [80, 120]) {
+		const lines = renderBanner(bannerInput({ width, density: 'compact' }));
+		for (const line of lines) assert.equal(visibleWidth(line), width, `ragged at ${width}`);
+		assert.equal(lines.length, 9);
+	}
+});
+
+test('minimal is a three-row box with one content row', () => {
+	const lines = renderBanner(bannerInput({ density: 'minimal' }));
+
+	assert.equal(lines.length, 3, 'minimal is top border, one row, bottom border');
+	assert.match(stripAnsi(lines[0] ?? ''), /^╭.*Pi v1\.4\.0.*╮$/);
+	assert.equal(stripAnsi(lines[1] ?? '').trim().replace(/^│|│$/g, '').trim(), 'openai-codex/gpt-5.5 · high effort');
+	assert.match(stripAnsi(lines[2] ?? ''), /^╰─+╯$/);
+	const body = stripAnsi(lines[1] ?? '');
+	assert.ok(!body.includes('███'), 'minimal has no mark');
+	assert.ok(!body.includes('Getting started'), 'minimal has no sidebar');
+	assert.ok(!body.includes('~/Workspace/mypi'), 'minimal has no cwd');
+	for (const line of lines) assert.equal(visibleWidth(line), 80);
+});
+
+test('minimal truncates a label that does not fit, and never wraps it', () => {
+	for (const width of [40, 80, 120]) {
+		const lines = renderBanner(
+			bannerInput({ width, density: 'minimal', model: 'river/deepseek-ai/DeepSeek-V4.1-Flash-1017' }),
+		);
+		assert.equal(lines.length, 3, `minimal grew at ${width}`);
+		for (const line of lines) assert.equal(visibleWidth(line), width);
+		if (width === 40) assert.ok(lines[1]?.includes('…'), 'a narrow minimal row is cut, not wrapped');
+		if (width === 120) assert.ok(lines[1]?.includes('Flash-1017'), 'a wide minimal row keeps the id');
+	}
+});
+
+test('showTextLogo false hides the mark and nothing else', () => {
+	const lines = renderBanner(bannerInput({ showLogo: false }));
+	const { right } = splitColumns(80, lines);
+
+	assert.ok(!lines.join('\n').includes('███'), 'the mark is gone');
+	assert.ok(lines.join('\n').includes("Let's build something great"), 'the tagline stays');
+	assert.equal(lines.length, 12, 'the sidebar keeps the box at its comfortable height');
+	assert.equal(right.filter((line) => line.trim().length > 0).length, 8);
+	for (const line of lines) assert.equal(visibleWidth(line), 80);
+});

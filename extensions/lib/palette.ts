@@ -5,7 +5,12 @@
  * other module can emit an SGR colour of its own and every theme - the three
  * gentle-pi themes, system/dark/light or any user theme - recolours it without
  * extra configuration.
+ *
+ * One exception is still a painter and still lives here: when gentle-pi's
+ * `banner.json` names an accent, the accent roles bind to `accentPainter()` and
+ * the rest of the palette keeps coming from the theme.
  */
+import { accentPainter, type BannerColor } from './accent.ts';
 
 /**
  * Roles the header may use. The three gentle-pi themes and pi’s built-in
@@ -52,13 +57,23 @@ export interface Palette {
 	subtle(text: string): string;
 }
 
+/** Options that change where the accent comes from, never the other roles. */
+export interface PaletteOptions {
+	/** gentle-pi's accent colour; when absent the theme's `accent` role is used. */
+	accentColor?: BannerColor | undefined;
+}
+
 /** Bind the logical palette to the roles of one theme. Pure by design. */
-export function resolvePalette(theme: LoonTheme): Palette {
+export function resolvePalette(theme: LoonTheme, options: PaletteOptions = {}): Palette {
+	// Every accent role shares one painter, so the override cannot half-apply.
+	const accent = options.accentColor === undefined
+		? (text: string) => theme.fg(PALETTE_ROLES.frame, text)
+		: accentPainter(options.accentColor);
 	return {
-		frame: (text) => theme.fg(PALETTE_ROLES.frame, text),
-		divider: (text) => theme.fg(PALETTE_ROLES.divider, text),
-		heading: (text) => theme.fg(PALETTE_ROLES.heading, text),
-		logo: (text) => theme.fg(PALETTE_ROLES.logo, text),
+		frame: accent,
+		divider: accent,
+		heading: accent,
+		logo: accent,
 		tagline: (text) => theme.bold(theme.fg(PALETTE_ROLES.tagline, text)),
 		body: (text) => theme.fg(PALETTE_ROLES.body, text),
 		subtle: (text) => theme.fg(PALETTE_ROLES.subtle, text),

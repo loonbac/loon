@@ -6,6 +6,7 @@
  * the exact output at a fixed width.
  */
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import type { Density } from './gentle-config.ts';
 import { center, headerColumnWidths, padRight, wrapLabel } from './layout.ts';
 import { renderLogo } from './logo.ts';
 import type { Palette } from './palette.ts';
@@ -27,6 +28,10 @@ export interface BannerInput {
 	/** Slash-prefixed tip commands: the restore command, then three real ones. */
 	tips: readonly string[];
 	palette: Palette;
+	/** gentle-pi's density; `comfortable` is the captured layout. */
+	density?: Density;
+	/** gentle-pi's `showTextLogo`; false hides the mark. */
+	showLogo?: boolean;
 }
 
 type Paint = (text: string) => string;
@@ -75,6 +80,19 @@ export function renderBanner(input: BannerInput): string[] {
 	}
 
 	const innerWidth = width - 2;
+	const density = input.density ?? 'comfortable';
+	const showLogo = input.showLogo ?? true;
+	const modelLabel = `${input.model} · ${input.effort} effort`;
+
+	// minimal: one content row, no mark, no tagline, no cwd, no sidebar.
+	if (density === 'minimal') {
+		return [
+			borderLine('╭', title, '╮', width, palette.frame),
+			boxedLine(centerClipped(palette.body(modelLabel), innerWidth), width, palette.frame),
+			borderLine('╰', '', '╯', width, palette.frame),
+		].map((line) => truncateToWidth(line, width, ''));
+	}
+
 	const { leftWidth, rightWidth, useTips } = headerColumnWidths(innerWidth);
 
 	// The captured arrangement, measured from the reference: the mark starts two
@@ -82,35 +100,51 @@ export function renderBanner(input: BannerInput): string[] {
 	// separates it from the tagline, and the cwd closes the interior.
 	// A model id is long enough to overrun the half; it wraps instead of losing
 	// its tail to an ellipsis, and the box grows to whatever the wrap needs.
-	const modelLines = wrapLabel(`${input.model} · ${input.effort} effort`, Math.max(1, leftWidth - 2)).map(
-		(line) => centerClipped(palette.body(line), leftWidth),
+	const modelLines = wrapLabel(modelLabel, Math.max(1, leftWidth - 2)).map((line) =>
+		centerClipped(palette.body(line), leftWidth),
 	);
-	const leftLines = [
-		'',
-		'',
-		...renderLogo(palette).map((line) => center(line, leftWidth)),
-		'',
-		centerClipped(palette.tagline("Let's build something great"), leftWidth),
-		...modelLines,
-		centerClipped(palette.subtle(input.cwd), leftWidth),
-	];
+	const mark = showLogo ? renderLogo(palette).map((line) => center(line, leftWidth)) : [];
+	// comfortable keeps the captured rhythm: two blank rows, the mark, a blank row,
+	// the tagline. compact drops the blank row above the mark and the tagline.
+	const leftLines = density === 'compact'
+		? [...mark, ...modelLines, centerClipped(palette.subtle(input.cwd), leftWidth)]
+		: [
+			'',
+			'',
+			...mark,
+			'',
+			centerClipped(palette.tagline("Let's build something great"), leftWidth),
+			...modelLines,
+			centerClipped(palette.subtle(input.cwd), leftWidth),
+		];
 
 	// The rule spans the sidebar, like the capture: a fixed 22 would look broken
 	// in a 43-column column. One column stays blank so it never touches the border.
 	const rule = palette.divider('─'.repeat(Math.max(8, rightWidth - 1)));
 	const [tip0 = '', tip1 = '', tip2 = '', tip3 = ''] = input.tips;
-	const tipLines = [
-		'',
-		palette.heading('Getting started'),
-		palette.body('Ask Pi to build it'),
-		rule,
-		palette.heading('Commands'),
+	const tipBody = [
 		palette.body(tip0),
 		palette.body(tip1),
 		palette.body(tip2),
 		palette.body(tip3),
-		'',
 	];
+	// compact drops the short rule and the blank rows around the sidebar block.
+	const tipLines = density === 'compact'
+		? [
+			palette.heading('Getting started'),
+			palette.body('Ask Pi to build it'),
+			palette.heading('Commands'),
+			...tipBody,
+		]
+		: [
+			'',
+			palette.heading('Getting started'),
+			palette.body('Ask Pi to build it'),
+			rule,
+			palette.heading('Commands'),
+			...tipBody,
+			'',
+		];
 
 	// Both columns carry the same number of rows; a shorter one is padded at the
 	// bottom so the box never grows a ragged edge.
