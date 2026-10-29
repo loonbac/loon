@@ -122,11 +122,14 @@ Ninguna comprobación de este plan puede ser «todos los tests en verde». La co
 
 Dos detalles menores pero reales, encontrados de paso:
 
-- `extension/palette.ts:288` y `extension/banner.ts:299` contienen **bytes NUL literales**
-  (2 y 1 respectivamente) usados como separador de clave de caché y de `join`. Efecto: `rg`,
-  `grep` y `git diff` tratan ambos ficheros como **binarios** y no muestran su contenido. Un
-  `git mv` está bien; una edición se revisa a ciegas. Al mover hay que usar `rg -a` y
-  `git diff --text`.
+- **Tres ficheros de producción tienen bytes NUL literales**: `palette.ts:288` (2),
+  `banner.ts:299` (1) y `tools/grouping.ts` (1, en el código que el paso 0 borra). Efecto
+  doble, y el segundo es peor que el primero.
+  1. `rg`, `grep` y `git diff` los tratan como **binarios** y no muestran su contenido:
+     una edición se revisa a ciegas. Al mover hay que usar `rg -a` y `git diff --text`.
+  2. Un fichero binario aporta **cero líneas** al diffstat. El borrado de 4.936 líneas del paso 0 se
+     reporta como `3.820 deletions` porque `grouping.ts` no se cuenta. Quien revise ese commit
+     por el número va a creer que se borraron 1.116 líneas menos de las que se borraron.
 - `extension/natural-adaptive-routing.ts:6` importa `"./fallback-config.js"` y el fichero es
   `.ts`. Hoy no rompe porque es `import type` (se borra al transpilar), pero es la clase de
   import que se rompe sola al cambiar de resolvedor o al volverse `import` de valor.
@@ -499,36 +502,46 @@ equivalente: `shouldSkipBecause("pi-provider-quota" in packages)`.
 
 ### La comprobación única
 
-Una sola, la misma en cada paso, ejecutable contra el árbol local **y** contra el store:
+Una sola, la misma en cada paso:
 
 ```bash
 cd ~/Proyectos/better-claude-code-ui-loon \
-  && node --experimental-strip-types -e 'await import("./extension/index.ts")' \
+  && node scripts/check-imports.mjs extension \
   && node --experimental-strip-types --test extension/*.test.ts 2>&1 | grep -E '^ℹ (tests|pass|fail)'
 ```
 
-- El `import()` reproduce **exactamente** el fallo que produce mover un fichero: un error de
-  resolución de módulo al cargar. Es más barato y más fiable que arrancar Pi.
+`scripts/check-imports.mjs` llega con el paso 0 y verifica las dos cosas que un movimiento
+rompe: que **todo import relativo resuelve**, recorriendo subdirectorios, y que **todo módulo de
+producción es alcanzable** desde `extension/index.ts`. La segunda es la invariante que
+faltaba: su ausencia es cómo se acumularon 4.896 líneas muertas sin que nadie lo notara.
+
+**La comprobación que este documento proponía antes —`node -e 'await import("./extension/index.ts")'`—
+no funciona y queda retirada.** `host-patches.ts`, `status-line.ts:9` y `fallback-panel.ts:1`
+hacen imports de **valor** de `@earendil-works/pi-tui` y `@earendil-works/pi-coding-agent`, que
+un checkout limpio no instala: el `import()` falla sobre código sin tocar y no distingue un
+movimiento roto del hueco normal de peer dependencies. Verificado sobre `9d51720` sin cambios.
+
 - El recuento de tests se compara contra la línea base del punto 0.5: **84 / 83 / 1**. Vale
   `tests` menor solo si el test que desaparece es de código borrado (paso 0), y `fail` debe
   ser **1** con el mismo `natural-adaptive-routing.test.ts:76`.
-- Contra el store, la misma orden con la ruta absoluta. **Ojo**: el `import()` desde el store
-  fallará en `@earendil-works/pi-coding-agent` porque `--legacy-peer-deps` (`default.nix:12`)
-  no lo instala. Es esperado; esa comprobación en el store sirve para resolver los ficheros
-  **propios**, y para la carga real hay que arrancar Pi y contar paquetes.
+- El chequeo avisa además de los siete especificadores `.js` que nombran ficheros `.ts`
+  (`natural-adaptive-routing.ts:6` y los seis de `tools/`). Hoy los borra el type stripper;
+  dejan de ser inofensivos en cuanto el import pase a ser de valor.
+- Contra el store: `node scripts/check-imports.mjs <ruta-absoluta>/extension` no necesita
+  dependencias y sirve igual. Para la carga real hay que arrancar Pi y contar paquetes.
 
 ### Los pasos
 
 | # | Paso | Contenido | Por qué en este orden | Comprobación |
 | --- | --- | --- | --- | --- |
-| **0** | **Borrar el código muerto** | 9 ficheros / 4.896 líneas (punto 0.3) + quitar `@shikijs/cli` y `diff` de `package.json:29-32` + recalcular `default.nix:11` + actualizar `odd/tasks/revert-pi-ui-overrides.md` | No mueve nada entre repos y reduce el árbol un 32%. Hace que los diffs siguientes sean revisables. Si algo se rompe aquí, se rompe en un sitio con tests | `import()` ok; tests **83/1** (baja `tests` a 83 porque se borra `image-layout.test.ts`); rebuild del store ok; Pi arranca |
-| **1** | **Romper el ciclo C↔D** | Mover `FallbackEffort` al vocabulario de `natural-adaptive-routing.ts` y arreglar el `"./fallback-config.js"` de `:6`; decidir el destino de `run-metrics.ts` / `verified-outcome.ts` (recomendado: con el router) | Aún no se mueve ningún fichero de repo. Es el arreglo estructural sin el cual la extracción arrastra un ciclo entre dos repos privados | `import()` ok; tests **83/1** |
-| **2** | **Interfaz única de medidores en quota** | Colapsar las 5 aristas de 2.1 a una: `renderQuotaMeters()` (o registro) llamada desde `host-patches.ts:1159-1165`; quitar el ciclo en memoria de `observeCodexUsage` | Sigue sin mover ficheros. Es lo que hace que `pi-host-patches` sea extraíble como capacidad y no como hub | `import()` ok; `antigravity-quota-fallback.test.ts` (599 líneas) cubre la ruta y el panel; verificación visual del panel de modelos en Pi |
-| **3** | **Extraer `pi-bounded-search`** (54 líneas) o dejarlo | El paquete más pequeño que existe: valida el **patrón de cableado** completo (5 puntos de 4.2 + 2 ciclos) con el menor riesgo posible | Si el patrón falla, falla con 54 líneas y no con 3.236. Si funciona, los pasos 4-6 son repetición | `import()` ok; tests **83/1**; `pi` arranca y `settings.json` tiene 20 entradas; la búsqueda global sigue bloqueada |
+| **0** | **Borrar el código muerto** — *hecho, PR abierto* | 9 ficheros / 4.896 líneas (punto 0.3) + `image-layout.test.ts` + actualizar `odd/tasks/revert-pi-ui-overrides.md` y `README.md`. Retirar `@shikijs/cli` y `diff` queda como unidad aparte: exige regenerar `package-lock.json` y `npmDepsHash`, y eso no se puede confirmar sin build | No mueve nada entre repos y reduce el árbol un 32%. Hace que los diffs siguientes sean revisables. Si algo se rompe aquí, se rompe en un sitio con tests | Medido: check **0 unresolved / 0 unreachable** (antes 9 unreachable), tests **79 / 78 / 1**. La estimación previa de 83 era mía y estaba mal: `image-layout.test.ts` tenía 5 tests, no 1. Sin rebuild ni comprobación visual: los módulos no estaban registrados |
+| **1** | **Romper el ciclo C↔D** | Mover `FallbackEffort` al vocabulario de `natural-adaptive-routing.ts` y arreglar el `"./fallback-config.js"` de `:6`; decidir el destino de `run-metrics.ts` / `verified-outcome.ts` (recomendado: con el router) | Aún no se mueve ningún fichero de repo. Es el arreglo estructural sin el cual la extracción arrastra un ciclo entre dos repos privados | check ok; tests **83/1** |
+| **2** | **Interfaz única de medidores en quota** | Colapsar las 5 aristas de 2.1 a una: `renderQuotaMeters()` (o registro) llamada desde `host-patches.ts:1159-1165`; quitar el ciclo en memoria de `observeCodexUsage` | Sigue sin mover ficheros. Es lo que hace que `pi-host-patches` sea extraíble como capacidad y no como hub | check ok; `antigravity-quota-fallback.test.ts` (599 líneas) cubre la ruta y el panel; verificación visual del panel de modelos en Pi |
+| **3** | **Extraer `pi-bounded-search`** (54 líneas) o dejarlo | El paquete más pequeño que existe: valida el **patrón de cableado** completo (5 puntos de 4.2 + 2 ciclos) con el menor riesgo posible | Si el patrón falla, falla con 54 líneas y no con 3.236. Si funciona, los pasos 4-6 son repetición | check ok; tests **83/1**; `pi` arranca y `settings.json` tiene 20 entradas; la búsqueda global sigue bloqueada |
 | **4** | **Extraer `pi-router-glue`** (2 ficheros, 534 líneas, + evidencia 253) | Depende solo de `repository-language` y del binario externo. No depende de C, A ni B | Es el paquete del que depende la cuota, así que va antes que ella. Además desbloquea el bucle de resultados (0.1) sin necesidad de `pi-subagents` | Ciclo expansión/contracción: paquete cargado y funcionando → quitar de LOON → tests **83/1**; `/adaptive` responde y el router sigue registrando observaciones |
 | **5** | **Extraer `pi-provider-quota`** (7 ficheros, 3.236 líneas) | El bloque más grande y el que ya tiene la interfaz arreglada en el paso 2 | Va después del router porque **depende de él** con 14 símbolos | Ciclo expansión/contracción; `antigravity-quota-fallback.test.ts` completo; verificar que el fallback actúa en una sesión real (agotar cuota es difícil: usar el fixture offline del test) |
 | **6** | **Extraer `pi-host-patches`** (1 fichero, 1.736 líneas) | Después de quota, porque depende de su interfaz de medidores y de `gentle-header` | Es lo más frágil: si se rompe, Pi **no arranca**. Se hace cuando ya no queda nada pendiente que pueda confundir el diagnóstico | Ciclo expansión/contracción; **arranque de Pi** (no solo tests) más verificación visual de: filas fantasma, residuo de `ctrl+o`, rail de Gentle, panel de modelos |
-| **7** | **LOON queda como identidad visual** | Renombrar a `pi-loon-ui` si se decide, reescribir `README.md` y el comentario `index.ts:1-12` | Es el residuo, no una extracción | `import()` ok; tests **83/1**; verificación visual: tema, banner de entrada, banner de salida, status line, acento del wallpaper, badge de fast-mode |
+| **7** | **LOON queda como identidad visual** | Renombrar a `pi-loon-ui` si se decide, reescribir `README.md` y el comentario `index.ts:1-12` | Es el residuo, no una extracción | check ok; tests **83/1**; verificación visual: tema, banner de entrada, banner de salida, status line, acento del wallpaper, badge de fast-mode |
 | **8** | **Repuntar `settings.json`** | Paso aparte y deliberado, como pediste | No es efecto secundario de nada | Arrancar Pi y **contar paquetes cargados** (el fichero no prueba nada). Comparar el orden con el que dependía `index.ts:63-69` |
 
 ### Lo que este plan no resuelve y hay que decidir aparte
@@ -541,7 +554,7 @@ cd ~/Proyectos/better-claude-code-ui-loon \
    cuota (ya documentado en `odd/tasks/revert-pi-ui-overrides.md`). El paso 2 le quita el
    segundo. Si no se hace el paso 2, el paso 6 mueve 1.736 líneas que siguen mezclando dos
    responsabilidades al repo nuevo.
-4. **`.github/` no existe**: no hay CI que impida pushear con el `import()` roto. La única red
+4. **`.github/` no existe**: no hay CI que impida pushear con el check roto. La única red
    es la comprobación única ejecutada a mano antes de cada push.
 
 ---
