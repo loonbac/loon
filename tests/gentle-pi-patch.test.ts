@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
 	ANCHORS,
 	GENTLE_PI_VERSION,
@@ -42,6 +44,8 @@ test('the patch targets the gentle-pi build it was written for', () => {
 			// The view is patched only to hand each row the width it really has.
 			['lib/visual-customize-view.ts', '6f1b71a9aa898fcf55196d73634b0076'],
 			['extensions/startup-banner.ts', '028bd98910468c7076ef31c65f36e09f'],
+			// The header bar's brand gives way to a theme LOON generated.
+			['lib/shell-bar.ts', 'c5b3819241a587f960834409312a72a0'],
 		],
 	);
 });
@@ -414,3 +418,134 @@ test('a missing snapshot names the file and copies nothing at all', async () => 
 		missing: [{ file: 'lib/visual-customize-view.ts', md5: targets[2]!.md5 }],
 	});
 });
+
+/* The header bar's brand, and what a theme LOON generated does to it. */
+
+const shellBarTarget = TARGETS.find((target) => target.file === 'lib/shell-bar.ts')!;
+
+// The anchors in the order the real file has them, so the fixture patches into
+// something that still reads like the function it stands in for.
+const shellBarFixture = [
+	'// head',
+	'function buildSegments(): string[] {',
+	'\treturn [',
+	ANCHORS.shellBarMinimal,
+	'\t\tlocation,',
+	'\t];',
+	'}',
+	'',
+	ANCHORS.shellBarBrand,
+	'',
+	ANCHORS.shellBarStages,
+	'\tconst withProfile = model.profile ? `${withEffort} ${theme.fg(ROLE.LABEL, "·")} ${theme.fg(ROLE.MODEL, sanitizeStatus(model.profile))}` : withEffort;',
+	ANCHORS.shellBarStagesTail,
+	'}',
+	'',
+	'\tconst leftStages = headerLeftStages(model, theme, presentation?.visibility.modelDetails !== false)',
+	'\t\t.map((stage) => presentation?.density === "minimal" ? stage.slice(1) : stage);',
+	ANCHORS.shellBarFallback,
+	'// tail',
+].join('\n');
+
+interface FakeTheme {
+	name?: string;
+	fg: (role: string, text: string) => string;
+	bold: (text: string) => string;
+}
+
+const fakeTheme = (name?: string): FakeTheme => ({
+	...(name === undefined ? {} : { name }),
+	fg: (_role, text) => text,
+	bold: (text) => text,
+});
+
+/**
+ * Load the functions the patch emits, with the module around them stubbed, so the
+ * test exercises the bytes that would be written rather than a copy of them.
+ */
+async function loadEmittedShellBar(): Promise<{
+	barBrandSegments: (theme: FakeTheme, text: string, options?: { bold?: boolean; hidden?: boolean }) => string[];
+	headerLeftStages: (model: { modelId: string; effort?: string; profile?: string }, theme: FakeTheme, showModelDetails: boolean, presentation?: { density?: string }) => string[][];
+}> {
+	const patched = patchText(shellBarFixture, shellBarTarget);
+	assert.ok(patched.ok, 'the shell-bar fixture did not patch');
+	const helper = /function barBrandSegments[\s\S]*?\n}/.exec(patched.text);
+	const stages = /function headerLeftStages[\s\S]*?\n}/.exec(patched.text);
+	assert.ok(helper, 'the emitted helper is missing');
+	assert.ok(stages, 'the emitted header stages are missing');
+
+	const dir = mkdtempSync(join(tmpdir(), 'loon-shell-bar-'));
+	const path = join(dir, 'shell-bar-probe.mts');
+	writeFileSync(path, [
+		'const ROLE = { BRAND: "brand", LABEL: "label", MODEL: "model", SEPARATOR: "separator" };',
+		'const HEADER_BRAND = "✿ Gentle Shell";',
+		'const locationSegment = () => "~/proj";',
+		'const executionSegment = (id: string, effort?: string) => effort === undefined ? id : id + " " + effort;',
+		'const sanitizeStatus = (text: string) => text;',
+		helper[0],
+		stages[0],
+		'export { barBrandSegments, headerLeftStages };',
+	].join('\n'));
+	return import(pathToFileURL(path).href) as Promise<never>;
+}
+
+test('a stock theme keeps the brand, and its header stages, exactly as before', async () => {
+	const { barBrandSegments, headerLeftStages } = await loadEmittedShellBar();
+	const theme = fakeTheme('Gentle');
+	const model = { modelId: 'gpt-5', effort: 'high', profile: 'reviewer' };
+
+	assert.deepEqual(barBrandSegments(theme, '✿ Gentle Shell', { bold: true }), ['✿ Gentle Shell']);
+	assert.deepEqual(headerLeftStages(model, theme, true), [
+		['✿ Gentle Shell', '~/proj', 'gpt-5 high · reviewer'],
+		['✿ Gentle Shell', '~/proj', 'gpt-5 high'],
+		['✿ Gentle Shell', '~/proj', 'gpt-5'],
+		['✿ Gentle Shell', 'gpt-5'],
+		['✿ Gentle Shell'],
+	]);
+	assert.deepEqual(headerLeftStages(model, theme, false), [['✿ Gentle Shell', '~/proj'], ['✿ Gentle Shell']]);
+});
+
+test('minimal density drops the brand exactly where the old slice did', async () => {
+	const { headerLeftStages } = await loadEmittedShellBar();
+	const theme = fakeTheme('Gentle');
+	const model = { modelId: 'gpt-5', effort: 'high', profile: 'reviewer' };
+	// The old call site sliced the brand off every stage; the last stage was the
+	// brand alone, which left an empty one. Dropping it changes no visible row.
+	const sliced = headerLeftStages(model, theme, true)
+		.map((stage) => stage.slice(1))
+		.filter((stage) => stage.length > 0);
+	assert.deepEqual(headerLeftStages(model, theme, true, { density: 'minimal' }), sliced);
+});
+
+test('a theme LOON generated hides the brand without leaving an empty stage', async () => {
+	const { barBrandSegments, headerLeftStages } = await loadEmittedShellBar();
+	const theme = fakeTheme('Wallpaper (LOON)');
+	const model = { modelId: 'gpt-5', effort: 'high', profile: 'reviewer' };
+
+	assert.deepEqual(barBrandSegments(theme, '✿ Gentle Shell', { bold: true }), []);
+	const stages = headerLeftStages(model, theme, true);
+	assert.deepEqual(stages, [
+		['~/proj', 'gpt-5 high · reviewer'],
+		['~/proj', 'gpt-5 high'],
+		['~/proj', 'gpt-5'],
+		['gpt-5'],
+	]);
+	for (const stage of stages) {
+		assert.ok(stage.length > 0, 'a stage is empty');
+		assert.ok(
+			stage.every((segment) => segment.length > 0),
+			'a segment is empty, which would paint a stray separator',
+		);
+	}
+	assert.deepEqual(headerLeftStages(model, theme, false), [['~/proj']], 'the narrowest header must not be blank');
+});
+
+test('a theme with no name fails open instead of hiding the brand', async () => {
+	const { barBrandSegments, headerLeftStages } = await loadEmittedShellBar();
+	for (const name of [undefined, '']) {
+		const theme = fakeTheme(name);
+		assert.deepEqual(barBrandSegments(theme, '✿ Gentle Shell', { bold: true }), ['✿ Gentle Shell']);
+		assert.equal(headerLeftStages({ modelId: 'gpt-5' }, theme, true).length, 5);
+	}
+});
+

@@ -243,11 +243,15 @@ What it changes, in gentle-pi 4.5.1 only — four files, each for one reason:
 - `lib/visual-customize-view.ts`: a row's label is called with the width the row
   actually has, so a long label can pick a shorter wording instead of being cut
   mid-word. Without it the view offers no width at all.
-- `lib/shell-prompt.ts`: the prompt card painted its band with `toolSuccessBg`, a
-  role that means "a tool succeeded" but was used as "some background". It paints
-  `selectedBg` instead - the surface a theme tints with its accent - so the band
-  follows the wallpaper colour. `toolSuccessBg` keeps its green: success cards are
-  untouched.
+- `lib/shell-bar.ts`: with a theme LOON generated the shell bar drops its brand.
+  Those themes carry `" (LOON)"` at the end of their name, and the header already
+  says which tool this is; any other theme keeps `✿ Gentle Shell` exactly where it
+  was, and a theme whose name cannot be read fails open, brand shown. The bar, the
+  header's left stages and its last-resort widths all agree, so nothing leaves a
+  stray separator or an empty row when the brand goes.
+
+The prompt card's band needed no patch in the end: a theme tints its surfaces with
+its accent, so once our palette stopped painting cards green the band followed.
 
 The choice is stored as `source` in LOON's own `loon-tui.json`, never in
 `banner.json`: gentle-pi rewrites that file with its three keys and would drop it.

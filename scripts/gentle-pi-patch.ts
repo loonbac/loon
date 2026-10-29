@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Patch gentle-pi's own customization menu so it offers LOON as a third banner
- * source, and teach gentle-pi's banner to stay out of the way when LOON owns the
- * slot.
+ * source, teach gentle-pi's banner to stay out of the way when LOON owns the slot,
+ * and let the shell bar drop its brand under a theme LOON generated.
  *
  * This edits another installed package, so it is deliberately paranoid:
  *
@@ -86,6 +86,89 @@ const VIEW_LABEL_CALL_ANCHOR =
 const VIEW_LABEL_CALL_REPLACEMENT =
 	'\t\t\tconst item = navOnly ? this.categories[start + i] : row ? typeof row.label === "function" ? row.label(rightWidth) : row.label : undefined;';
 
+// LOON banner patch: the header bar's brand. A theme this plugin generates carries
+// " (LOON)" at the end of its name, and while one is active the bar drops the brand,
+// because the header already says which tool this is. Any other theme keeps the
+// brand, and a theme whose name is missing or not a string fails open (brand shown).
+const SHELL_BAR_BRAND_ANCHOR = 'const HEADER_BRAND = "✿ Gentle Shell";';
+const SHELL_BAR_BRAND_ADDITION = [
+	'// LOON banner patch: a theme this plugin generates marks itself with " (LOON)" in',
+	'// its name. With one of those active the bar drops its brand, because the header',
+	'// already identifies the tool. Any other theme keeps the brand, and a theme whose',
+	'// name is missing or not a string fails open (brand shown) instead of hiding it.',
+	'function barBrandSegments(theme: ShellBarTheme, text: string, options: { bold?: boolean; hidden?: boolean } = {}): string[] {',
+	'\tif (options.hidden) return [];',
+	'\tconst name = (theme as ShellBarTheme & { name?: unknown }).name;',
+	'\tif (typeof name === "string" && name.endsWith(" (LOON)")) return [];',
+	'\treturn [options.bold ? theme.fg(ROLE.BRAND, theme.bold(text)) : theme.fg(ROLE.BRAND, text)];',
+	'}',
+].join('\n');
+
+// The one-line bar paints its own brand text under a different constant.
+const SHELL_BAR_MINIMAL_ANCHOR =
+	'\t\t...(presentation?.density === "minimal" ? [] : [theme.fg(ROLE.BRAND, SHELL_BAR_BRAND)]),';
+const SHELL_BAR_MINIMAL_REPLACEMENT =
+	'\t\t...barBrandSegments(theme, SHELL_BAR_BRAND, { hidden: presentation?.density === "minimal" }),';
+
+// The header's last-resort widths are built from the brand alone, so they must not
+// invent one when it is hidden.
+const SHELL_BAR_FALLBACK_ANCHOR =
+	'\tconst brand = presentation?.density === "minimal" ? "" : theme.fg(ROLE.BRAND, theme.bold(HEADER_BRAND));';
+const SHELL_BAR_FALLBACK_REPLACEMENT =
+	'\tconst brand = barBrandSegments(theme, HEADER_BRAND, { bold: true, hidden: presentation?.density === "minimal" })[0] ?? "";';
+
+// The header's left-hand widths, brand included. A hidden brand must not leave a
+// lone stage, a leading separator or a blank row, so the narrowest stage becomes
+// the bare model id and the brand-only stage disappears with the brand.
+const SHELL_BAR_STAGES_ANCHOR = [
+	'function headerLeftStages(model: ShellHeaderModel, theme: ShellBarTheme, showModelDetails: boolean): string[][] {',
+	'\tconst brand = theme.fg(ROLE.BRAND, theme.bold(HEADER_BRAND));',
+	'\tconst location = locationSegment(model, theme);',
+	'\tif (!showModelDetails) return [[brand, location], [brand]];',
+	'\tconst withEffort = executionSegment(model.modelId, model.effort, theme);',
+	'\tconst modelOnly = executionSegment(model.modelId, undefined, theme);',
+].join('\n');
+const SHELL_BAR_STAGES_REPLACEMENT = [
+	'function headerLeftStages(model: ShellHeaderModel, theme: ShellBarTheme, showModelDetails: boolean, presentation?: Presentation): string[][] {',
+	'\t// LOON banner patch: minimal density dropped the brand by slicing it off every',
+	'\t// stage; keeping that here means the stages below are built from the segments',
+	'\t// that actually show.',
+	'\tconst brandSegments = presentation?.density === "minimal" ? [] : barBrandSegments(theme, HEADER_BRAND, { bold: true });',
+	'\tconst location = locationSegment(model, theme);',
+	'\tif (!showModelDetails) return brandSegments.length > 0 ? [[...brandSegments, location], brandSegments] : [[location]];',
+	'\tconst withEffort = executionSegment(model.modelId, model.effort, theme);',
+	'\tconst modelOnly = executionSegment(model.modelId, undefined, theme);',
+].join('\n');
+
+const SHELL_BAR_STAGES_TAIL_ANCHOR = [
+	'\treturn [',
+	'\t\t[brand, location, withProfile],',
+	'\t\t[brand, location, withEffort],',
+	'\t\t[brand, location, modelOnly],',
+	'\t\t[brand, modelOnly],',
+	'\t\t[brand],',
+	'\t];',
+].join('\n');
+const SHELL_BAR_STAGES_TAIL_REPLACEMENT = [
+	'\tconst withBrand = (segments: string[]) => [...brandSegments, ...segments];',
+	'\treturn [',
+	'\t\twithBrand([location, withProfile]),',
+	'\t\twithBrand([location, withEffort]),',
+	'\t\twithBrand([location, modelOnly]),',
+	'\t\twithBrand([modelOnly]),',
+	'\t\t...(brandSegments.length > 0 ? [brandSegments] : []),',
+	'\t];',
+].join('\n');
+
+// The call site used to slice the brand off every stage for minimal density; the
+// decision now lives inside headerLeftStages, so it needs the presentation.
+const SHELL_BAR_CALLSITE_ANCHOR = [
+	'\tconst leftStages = headerLeftStages(model, theme, presentation?.visibility.modelDetails !== false)',
+	'\t\t.map((stage) => presentation?.density === "minimal" ? stage.slice(1) : stage);',
+].join('\n');
+const SHELL_BAR_CALLSITE_REPLACEMENT =
+	'\tconst leftStages = headerLeftStages(model, theme, presentation?.visibility.modelDetails !== false, presentation);';
+
 export const ANCHORS = {
 	shellInit: SHELL_INIT_ANCHOR,
 	shellRows: SHELL_ROWS_ANCHOR,
@@ -93,6 +176,12 @@ export const ANCHORS = {
 	bannerEvent: BANNER_EVENT_ANCHOR,
 	viewLabelType: VIEW_LABEL_TYPE_ANCHOR,
 	viewLabelCall: VIEW_LABEL_CALL_ANCHOR,
+	shellBarBrand: SHELL_BAR_BRAND_ANCHOR,
+	shellBarMinimal: SHELL_BAR_MINIMAL_ANCHOR,
+	shellBarStages: SHELL_BAR_STAGES_ANCHOR,
+	shellBarStagesTail: SHELL_BAR_STAGES_TAIL_ANCHOR,
+	shellBarCallsite: SHELL_BAR_CALLSITE_ANCHOR,
+	shellBarFallback: SHELL_BAR_FALLBACK_ANCHOR,
 };
 
 export const TARGETS: TargetSpec[] = [
@@ -126,6 +215,21 @@ export const TARGETS: TargetSpec[] = [
 		edits: [
 			{ anchor: BANNER_EVENT_ANCHOR, replacement: BANNER_EVENT_REPLACEMENT },
 			{ anchor: BANNER_CONFIG_ANCHOR, replacement: BANNER_CONFIG_ANCHOR + '\n' + BANNER_CONFIG_ADDITION },
+		],
+	},
+	{
+		// The header bar's brand: a theme LOON generated says so in its name, and the
+		// brand gives way to it. Stock themes keep the bar exactly as it was.
+		file: 'lib/shell-bar.ts',
+		md5: 'c5b3819241a587f960834409312a72a0',
+		md5Patched: 'c4392741927c8da26d0b9d24142e3a41',
+		edits: [
+			{ anchor: SHELL_BAR_BRAND_ANCHOR, replacement: SHELL_BAR_BRAND_ANCHOR + '\n\n' + SHELL_BAR_BRAND_ADDITION },
+			{ anchor: SHELL_BAR_MINIMAL_ANCHOR, replacement: SHELL_BAR_MINIMAL_REPLACEMENT },
+			{ anchor: SHELL_BAR_STAGES_ANCHOR, replacement: SHELL_BAR_STAGES_REPLACEMENT },
+			{ anchor: SHELL_BAR_STAGES_TAIL_ANCHOR, replacement: SHELL_BAR_STAGES_TAIL_REPLACEMENT },
+			{ anchor: SHELL_BAR_CALLSITE_ANCHOR, replacement: SHELL_BAR_CALLSITE_REPLACEMENT },
+			{ anchor: SHELL_BAR_FALLBACK_ANCHOR, replacement: SHELL_BAR_FALLBACK_REPLACEMENT },
 		],
 	},
 ];
