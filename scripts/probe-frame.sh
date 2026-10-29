@@ -33,6 +33,7 @@ CONFIG_PATHS=(
 	"$AGENT_DIR/loon-tui.json"
 	"$GENTLE_REAL_DIR/visual-customization.json"
 	"$GENTLE_REAL_DIR/banner.json"
+	"$GENTLE_REAL_DIR/card-style.json"
 )
 THEMES_DIR="$AGENT_DIR/themes"
 
@@ -84,14 +85,15 @@ write_manifest() {
 # state directory is evidence we wrote, but it is not permission to name a file. A
 # recorded path that disagrees with the slot is refused rather than followed.
 expected_path() {
-	case "$1" in
-		0) printf '%s\n' "${CONFIG_PATHS[0]}" ;;
-		1) printf '%s\n' "${CONFIG_PATHS[1]}" ;;
-		2) printf '%s\n' "${CONFIG_PATHS[2]}" ;;
-		3) printf '%s\n' "${CONFIG_PATHS[3]}" ;;
-		4) printf '%s\n' "$THEMES_DIR" ;;
-		*) return 1 ;;
-	esac
+	if [ "$1" -ge 0 ] 2>/dev/null && [ "$1" -lt "${#CONFIG_PATHS[@]}" ]; then
+		printf '%s\n' "${CONFIG_PATHS[$1]}"
+		return 0
+	fi
+	if [ "$1" = "${#CONFIG_PATHS[@]}" ]; then
+		printf '%s\n' "$THEMES_DIR"
+		return 0
+	fi
+	return 1
 }
 
 # Sets STATE_DIR and PENDING in the caller's shell. It deliberately prints nothing:
