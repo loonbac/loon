@@ -1,43 +1,49 @@
 # LOON-Pi
 
-A pi package that gives the TUI a **theme-aware startup banner**: the
-pi-claude-code-tui look, painted entirely by the theme you already use.
+A pi package that gives the TUI a **theme-aware startup header**, and nothing
+else: the pi-claude-code-tui box, painted entirely by the theme you already use.
 
 ```
-╭─── LOON Pi v1.4.0 ───────────────────────────────────────────────────────────╮
-│                                                      │                       │
-│                                                      │ Getting started       │
-│                    █████████                         │ Ask Pi to build it    │
-│                    ███   ███                         │ ──────────────────────│
-│                    ██████   ███                      │ Commands              │
-│                    ███      ███                      │ loon:default          │
-│                                                      │ /model                │
+╭─── Pi v1.4.0 ────────────────────────────────────────────────────────────────╮
+│           ███████████████      █████████             │                       │
+│           ███         ███                            │ Getting started       │
+│           ███         ███      █████████             │ Ask Pi to build it    │
+│           ███████████████      █████████             │ ──────────────────────│
+│           ███                  █████████             │ Commands              │
+│           ███                  █████████             │ /use-default-tui      │
+│           ███                  █████████             │ /model                │
 │             Let’s build something great              │ /theme                │
-│           gentle/gentleman · high effort             │ /compact              │
-│              ~/Proyectos/pi-loon/loon                │                       │
+│         openai-codex/gpt-5.5 · high effort           │ /compact              │
+│                  ~/Workspace/mypi                    │                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
 ## What it does
 
-- Replaces the startup header with an animated logo (22 frames, 120 ms), a
-  centered tagline, the model and effort line, the current directory and a tips
-  sidebar.
+- Draws one rounded box across the terminal width: the `Pi v<version>` label in
+  the top border, the block Pi mark, `Let’s build something great` in bold, the
+  `provider/model · <effort> effort` line and the `~`-shortened cwd on the left,
+  one accent divider at 69% of the interior, and the tips sidebar on the right.
+- The mark is static and single-coloured; there is no animation.
 - Resolves every colour from the active theme through one mapping
-  (`extensions/lib/palette.ts`): cyan -> `accent`, red -> `error`, green ->
-  `success`, orange and flash -> `warning`, white -> `text`, brand -> `accent`;
-  box and rules use `border`, `borderMuted`, text uses `accent`, `muted` and
-  `dim`. The banner emits no SGR colour of its own, so it reads correctly with
-  the three gentle-pi themes, with system/dark/light and with any user theme.
-- Installs after `session_start` on the next macrotask and re-asserts twice, so
-  it wins over another extension's startup header (gentle-pi paints its own).
+  (`extensions/lib/palette.ts`): box, label, divider, headings and the mark use
+  `accent`, the tagline uses `text` in bold, tips and the model line use `muted`,
+  the cwd uses `dim`. The header emits no SGR colour of its own, so it reads
+  correctly with the three gentle-pi themes, with system/dark/light and with any
+  user theme.
+- When the terminal is too narrow for both columns, the sidebar is dropped and
+  the left half takes the whole width. Below the mark width only the version
+  label is printed.
+- Installs on the next macrotask after `session_start` and re-asserts at 120 ms
+  and 400 ms, so it wins over another extension's startup header (gentle-pi
+  paints its own).
 
 ## Commands
 
 | Command | Effect |
 | --- | --- |
-| `/loon:look` | Reapply the LOON banner (refreshes model, effort, cwd and tips). |
-| `/loon:default` | Restore pi's own header, footer and spinner. |
+| `/use-loon-tui` | Reapply the LOON header (refreshes model, effort, cwd and tips). |
+| `/use-default-tui` | Restore pi's own header, footer and spinner. |
 
 ## Install
 
@@ -65,20 +71,23 @@ npm run typecheck
 ```
 
 The tests pin the palette mapping against a stub theme that only knows the roles
-the three gentle-pi themes define, a golden render of the banner at 80 columns,
-and the absence of raw colour escapes in every animation frame.
+the three gentle-pi themes define, the golden header at 80 and 120 columns, the
+divider position, the literal sidebar order, and the absence of raw colour
+escapes.
 
 ## What it does NOT do
 
-- **No own theme.** There is no `pi.themes` entry and no JSON theme in this
-  repository: LOON-Pi is an extension, and the colours come from whichever
-  theme is active.
-- No footer or spinner replacement of its own (the restore command clears them).
-- No working-message verbs, no keyboard overrides, no patches to pi internals.
-- No changes outside the header: your transcript, editor and tools stay standard.
+- **No own theme.** There is no `pi.themes` entry and no JSON theme here: the
+  colours come from whichever theme is active.
+- No animation, no working-message verbs (`ctx.ui.setWorkingMessage` is never
+  called), no footer or spinner of its own.
+- No editor, input box or window-title changes.
+- Applying the header touches nothing but `ctx.ui.setHeader`; only
+  `/use-default-tui` clears the header, footer and spinner.
 
 ## Licence
 
-MIT. The logo animation and the box layout derive from
-[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui) (MIT);
-see `NOTICE` for the attribution and the upstream licence text.
+MIT. The box layout, the tips sidebar and the width helpers derive from
+[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui) (MIT); the
+static Pi mark is LOON’s own. See `NOTICE` for the attribution and the upstream
+licence text.
