@@ -188,18 +188,26 @@ tests assert the floors. Two examples, the wallpaper accent and a violet one:
 | text / background (`#100D04` / `#100B13`) | 17.32:1 | 17.29:1 | >= 7:1 |
 | muted / background | 8.16:1 | 8.06:1 | >= 4.5:1 |
 | accent / background | 6.95:1 | 9.97:1 | >= 3:1 |
-| text / card surface (`#231E0A` / `#23192A`) | 14.8:1 | 15.0:1 | >= 7:1 |
-| card surface / background | 1.16-1.17:1 | 1.15:1 | 1.15..1.6 |
-| card surface chroma | 0.033-0.034 | 0.033-0.035 | 0.010..0.035 |
+| text / card surface (`#3D3823` / `#3F3446`) | 10.5:1 | 10.4:1 | >= 7:1 |
+| card surface / background | 1.65:1 | 1.65:1 | 1.65..1.69 |
+| card surface chroma | 0.035 | 0.034 | 0.010..0.035 |
 
 The card surfaces (`toolSuccessBg`, `toolPendingBg`, `toolErrorBg`) are not status
 colours: gentle-pi paints the background of its INFO, SUCCESS, PENDING and ERROR
-cards with them and carries the tone in the border and the title. They therefore
-take the accent hue, tinted at the top of the allowed chroma, and a lightness
-between the panel and the element. The window those two constraints leave is narrow -
-1.15:1 to 1.17:1 in practice - so the three surfaces read as one flat tint of the
-accent. That is deliberate: flat and accent-coloured beats saturated and wrong, and
-pushing the chroma further would break the range this surface is specified in.
+cards with them and carries the tone in the border and the title.
+
+They are placed by **contrast against the background**, not by a lightness:
+`CARD_SURFACE_CONTRAST` is 1.65 and the derivation solves the lightness that reaches
+it, so the band reads the same on a gold wallpaper and on a blue one. A fixed
+lightness cannot promise that - one value measured 1.16 against one accent and
+something else against another, which is how the band once came out as a colour cast
+and then vanished.
+
+The three surfaces are one accent surface at three rungs of that ladder: 1.65, 1.69
+and 1.73 (`CARD_SURFACE_STEP` is 0.02 of contrast). The gap is deliberately small,
+and a rung that rounds onto the one below climbs higher instead, because two of them
+collapsed into a single hex once and gentle-pi painted INFO, PENDING and ERROR cards
+in one flat colour.
 - The file is written atomically and only when it is missing, unreadable or older
   than `accent.txt`; a file with that name whose own `name` is not ours is left
   untouched and reported as `skipped-foreign`.

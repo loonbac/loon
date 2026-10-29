@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { contrastRatio, oklchToHex, rgbToOklch, hexToRgb, relativeLuminance } from '../extensions/lib/oklch.ts';
 import {
+	CARD_SURFACE_CONTRAST,
+	CARD_SURFACE_STEP,
 	LOON_THEME_SUFFIX,
 	WALLPAPER_THEME_NAME,
 	deriveWallpaperTheme,
@@ -186,20 +188,46 @@ test('the card surfaces follow the accent hue and stay low-chroma', () => {
 			const label = role + ' on accent ' + accent.join(',') + ' (' + hex + ')';
 			assert.ok(hueDelta <= 15, label + ' hue ' + lch.H.toFixed(1) + ' is ' + hueDelta.toFixed(1) + ' from the accent');
 			assert.ok(lch.C >= 0.01 && lch.C <= 0.035, label + ' chroma ' + lch.C.toFixed(3) + ' is outside 0.010..0.035');
-			assert.ok(ratio >= 1.15 && ratio <= 1.6, label + ' /bg ' + ratio.toFixed(2) + ' is outside 1.15..1.6');
+			assert.ok(
+				ratio >= CARD_SURFACE_CONTRAST && ratio <= CARD_SURFACE_CONTRAST + 2 * CARD_SURFACE_STEP + 0.05,
+				label + ' /bg ' + ratio.toFixed(2) + ' is outside the ladder at ' + CARD_SURFACE_CONTRAST,
+			);
 			assert.ok(contrastRatio(text, rgb) >= 7, label + ' text/surface ' + contrastRatio(text, rgb).toFixed(2) + ' is below 7');
 		}
 	}
 });
 
-test('the plain card surfaces sit between the panel and the element', () => {
-	const theme = deriveWallpaperTheme([171, 154, 94]);
-	const vars = theme.vars as Record<string, string>;
-	const panel = rgbToOklch(hexToRgb(vars.bgPanel!)!).L;
-	const element = rgbToOklch(hexToRgb(vars.bgElement!)!).L;
-	for (const role of ['toolSuccessBg', 'toolPendingBg', 'toolErrorBg']) {
-		const light = rgbToOklch(hexToRgb(vars[role]!)!).L;
-		assert.ok(light >= panel - 0.005 && light <= element + 0.005, role + ' lightness ' + light.toFixed(3) + ' is outside panel..element');
+test('the card surfaces are placed by contrast, not by a fixed lightness', () => {
+	// The defect this replaces: one L for every background meant 1.16 against one
+	// wallpaper and something else against another, so the band read as a colour cast
+	// and then disappeared. Contrast is the promise now, whatever the accent is.
+	for (const accent of SURFACE_ACCESSENTS) {
+		const theme = deriveWallpaperTheme(accent);
+		const vars = theme.vars as Record<string, string>;
+		const bg = hexToRgb(vars.bg!)!;
+		const text = hexToRgb(vars.text!)!;
+		for (const role of ['toolSuccessBg', 'toolPendingBg', 'toolErrorBg']) {
+			const rgb = hexToRgb(vars[role]!)!;
+			const ratio = contrastRatio(rgb, bg);
+			const label = role + ' on accent ' + accent.join(',');
+			assert.ok(ratio >= CARD_SURFACE_CONTRAST, label + ' /bg ' + ratio.toFixed(3) + ' is below ' + CARD_SURFACE_CONTRAST);
+			assert.ok(
+				rgbToOklch(rgb).L > rgbToOklch(bg).L,
+				label + ' sits at or below the background lightness, so it is not a surface',
+			);
+			assert.ok(rgbToOklch(rgb).L < rgbToOklch(text).L, label + ' is lighter than the text');
+		}
+	}
+});
+
+test('the three card surfaces never collapse into one colour', () => {
+	// This is the regression that shipped once: two of the three landed on the same hex
+	// and gentle-pi painted INFO, PENDING and ERROR cards in one flat colour. A test has
+	// to see it, because the eye does not.
+	for (const accent of SURFACE_ACCESSENTS) {
+		const vars = deriveWallpaperTheme(accent).vars as Record<string, string>;
+		const hexes = ['toolSuccessBg', 'toolPendingBg', 'toolErrorBg'].map((role) => vars[role]!);
+		assert.equal(new Set(hexes).size, 3, 'accent ' + accent.join(',') + ' gave ' + hexes.join(' '));
 	}
 });
 

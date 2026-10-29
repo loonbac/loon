@@ -13,6 +13,8 @@
 # even when the probe fails, is interrupted, or the terminal dies.
 #
 #   scripts/probe-frame.sh capture --label NAME --width 80 --height 32 --theme "Gentle"
+#   scripts/probe-frame.sh capture --label BAND --theme "Wallpaper (LOON)" --sgr
+#       --sgr keeps the escape sequences, so a frame carries the colours it was painted with.
 #   scripts/probe-frame.sh snapshot --label NAME          # prints the state directory
 #   scripts/probe-frame.sh restore --state DIR            # restores and verifies
 #   scripts/probe-frame.sh verify --state DIR             # verifies only
@@ -268,6 +270,7 @@ report_partial() {
 capture() {
 	local label=probe width=80 height=32 theme=Gentle density="" settle=14 out="" start_dir=$HOME gentle_dir=""
 	local override_command=""
+	local sgr=0
 	local extra=()
 	while [ $# -gt 0 ]; do
 		case "$1" in
@@ -281,6 +284,7 @@ capture() {
 			--start-dir) start_dir=$2; shift 2 ;;
 			--gentle-config) gentle_dir=$2; shift 2 ;;
 			--command) override_command=$2; shift 2 ;;
+			--sgr) sgr=1; shift ;;
 			--) shift; extra=("$@"); break ;;
 			*) die "unknown argument: $1" ;;
 		esac
@@ -318,6 +322,10 @@ capture() {
 	# probe cannot clobber it.
 	local frame_file="$STATE_DIR/frame.txt"
 	[ -n "$out" ] || out="$frame_file"
+	# Colour measurement needs the escape sequences; a plain text frame cannot say which
+	# hex a row is painted with.
+	local capture_args=(-p -t)
+	[ "$sgr" -eq 1 ] && capture_args=(-p -e -t)
 	tmux kill-session -t "$session" 2>/dev/null
 	if ! tmux new-session -d -s "$session" -x "$width" -y "$height" "$command"; then
 		printf 'probe-frame: tmux could not start the session\n' >&2
@@ -334,7 +342,7 @@ capture() {
 	local captured=0
 	local tries=0
 	while [ "$tries" -lt 5 ]; do
-		if tmux capture-pane -pt "$session" > "$frame_file" 2>/dev/null && [ -s "$frame_file" ] && grep -q '[^[:space:]]' "$frame_file"; then
+		if tmux capture-pane "${capture_args[@]}" "$session" > "$frame_file" 2>/dev/null && [ -s "$frame_file" ] && grep -q '[^[:space:]]' "$frame_file"; then
 			captured=1
 			break
 		fi
