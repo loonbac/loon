@@ -71,6 +71,15 @@ const BANNER_EVENT_ANCHOR = "  pi.on(\"session_start\", async (_event, ctx) => {
 const BANNER_EVENT_REPLACEMENT = "  // LOON banner patch: read the banner source from LOON's own settings file.\n  async function readLoonBannerSource(): Promise<string | undefined> {\n    try {\n      const { readFile } = await import(\"node:fs/promises\");\n      const { join } = await import(\"node:path\");\n      const { homedir } = await import(\"node:os\");\n      const home = process.env.PI_CODING_AGENT_DIR || join(homedir(), \".pi\", \"agent\");\n      const parsed: unknown = JSON.parse(await readFile(join(home, \"loon-tui.json\"), \"utf8\"));\n      if (typeof parsed !== \"object\" || parsed === null) return undefined;\n      const source = (parsed as Record<string, unknown>).source;\n      return typeof source === \"string\" ? source : undefined;\n    } catch {\n      return undefined;\n    }\n  }\n  pi.on(\"session_start\", async (_event, ctx) => {";
 
 /** The exact anchors, so a test can build a stand-in file around them. */
+// The prompt card painted its band with `toolSuccessBg`, borrowing a role that means
+// "a tool succeeded" only because it needed some background. A surface is not a
+// success: `selection` is the surface a theme tints with its accent.
+// pi only accepts colour keys here, not vars: `selection` is a var, and the colour key
+// bound to it is `selectedBg`. Passing `selection` throws "Unknown theme color", which
+// gentle-pi catches into an empty background, so the card silently falls back.
+const PROMPT_BAND_ANCHOR = '\t\t\tconst painted = bg("toolSuccessBg", " ");';
+const PROMPT_BAND_REPLACEMENT = '\t\t\tconst painted = bg("selectedBg", " ");';
+
 const VIEW_LABEL_TYPE_ANCHOR = '\tlabel: string | (() => string);';
 const VIEW_LABEL_TYPE_REPLACEMENT = '\tlabel: string | ((width?: number) => string);';
 
@@ -86,6 +95,7 @@ export const ANCHORS = {
 	bannerEvent: BANNER_EVENT_ANCHOR,
 	viewLabelType: VIEW_LABEL_TYPE_ANCHOR,
 	viewLabelCall: VIEW_LABEL_CALL_ANCHOR,
+	promptBand: PROMPT_BAND_ANCHOR,
 };
 
 export const TARGETS: TargetSpec[] = [
@@ -99,6 +109,13 @@ export const TARGETS: TargetSpec[] = [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
 			{ anchor: SHELL_ROWS_ANCHOR, replacement: SHELL_ROWS_REPLACEMENT },
 		],
+	},
+	{
+		file: 'lib/shell-prompt.ts',
+		md5: '6dccc1c4bf36e217d308a67c5e690c14',
+		md5PatchedV1: ['4e357af84fcafc01f3e240ea6331b066'],
+		md5Patched: 'ddb8bd748ae664cb28f9f0307e0917e5',
+		edits: [{ anchor: PROMPT_BAND_ANCHOR, replacement: PROMPT_BAND_REPLACEMENT }],
 	},
 	{
 		// The view calls a row's label with the width the row actually has, so a long

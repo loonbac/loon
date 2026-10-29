@@ -106,3 +106,60 @@ test('syntax hues are rotations that stay apart and keep chroma in check', () =>
 		assert.ok(lch.C <= 0.14, key + ' chroma ' + lch.C.toFixed(3) + ' is too loud');
 	}
 });
+
+/* The prompt card paints its band with `selection` and its edge with `border`, so both
+ * have to read as the accent rather than as a borrowed signal colour. */
+
+test('selection is the accent-tinted surface, and text stays legible on it', () => {
+	const accents: [number, number, number][] = [
+		[213, 169, 240],
+		[155, 72, 74],
+		[30, 144, 255],
+		[0, 0, 0],
+		[255, 255, 255],
+		[255, 0, 0],
+		[0, 255, 0],
+		[171, 154, 94],
+		[255, 215, 0],
+		[0, 128, 128],
+	];
+	for (const accent of accents) {
+		const theme = deriveWallpaperTheme(accent);
+		const vars = theme.vars as Record<string, string>;
+		const source = rgbToOklch(accent);
+		const bg = hexToRgb(vars.bg!)!;
+		const text = hexToRgb(vars.text!)!;
+		const selection = hexToRgb(vars.selection!)!;
+		const lch = rgbToOklch(selection);
+		const hueDelta = Math.abs(((lch.H - source.H + 540) % 360) - 180);
+		const ratio = contrastRatio(selection, bg);
+		assert.ok(hueDelta <= 20, 'selection hue ' + lch.H.toFixed(1) + ' is ' + hueDelta.toFixed(1) + ' away from ' + source.H.toFixed(1));
+		assert.ok(lch.C >= 0.35 * source.C, 'selection chroma ' + lch.C.toFixed(3) + ' is below 0.35 x ' + source.C.toFixed(3));
+		assert.ok(ratio >= 1.9 && ratio <= 3.2, 'selection/bg ' + ratio.toFixed(2) + ' is outside 1.9..3.2');
+		assert.ok(contrastRatio(text, selection) >= 4.5, 'text/selection is ' + contrastRatio(text, selection).toFixed(2));
+	}
+});
+
+test('border keeps the accent hue and is no longer mud', () => {
+	for (const accent of [[213, 169, 240], [171, 154, 94], [30, 144, 255], [255, 0, 0]] as [number, number, number][]) {
+		const theme = deriveWallpaperTheme(accent);
+		const vars = theme.vars as Record<string, string>;
+		const source = rgbToOklch(accent);
+		const bg = hexToRgb(vars.bg!)!;
+		const border = hexToRgb(vars.border!)!;
+		const lch = rgbToOklch(border);
+		const hueDelta = Math.abs(((lch.H - source.H + 540) % 360) - 180);
+		const ratio = contrastRatio(border, bg);
+		assert.ok(hueDelta <= 20, 'border hue is ' + hueDelta.toFixed(1) + ' away from the accent');
+		assert.ok(lch.C >= 0.5 * source.C, 'border chroma ' + lch.C.toFixed(3) + ' is below 0.5 x ' + source.C.toFixed(3));
+		assert.ok(ratio >= 1.8 && ratio <= 3.2, 'border/bg ' + ratio.toFixed(2) + ' is outside 1.8..3.2');
+	}
+});
+
+test('toolSuccessBg stays green: a success signal is not a surface', () => {
+	for (const accent of [[213, 169, 240], [171, 154, 94], [30, 144, 255], [255, 0, 0]] as [number, number, number][]) {
+		const theme = deriveWallpaperTheme(accent);
+		const lch = rgbToOklch(hexToRgb((theme.vars as Record<string, string>).toolSuccessBg!)!);
+		assert.ok(lch.H >= 100 && lch.H <= 160, 'toolSuccessBg hue ' + lch.H.toFixed(1) + ' is no longer green');
+	}
+});

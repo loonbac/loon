@@ -124,6 +124,37 @@ const COLOR_TO_VAR: Record<(typeof COLOR_KEYS)[number], string> = {
 const paint = (L: number, C: number, H: number): string => oklchToHex({ L, C, H });
 
 /**
+ * The lightest-fitting surface of one hue at one chroma: the first lightness whose
+ * contrast against `background` reaches `minContrast` while its chroma survives the
+ * sRGB gamut, and undefined when the range cannot hold it.
+ */
+function surfaceAtChroma(hue: number, chroma: number, background: Rgb, minContrast: number, maxContrast: number): string | undefined {
+	for (let lightness = 0.18; lightness <= 0.7; lightness += 0.005) {
+		const hex = paint(lightness, chroma, hue);
+		const rgb = hexToRgb(hex) as Rgb;
+		const contrast = contrastRatio(rgb, background);
+		if (contrast < minContrast) continue;
+		if (contrast > maxContrast) return undefined;
+		if (rgbToOklch(rgb).C >= chroma * 0.98) return hex;
+	}
+	return undefined;
+}
+
+/**
+ * A surface tinted by the accent: prefer the more chroma the gamut allows, fall back
+ * to the floor the caller insists on. The prompt card paints its band with
+ * `selection` and its edge with `border`, so both must read as the accent colour
+ * rather than as a borrowed signal role.
+ */
+function tintedSurface(hue: number, floor: number, background: Rgb, minContrast: number, maxContrast: number): string {
+	return (
+		surfaceAtChroma(hue, floor * 1.6, background, minContrast, maxContrast) ??
+		surfaceAtChroma(hue, floor, background, minContrast, maxContrast) ??
+		paint(0.45, floor, hue)
+	);
+}
+
+/**
  * Raise a colour's lightness until it clears `floor` against `background`,
  * keeping its hue. Returns the adjusted hex; the floor is reached, not skipped.
  */
@@ -165,8 +196,10 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 		bgElement: paint(0.235, low + 0.008, H),
 		bgSubtle: paint(0.19, low, H),
 		userMessageBg: paint(0.27, mid, H),
-		selection: paint(0.3, mid + 0.02, H),
-		border: paint(0.37, mid, H),
+		// A surface is not a success: these two are the accent's own hue, tinted enough to
+		// read as the colour the wallpaper asked for.
+		selection: tintedSurface(H, Math.max(0.38 * source.C, 0.032), bg, 2.3, 3.2),
+		border: tintedSurface(H, Math.max(0.55 * source.C, 0.042), bg, 2.5, 3.2),
 		borderSubtle: paint(0.27, low + 0.005, H),
 		text: paint(0.96, 0.012, H),
 		muted: paint(0.73, 0.02, H),

@@ -208,15 +208,24 @@ node --experimental-strip-types scripts/gentle-pi-patch.ts apply
 node --experimental-strip-types scripts/gentle-pi-patch.ts revert
 ```
 
-What it changes, in gentle-pi 4.5.1 only:
+What it changes, in gentle-pi 4.5.1 only — four files, each for one reason:
 
-- `/gentle:customize` gets one row, `Banner: loon` / `Banner: rose` / `Banner: off`,
-  which cycles on select. `Banner rose:` and `Banner text logo:` are gone; the
-  text-logo row stays reachable inside `rose`, where it still means something, and
-  `Banner color:` keeps working in every state (it colours their art in `rose` and
-  this header's accent in `loon`).
-- gentle-pi's banner does not install its header in `loon` or `off`, so nothing
-  fights over the slot.
+- `extensions/gentle-shell.ts`: `/gentle:customize` gets one row,
+  `Banner: loon` / `Banner: rose` / `Banner: off`, which cycles on select.
+  `Banner rose:` and `Banner text logo:` are gone; the text-logo row stays
+  reachable inside `rose`, where it still means something, and `Banner color:` keeps
+  working in every state (it colours their art in `rose` and this header's accent
+  in `loon`). The wallpaper row reads `Banner color: wallpaper (LOON)`.
+- `extensions/startup-banner.ts`: gentle-pi's banner does not install its header in
+  `loon` or `off`, so nothing fights over the slot.
+- `lib/visual-customize-view.ts`: a row's label is called with the width the row
+  actually has, so a long label can pick a shorter wording instead of being cut
+  mid-word. Without it the view offers no width at all.
+- `lib/shell-prompt.ts`: the prompt card painted its band with `toolSuccessBg`, a
+  role that means "a tool succeeded" but was used as "some background". It paints
+  `selectedBg` instead - the surface a theme tints with its accent - so the band
+  follows the wallpaper colour. `toolSuccessBg` keeps its green: success cards are
+  untouched.
 
 The choice is stored as `source` in LOON's own `loon-tui.json`, never in
 `banner.json`: gentle-pi rewrites that file with its three keys and would drop it.
