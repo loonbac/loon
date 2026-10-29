@@ -173,3 +173,22 @@ L5 — the card surfaces (issue #43):
 - The constraint pair (lightness inside panel..element, contrast >= 1.15) leaves a
   window only ~0.0015 wide, so the three surfaces land on the same hex. Reported to
   the owner as a number instead of widening it on my own initiative.
+L6 — three consumers, one role, and a staleness defect found on the way:
+
+- The same role paints three surfaces: the prompt band (`lib/shell-prompt.ts:151`) and
+  the INFO/SUCCESS card tones (`lib/shell-card.ts:268-269`) that produce the Status
+  panel and the top bar. Fixing the palette fixes all three; the patch stays at three
+  targets.
+- **Defect found:** `ensureWallpaperTheme` decided "up to date" by comparing only the
+  `bg` and `accent` vars, so a palette rule change (green surfaces to accent surfaces)
+  left the old theme file in place and the cards stayed green. It now compares the whole
+  `vars` and `colors` map: any derivation change regenerates the file.
+- Surfaces now sit at the top of the allowed chroma (0.033-0.034 measured) instead of
+  0.029-0.031: the lightness window is only ~0.0015 wide, so chroma is the only lever.
+  A guard steps the requested chroma down if the eight-bit hex rounds past 0.035.
+- Measured at 160 columns in fullscreen (the sidebar needs 140): top bar rows 0-2,
+  Status panel rows 4-20 on the right, prompt band rows 36-38 - all `#231D0A`, hue 92,
+  against accent `#AB9A5E` hue 94.1. At 100 columns the same `#231D0A` on rows 0, 1,
+  28-30. No row anywhere between hue 100 and 160.
+- The role-name finding is now documented in `wallpaper-theme.ts`: `bg()` resolves
+  colour keys, not vars, and an invalid name silently yields an empty background.
