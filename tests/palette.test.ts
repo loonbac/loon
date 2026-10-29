@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BANNER_COLORS } from '../extensions/lib/accent.ts';
+import { ACCENT_RGB, BANNER_COLORS, type BannerColor } from '../extensions/lib/accent.ts';
 import {
 	LOON_THEME_ROLES,
 	PALETTE_ROLES,
@@ -61,7 +61,7 @@ test('an unknown role surfaces the theme error instead of a colour', () => {
 });
 test('gentle-pi’s accent overrides exactly the four accent roles', () => {
 	const theme = strictTheme();
-	const palette = resolvePalette(theme, { accentColor: 'cyan' });
+	const palette = resolvePalette(theme, { accentRgb: ACCENT_RGB.cyan });
 	const painted = '\x1b[38;2;95;210;255m';
 
 	for (const paint of [palette.frame, palette.divider, palette.heading, palette.logo]) {
@@ -75,7 +75,7 @@ test('gentle-pi’s accent overrides exactly the four accent roles', () => {
 });
 
 test('the theme accent is used when no colour is asked for', () => {
-	const palette = resolvePalette(strictTheme(), { accentColor: undefined });
+	const palette = resolvePalette(strictTheme(), { accentRgb: undefined });
 	assert.equal(palette.frame('X'), 'accent<X>');
 	assert.equal(palette.logo('X'), 'accent<X>');
 });
@@ -88,13 +88,13 @@ test('each of gentle-pi’s four accents has its own painter', () => {
 		green: '\x1b[38;2;110;220;145m',
 	};
 	for (const [colour, open] of Object.entries(expected)) {
-		const palette = resolvePalette(strictTheme(), { accentColor: colour as never });
+		const palette = resolvePalette(strictTheme(), { accentRgb: ACCENT_RGB[colour as BannerColor] });
 		assert.equal(palette.frame('X'), open + 'X\x1b[39m', colour);
 	}
 	assert.deepEqual([...BANNER_COLORS], ['pink', 'cyan', 'yellow', 'green']);
 });
 
 test('the accent painter emits nothing for an empty run', () => {
-	const palette = resolvePalette(strictTheme(), { accentColor: 'pink' });
+	const palette = resolvePalette(strictTheme(), { accentRgb: ACCENT_RGB.pink });
 	assert.equal(palette.frame(''), '');
 });

@@ -10,7 +10,7 @@
  * `banner.json` names an accent, the accent roles bind to `accentPainter()` and
  * the rest of the palette keeps coming from the theme.
  */
-import { accentPainter, type BannerColor } from './accent.ts';
+import { ACCENT_RGB, rgbPainter, type BannerColor, type Rgb } from './accent.ts';
 
 /**
  * Roles the header may use. The three gentle-pi themes and pi’s built-in
@@ -59,16 +59,22 @@ export interface Palette {
 
 /** Options that change where the accent comes from, never the other roles. */
 export interface PaletteOptions {
-	/** gentle-pi's accent colour; when absent the theme's `accent` role is used. */
+	/**
+	 * An accent that does not come from the theme: a gentle-pi colour or the
+	 * wallpaper accent. Absent means the theme's own `accent` role.
+	 */
+	accentRgb?: Rgb | undefined;
+	/** gentle-pi's named colour; kept until the call site moves to `accentRgb`. */
 	accentColor?: BannerColor | undefined;
 }
 
 /** Bind the logical palette to the roles of one theme. Pure by design. */
 export function resolvePalette(theme: LoonTheme, options: PaletteOptions = {}): Palette {
 	// Every accent role shares one painter, so the override cannot half-apply.
-	const accent = options.accentColor === undefined
+	const accentRgb = options.accentRgb ?? (options.accentColor === undefined ? undefined : ACCENT_RGB[options.accentColor]);
+	const accent = accentRgb === undefined
 		? (text: string) => theme.fg(PALETTE_ROLES.frame, text)
-		: accentPainter(options.accentColor);
+		: rgbPainter(accentRgb);
 	return {
 		frame: accent,
 		divider: accent,
