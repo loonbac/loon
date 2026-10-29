@@ -36,6 +36,20 @@ in LOON's own file with the same atomic write and the same tolerance to an unrea
 file. Honouring `showTextLogo` here once deleted the mark, and the mark is exactly the
 glyph the owner has been resizing; a flag from another product must not remove it.
 
+S8 — gentle-pi's own menu becomes the place the banner is chosen, through a reversible
+patch of the installed package: `scripts/gentle-pi-patch.ts` with `apply|check|revert`.
+The two Banner rows collapse into one — `Banner: loon` / `Banner: rose` / `Banner: off`,
+cycling on select — with the same notice and a preview of what will paint. `Banner text
+logo:` only appears in `rose`; `Banner color:` stays in every state. The tool pins the
+4.5.1 build by md5, requires every anchor exactly once, imports the patched copy in a
+child process with pi's own loader before replacing anything, backs the originals up
+timestamped, and `revert` restores them and verifies their md5.
+
+S9 — Who paints lives in LOON's file as `source: "loon" | "rose" | "off"`, default
+`loon`. LOON paints only when `enabled && source === "loon"`; on `rose` and `off` it
+releases the slot it owns and never reclaims it. `source` is never written into
+`banner.json`, whose writes keep only gentle-pi's three keys.
+
 S5 — A `/loon:tui` command with the two things gentle-pi's menu does not have: banner on
 or off, and accent source (theme vs `banner.json`). Own persistence in pi's config home,
 atomic write, unreadable file = defaults (no crash).
@@ -63,6 +77,8 @@ Invariants that never break:
 | T5 | S3, S5, S6 | inline | 9bb311c |
 | T6 | - | inline | 9bb311c |
 | T7 | S4, S7 | inline | ea6df5e (PR #29) |
+| T8 | S8 | inline | pending |
+| T9 | S9 | inline | pending |
 
 ## Log
 
@@ -137,3 +153,10 @@ L5 — real verification of the mark fix (issue #28, PR #29, squash `ea6df5e`):
 - Their `banner.json` is `sha256sum -c` clean afterwards and `loon-tui.json` was
   removed, so the real config home is byte-identical.
 - 84 tests, `tsc --noEmit` clean.
+L6 — owner asked to patch gentle-pi's own menu after all, verbatim:
+
+> "veo en el comando del gentle que dice banner rose off, yo creo que seria mejor inyectar ahi parcharlo para que diga solo Banner: y ahi ponerle 3 opciones, Rose, LOON y Off"
+
+This supersedes the earlier "never touch their menu" decision. Their code is still
+never copied: the patch is a text edit of their own rows plus a guard in their own
+banner, nothing imported.
