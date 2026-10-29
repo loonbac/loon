@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,11 +52,12 @@ test('the snapshot records the four files and the themes directory', () => {
 		const state = snapshot(home.env);
 		const manifest = readFileSync(join(state, 'manifest'), 'utf8').trim().split('\n');
 		assert.equal(manifest.length, 5, 'four config files plus the themes directory');
-		assert.match(manifest[0]!, /settings\.json\tfile:[0-9a-f]{64}$/);
-		assert.match(manifest[1]!, /loon-tui\.json\tfile:[0-9a-f]{64}$/);
-		assert.match(manifest[2]!, /visual-customization\.json\tabsent$/);
-		assert.match(manifest[3]!, /banner\.json\tabsent$/);
-		assert.match(manifest[4]!, /themes\tdir:[0-9a-f]{64}$/);
+		// Four fields per entry: slot, path, digest, resolved path (empty when absent).
+		assert.match(manifest[0]!, /settings\.json\tfile:[0-9a-f]{64}\t\/.*settings\.json$/);
+		assert.match(manifest[1]!, /loon-tui\.json\tfile:[0-9a-f]{64}\t\/.*loon-tui\.json$/);
+		assert.match(manifest[2]!, /visual-customization\.json\tabsent\t$/);
+		assert.match(manifest[3]!, /banner\.json\tabsent\t$/);
+		assert.match(manifest[4]!, /themes\tdir:[0-9a-f]{64}\t\/.*themes$/);
 	} finally {
 		rmSync(home.root, { recursive: true, force: true });
 	}
@@ -218,6 +219,27 @@ test('a failed probe never deletes a file the caller already had', () => {
 		const captured = run(['capture', '--label', 'keeps-out', '--settle', '1', '--command', 'sleep 30', '--out', existing], home.env);
 		assert.equal(captured.status, 4);
 		assert.equal(readFileSync(existing, 'utf8'), 'something the person wrote\n', 'a pre-existing --out file must survive');
+	} finally {
+		rmSync(home.root, { recursive: true, force: true });
+	}
+});
+
+test('a symlinked configuration file is snapshotted by bytes and restored through its link', () => {
+	const home = scratchHome();
+	try {
+		// Dotfiles are often symlinks: the snapshot has to hold the target's bytes,
+		// not a link to the live file a probe is about to change.
+		const target = join(home.root, 'dotfiles-loon-tui.json');
+		writeFileSync(target, '{\n\t"accent": "wallpaper"\n}\n');
+		rmSync(join(home.agent, 'loon-tui.json'));
+		symlinkSync(target, join(home.agent, 'loon-tui.json'));
+
+		const state = snapshot(home.env);
+		writeFileSync(target, '{"enabled":true,"accent":"banner"}\n');
+		const restored = run(['restore', '--state', state], home.env);
+		assert.equal(restored.status, 0, restored.stderr);
+		assert.equal(readFileSync(target, 'utf8'), '{\n\t"accent": "wallpaper"\n}\n', 'the target bytes must come back');
+		assert.equal(lstatSync(join(home.agent, 'loon-tui.json')).isSymbolicLink(), true, 'the link must still be a link');
 	} finally {
 		rmSync(home.root, { recursive: true, force: true });
 	}

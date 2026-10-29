@@ -67,12 +67,13 @@ digest_path() {
 manifest_path() { printf '%s/manifest\n' "$STATE_DIR"; }
 
 write_manifest() {
-	local out index=0 path digest
+	local out index=0 path digest resolved
 	out=$(manifest_path)
 	: > "$out" || return 1
 	for path in "${CONFIG_PATHS[@]}" "$THEMES_DIR"; do
 		digest=$(digest_path "$path") || return 1
-		printf '%s\t%s\t%s\n' "$index" "$path" "$digest" >> "$out" || return 1
+		resolved=${RESOLVED_PATHS[index]:-}
+		printf '%s\t%s\t%s\t%s\n' "$index" "$path" "$digest" "$resolved" >> "$out" || return 1
 		index=$((index + 1))
 	done
 }
@@ -109,14 +110,25 @@ snapshot() {
 	printf '%s\n%s\n' "$label" "$(date -Is)" > "$STATE_DIR/meta" || die "cannot write to $STATE_DIR; nothing was started"
 
 	local index=0 path
+	# Bytes, not links: a config path that is a symlink (dotfiles) would otherwise be
+	# snapshotted as a link to the live file, and a probe changing that file would
+	# change the "snapshot" too. The resolved target is recorded so the restore writes
+	# through the same link instead of replacing it with a regular file.
+	RESOLVED_PATHS=()
 	for path in "${CONFIG_PATHS[@]}"; do
 		if [ -f "$path" ]; then
-			cp -a -- "$path" "$STATE_DIR/files/$index" || die "cannot copy $path; nothing was started"
+			local resolved
+			resolved=$(realpath -m -- "$path") || die "cannot resolve $path; nothing was started"
+			cp -L -- "$resolved" "$STATE_DIR/files/$index" || die "cannot copy $resolved; nothing was started"
+			RESOLVED_PATHS[index]=$resolved
 		fi
 		index=$((index + 1))
 	done
 	if [ -d "$THEMES_DIR" ]; then
-		cp -a -- "$THEMES_DIR" "$STATE_DIR/files/$index" || die "cannot copy $THEMES_DIR; nothing was started"
+		local resolved_dir
+		resolved_dir=$(realpath -m -- "$THEMES_DIR") || die "cannot resolve $THEMES_DIR; nothing was started"
+		cp -aL -- "$resolved_dir" "$STATE_DIR/files/$index" || die "cannot copy $resolved_dir; nothing was started"
+		RESOLVED_PATHS[index]=$resolved_dir
 	fi
 	write_manifest || die "cannot record the digests; nothing was started"
 	PENDING=1
@@ -126,7 +138,7 @@ snapshot() {
 # half-written file the person already had is restored as the half-written file it
 # was, and a file that did not exist is removed again.
 restore_one() {
-	local index=$1 recorded_path=$2 expected=$3
+	local index=$1 recorded_path=$2 expected=$3 resolved=$4
 	local path
 	path=$(expected_path "$index") || { printf 'probe-frame: unknown snapshot slot %s\n' "$index" >&2; return 1; }
 	if [ "$recorded_path" != "$path" ]; then
@@ -140,13 +152,17 @@ restore_one() {
 			;;
 		file:*)
 			[ -f "$copy" ] || { printf 'probe-frame: no snapshot copy for %s\n' "$path" >&2; return 1; }
-			mkdir -p -- "$(dirname -- "$path")" || return 1
-			cp -a -- "$copy" "$path" || return 1
+			# Written to where the slot really lives, so a symlinked config keeps its
+			# link and its target gets the recorded bytes back.
+			local destination=${resolved:-$path}
+			[ -n "$destination" ] || destination=$path
+			mkdir -p -- "$(dirname -- "$destination")" || return 1
+			cp -- "$copy" "$destination" || return 1
 			;;
 		dir:*)
 			[ -d "$copy" ] || { printf 'probe-frame: no snapshot copy for %s\n' "$path" >&2; return 1; }
 			rm -rf -- "$path" || return 1
-			cp -a -- "$copy" "$path" || return 1
+			cp -aL -- "$copy" "$path" || return 1
 			;;
 		*)
 			printf 'probe-frame: unrecognised snapshot entry %s for %s\n' "$expected" "$path" >&2
@@ -157,9 +173,9 @@ restore_one() {
 }
 
 verify_state() {
-	local failures=0 index path recorded actual
+	local failures=0 index path recorded resolved actual
 	[ -f "$(manifest_path)" ] || die "no manifest in $STATE_DIR"
-	while IFS=$'\t' read -r index path recorded; do
+	while IFS=$'\t' read -r index path recorded resolved; do
 		[ -n "${index:-}" ] || continue
 		actual=$(digest_path "$path")
 		if [ "$actual" != "$recorded" ]; then
@@ -174,8 +190,8 @@ verify_state() {
 # Every copy is checked against the digest recorded when it was taken, before anything
 # is written back: a corrupted snapshot must fail, not overwrite the real file with it.
 verify_copies() {
-	local index path recorded failures=0 copy actual expected
-	while IFS=$'\t' read -r index path recorded; do
+	local index path recorded resolved failures=0 copy actual
+	while IFS=$'\t' read -r index path recorded resolved; do
 		[ -n "${index:-}" ] || continue
 		case "$recorded" in
 			absent) continue ;;
@@ -206,10 +222,10 @@ restore_state() {
 	# Nothing is written until every copy proves it is the one we recorded.
 	verify_copies || { printf 'probe-frame: nothing was restored\n' >&2; return 3; }
 
-	local index path recorded failures=0
-	while IFS=$'\t' read -r index path recorded; do
+	local index path recorded resolved failures=0
+	while IFS=$'\t' read -r index path recorded resolved; do
 		[ -n "${index:-}" ] || continue
-		restore_one "$index" "$path" "$recorded" || failures=$((failures + 1))
+		restore_one "$index" "$path" "$recorded" "${resolved:-}" || failures=$((failures + 1))
 	done < "$(manifest_path)"
 	RESTORED=1
 	PENDING=0
