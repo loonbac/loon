@@ -1,18 +1,19 @@
 /**
- * Layout and text helpers for the banner, ported from pi-claude-code-tui
- * (MIT, see NOTICE). Upstream's working-verb list is not ported: the LOON
- * feature is the startup banner only.
+ * Width and text helpers for the header: the divider sits at a fixed share of
+ * the interior, the tips sidebar truncates with an ellipsis, and the left half
+ * centres its content. Width helpers follow pi-claude-code-tui (MIT, NOTICE).
  */
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import { LOGO_WIDTH } from './logo.ts';
 
-/** Narrowest left column that still fits the animated logo (8x3 cells). */
-export const MIN_LEFT_WIDTH = 28;
-/** Narrowest tips sidebar; below this, tips are hidden. */
+/** Share of the interior width where the vertical divider sits. */
+export const DIVIDER_RATIO = 0.69;
+/** The left half must fit the mark plus breathing room. */
+export const MIN_LEFT_WIDTH = LOGO_WIDTH + 4;
+/** Narrowest tips sidebar; below this the sidebar is dropped. */
 export const MIN_TIPS_WIDTH = 16;
-/** Cap tips so they never steal the logo half on wide terminals. */
-export const MAX_TIPS_WIDTH = 28;
-/** ` space + divider + space ` between the two columns. */
-const COLUMN_GAP = 3;
+/** Short rule width in the sidebar. */
+export const TIPS_RULE_WIDTH = 22;
 
 /** Show the home directory as `~` so a long cwd keeps its useful part. */
 export function formatCwd(cwd: string, home: string | undefined = process.env.HOME): string {
@@ -40,40 +41,26 @@ export function padRight(text: string, width: number, ellipsis = ''): string {
 }
 
 /**
- * Column widths for the banner body.
+ * Column widths for the header body.
  *
- * The tips sidebar takes about 28% of the inner width, clamped so the logo
- * half stays the wider one; when both cannot fit, tips are dropped and the
- * logo half takes everything.
+ * The divider sits at `DIVIDER_RATIO` of the interior, with one space on each
+ * side. When the left half could not fit the mark or the sidebar would be too
+ * narrow, the sidebar is dropped and the left half takes the whole interior.
  */
-export function headerColumnWidths(
-	innerWidth: number,
-	minTipsWidth = MIN_TIPS_WIDTH,
-	maxTipsWidth = MAX_TIPS_WIDTH,
-	minLeftWidth = MIN_LEFT_WIDTH,
-): { leftWidth: number; rightWidth: number; useTips: boolean } {
+export function headerColumnWidths(innerWidth: number): {
+	leftWidth: number;
+	rightWidth: number;
+	useTips: boolean;
+} {
 	if (innerWidth <= 0) {
 		return { leftWidth: 0, rightWidth: 0, useTips: false };
 	}
 
-	if (innerWidth < minLeftWidth + COLUMN_GAP + minTipsWidth) {
-		return { leftWidth: innerWidth, rightWidth: 0, useTips: false };
-	}
+	const dividerIndex = Math.round(innerWidth * DIVIDER_RATIO);
+	const leftWidth = dividerIndex - 1;
+	const rightWidth = innerWidth - leftWidth - 3;
 
-	let rightWidth = Math.min(maxTipsWidth, Math.max(minTipsWidth, Math.round(innerWidth * 0.28)));
-	let leftWidth = innerWidth - COLUMN_GAP - rightWidth;
-
-	if (leftWidth < minLeftWidth) {
-		leftWidth = minLeftWidth;
-		rightWidth = innerWidth - COLUMN_GAP - leftWidth;
-	}
-
-	if (leftWidth <= rightWidth) {
-		leftWidth = Math.ceil((innerWidth - COLUMN_GAP) * 0.65);
-		rightWidth = innerWidth - COLUMN_GAP - leftWidth;
-	}
-
-	if (rightWidth < minTipsWidth || leftWidth < minLeftWidth) {
+	if (leftWidth < MIN_LEFT_WIDTH || rightWidth < MIN_TIPS_WIDTH) {
 		return { leftWidth: innerWidth, rightWidth: 0, useTips: false };
 	}
 
@@ -121,7 +108,7 @@ export function collectPiCommandNames(sessionCommands: readonly { name: string }
 
 /**
  * Pick the tip lines: always the `fixed` commands, then `count` samples from
- * the pool. Returns slash-prefixed names, e.g. `[loon:default, /model]`.
+ * the pool. Returns slash-prefixed names, e.g. `[/use-default-tui, /model]`.
  */
 export function pickSlashCommandTips(
 	availableNames: readonly string[],

@@ -39,8 +39,8 @@ function fakeContext(): FakeContext {
 	return {
 		mode: 'tui',
 		hasUI: true,
-		cwd: '/home/loon/proj',
-		model: { provider: 'gentle', id: 'gentleman' },
+		cwd: '/home/loon/Workspace/mypi',
+		model: { provider: 'openai-codex', id: 'gpt-5.5' },
 		ui,
 	};
 }
@@ -64,17 +64,19 @@ function fakePi() {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function headerFactories(ctx: FakeContext): (unknown)[] {
+function headerFactories(ctx: FakeContext): unknown[] {
 	return ctx.ui.calls.filter(([name]) => name === 'setHeader').map(([, value]) => value);
 }
 
-test('registers one command to reapply the look and one to restore pi’s TUI', () => {
+test('registers exactly two commands: reapply the header, restore pi’s TUI', () => {
 	const pi = fakePi();
 	loonPi(pi as never);
 	assert.deepEqual([...pi.commands.keys()], [LOOK_COMMAND, RESTORE_COMMAND]);
+	assert.equal(LOOK_COMMAND, 'use-loon-tui');
+	assert.equal(RESTORE_COMMAND, 'use-default-tui');
 });
 
-test('installs the banner on session start, after the first macrotask', async () => {
+test('installs the header on session start, after the first macrotask', async () => {
 	const pi = fakePi();
 	const ctx = fakeContext();
 	loonPi(pi as never);
@@ -88,22 +90,41 @@ test('installs the banner on session start, after the first macrotask', async ()
 	assert.equal(typeof factories.at(-1), 'function');
 });
 
-test('the installed header renders the banner and keeps the restore tip', async () => {
+test('applying the header touches no footer, spinner, title or editor', async () => {
+	const pi = fakePi();
+	const ctx = fakeContext();
+	loonPi(pi as never);
+	for (const handler of pi.handlers.get('session_start') ?? []) handler({}, ctx);
+	await wait(500);
+	assert.deepEqual([...new Set(ctx.ui.calls.map(([name]) => name))], ['setHeader']);
+});
+
+test('the installed header renders the capture and keeps the restore tip', async () => {
 	const pi = fakePi();
 	const ctx = fakeContext();
 	loonPi(pi as never);
 	for (const handler of pi.handlers.get('session_start') ?? []) handler({}, ctx);
 	await wait(50);
 
-	// The header reads the live theme per render, so the context decides.
 	ctx.ui.theme = plainTheme();
 	const factory = headerFactories(ctx).at(-1) as (tui: unknown, theme: unknown) => { render(w: number): string[] };
-	const tui = { requestRender: () => {} };
-	const header = factory(tui, ctx.ui.theme);
-	const lines = header.render(80);
-	assert.ok(lines.length > 3);
-	assert.match(lines.join('\n'), /loon:default/);
-	assert.ok(!lines.join('\n').includes(LOOK_COMMAND), 'tips must not advertise the reapply command');
+	const header = factory({ requestRender: () => {} }, ctx.ui.theme);
+	const rendered = header.render(80).join('\n');
+	assert.match(rendered, /Pi v/);
+	assert.match(rendered, /Getting started/);
+	assert.match(rendered, /\/use-default-tui/);
+	assert.ok(!rendered.includes('/use-loon-tui'), 'tips must not advertise the reapply command');
+});
+
+test('the tips are fixed once per session, not reshuffled per install', async () => {
+	const pi = fakePi();
+	const ctx = fakeContext();
+	loonPi(pi as never);
+	for (const handler of pi.handlers.get('session_start') ?? []) handler({}, ctx);
+	await wait(500);
+	const factories = headerFactories(ctx) as ((tui: unknown, theme: unknown) => { render(w: number): string[] })[];
+	const renders = factories.map((factory) => factory({ requestRender: () => {} }, plainTheme()).render(80).join('\n'));
+	for (const rendered of renders) assert.equal(rendered, renders[0]);
 });
 
 test('the restore command clears header, footer and spinner and stops re-asserting', async () => {
@@ -124,10 +145,10 @@ test('the restore command clears header, footer and spinner and stops re-asserti
 
 	const afterRestore = ctx.ui.calls.length;
 	await wait(500);
-	assert.equal(ctx.ui.calls.length, afterRestore, 'a pending re-assert reinstalled the banner after restore');
+	assert.equal(ctx.ui.calls.length, afterRestore, 'a pending re-assert reinstalled the header after restore');
 });
 
-test('the look command re-applies the banner', async () => {
+test('the reapply command applies the header again', async () => {
 	const pi = fakePi();
 	const ctx = fakeContext();
 	loonPi(pi as never);
