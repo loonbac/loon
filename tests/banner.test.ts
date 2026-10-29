@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { MIN_BANNER_WIDTH, renderBanner, type BannerInput } from '../extensions/lib/banner.ts';
-import { DIVIDER_RATIO, MIN_LEFT_WIDTH, MIN_TIPS_WIDTH } from '../extensions/lib/layout.ts';
+import { MAX_LEFT_WIDTH, MIN_LEFT_WIDTH, MIN_TIPS_WIDTH, headerColumnWidths } from '../extensions/lib/layout.ts';
 import { LOGO_GRID, LOGO_WIDTH, renderLogo } from '../extensions/lib/logo.ts';
 import { resolvePalette } from '../extensions/lib/palette.ts';
 import { ansiTheme, darkTheme, lightTheme, plainTheme, strictTheme } from './support/themes.ts';
@@ -31,13 +31,18 @@ function golden(name: string): string[] {
 		.split('\n');
 }
 
+/** Split by column, so colour escapes must be out of the way first. */
+function stripAnsi(line: string): string {
+	return line.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
 /** The interior of the box, one string per body row, borders and divider out. */
 function splitColumns(width: number, lines: string[]): { left: string[]; right: string[] } {
-	const innerWidth = width - 2;
-	const dividerIndex = Math.round(innerWidth * DIVIDER_RATIO);
+	const { leftWidth, rightWidth } = headerColumnWidths(width - 2);
+	const body = lines.slice(1, -1).map(stripAnsi);
 	return {
-		left: lines.slice(1, -1).map((line) => line.slice(1, 1 + dividerIndex - 1)),
-		right: lines.slice(1, -1).map((line) => line.slice(1 + dividerIndex + 1, width - 1)),
+		left: body.map((line) => line.slice(1, 1 + leftWidth)),
+		right: body.map((line) => line.slice(1 + leftWidth + 3, 1 + leftWidth + 3 + rightWidth)),
 	};
 }
 
@@ -49,15 +54,22 @@ test('renders the golden header at 120 columns', () => {
 	assert.deepEqual(renderBanner(bannerInput({ width: 120 })), golden('header-120.txt'));
 });
 
-test('the divider sits at 69% of the interior and spans every body row', () => {
+test('the divider closes the left half and spans every body row', () => {
 	for (const width of [80, 120]) {
-		const innerWidth = width - 2;
-		const dividerIndex = Math.round(innerWidth * DIVIDER_RATIO);
+		const { leftWidth } = headerColumnWidths(width - 2);
 		const body = renderBanner(bannerInput({ width })).slice(1, -1);
 		for (const line of body) {
-			assert.equal([...line][dividerIndex + 1], '│', `no divider in ${JSON.stringify(line)}`);
+			assert.equal([...stripAnsi(line)][leftWidth + 2], '│', `no divider in ${JSON.stringify(line)}`);
 		}
 	}
+});
+
+test('the left half stays square instead of stretching on wide screens', () => {
+	// Ten body rows read square at roughly the mark width plus breathing room; a
+	// share of the interior alone would keep widening the empty band.
+	assert.equal(headerColumnWidths(78).leftWidth, 32);
+	assert.equal(headerColumnWidths(118).leftWidth, MAX_LEFT_WIDTH);
+	assert.ok(MAX_LEFT_WIDTH <= 40, 'the left half grew past the square ceiling');
 });
 
 test('the sidebar keeps the literal order of the capture', () => {
@@ -67,7 +79,8 @@ test('the sidebar keeps the literal order of the capture', () => {
 		'',
 		'Getting started',
 		'Ask Pi to build it',
-		'─'.repeat(22),
+		// The rule fills the sidebar, stopping one column short of the border.
+		'─'.repeat(headerColumnWidths(78).rightWidth - 1),
 		'Commands',
 		'/use-default-tui',
 		'/model',
@@ -91,13 +104,21 @@ test('the left half centres the mark, the tagline, the model and the cwd', () =>
 	]);
 	assert.equal(left[6]!.trim(), '');
 	assert.equal(left[7]!.trim(), "Let's build something great");
-	assert.equal(left[8]!.trim(), 'openai-codex/gpt-5.5 · high effort');
+	// At 32 columns the model line no longer fits; the label keeps its head.
+	assert.ok(left[8]!.trim().startsWith('openai-codex/gpt-5.5'), `model line: ${JSON.stringify(left[8])}`);
 	assert.equal(left[9]!.trim(), '~/Workspace/mypi');
 
 	// The mark is one rectangle: all four rows start in the same column, so its
 	// left edge is straight. Centring each row on its own ink would stagger it.
+	// The expected column is derived from the layout, never copied from a frame.
+	const { leftWidth } = headerColumnWidths(78);
+	const expectedStart = 1 + Math.floor((leftWidth - LOGO_WIDTH) / 2);
 	const starts = lines.slice(3, 7).map((line) => line.indexOf('█'));
-	assert.deepEqual(starts, [21, 21, 21, 21], `staggered mark: ${JSON.stringify(starts)}`);
+	assert.deepEqual(
+		starts,
+		Array<number>(4).fill(expectedStart),
+		`staggered mark: ${JSON.stringify(starts)}`,
+	);
 
 	// The text lines stay centred within the half, within a column of slack.
 	for (const line of [left[7]!, left[8]!, left[9]!]) {
@@ -134,6 +155,8 @@ test('with a painting theme every escape comes from the theme itself', () => {
 	const escapes = lines.join('\n').match(/\x1b\[[0-9;]*m/g) ?? [];
 	assert.ok(escapes.length > 0, 'expected the themed header to paint something');
 	for (const escape of escapes) {
+		// pi-tui appends a reset when it truncates a row; it sets no colour.
+		if (escape === '\x1b[0m') continue;
 		assert.ok(theme.sequences.has(escape), `unexpected escape ${JSON.stringify(escape)}`);
 	}
 });

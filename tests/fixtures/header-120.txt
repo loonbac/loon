@@ -1,12 +1,12 @@
 ╭─── Pi v1.4.0 ────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│                                                                                 │                                    │
-│                                                                                 │ Getting started                    │
-│                                  █████████                                      │ Ask Pi to build it                 │
-│                                  ███   ███                                      │ ──────────────────────             │
-│                                  ██████   ███                                   │ Commands                           │
-│                                  ███      ███                                   │ /use-default-tui                   │
-│                                                                                 │ /model                             │
-│                          Let's build something great                            │ /theme                             │
-│                       openai-codex/gpt-5.5 · high effort                        │ /compact                           │
-│                                ~/Workspace/mypi                                 │                                    │
+│                                         │                                                                            │
+│                                         │ Getting started                                                            │
+│              █████████                  │ Ask Pi to build it                                                         │
+│              ███   ███                  │ ────────────────────────────────────────────────────────────────────────── │
+│              ██████   ███               │ Commands                                                                   │
+│              ███      ███               │ /use-default-tui                                                           │
+│                                         │ /model                                                                     │
+│      Let's build something great        │ /theme                                                                     │
+│   openai-codex/gpt-5.5 · high effort    │ /compact                                                                   │
+│            ~/Workspace/mypi             │                                                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
