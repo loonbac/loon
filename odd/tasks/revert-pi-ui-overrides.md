@@ -16,8 +16,13 @@ startup banner, exit banner, status line, wallpaper accent) stays.
 | Custom prompt editor (`prompt-editor.ts`) | **Remove** |
 | Gentle rail layout patches, header suppression, model-panel and resume-selector decoration, fast-mode badge | **Keep** |
 
-Modules are left on disk and simply not registered, so a revert is one import.
-Deleting them was offered and declined.
+Modules were left on disk and simply not registered, so a revert was one import.
+Deleting them was offered and declined at the time.
+
+**Superseded.** The extraction manifest (`odd/extraction-manifest.md`) deletes them:
+they are unreachable from `extension/index.ts`, and carrying them into the new
+capability repositories would mean maintaining dead code in four places. A revert
+is now `git revert` of the deletion commit, not an import.
 
 ## Tasks
 
