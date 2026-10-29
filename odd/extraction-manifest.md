@@ -461,6 +461,37 @@ no es un fin de semana de mover ficheros, es un fin de semana de cablear Nix.
 
 ---
 
+### 4.3 Checklist de cableado, uno por paquete
+
+Cinco puntos por paquete. Si falta uno, el paquete **no se carga y nada avisa**: ni un error, ni
+un warning, ni un test. Por eso va escrito y se marca entero o no se marca.
+
+| # | Punto | `pi-bounded-search` | `pi-router-glue` | `pi-provider-quota` | `pi-host-patches` |
+| --- | --- | --- | --- | --- | --- |
+| 1 | input de flake en `~/.nixos/flake.nix` | `github:loonbac/pi-bounded-search` | `github:loonbac/pi-router-glue` | `github:loonbac/pi-provider-quota` | `github:loonbac/pi-host-patches` |
+| 2 | derivación en `~/.nixos/flake.nix:92` | `<input>.packages.${system}.default` + `inputs.<input>.inputs.nixpkgs.follows = "nixpkgs";` | ídem | ídem | ídem |
+| 3 | exposición en `~/.nixos/flake.nix:261` | una entrada en `packages.*` | ídem | ídem | ídem |
+| 4 | symlink en `~/.nixos/pkgs/gentle-ai-bootstrap/default.nix:39-51` | `@HOME@/.local/share/loon-pi-packages/pi-bounded-search` | ídem | ídem | ídem |
+| 5 | carga en `~/.pi/agent/settings.json` | ruta absoluta del symlink dentro de `packages[]` | ídem | ídem | ídem |
+
+Más `nix flake update <input>` por paquete después del primer push, y el rebuild es tuyo.
+
+**El orden de `packages[]` no es cosmético.** `index.ts:58-69` hoy garantiza, por orden de
+llamada, que `ensureFallbackConfig()` corre antes de `antigravityQuotaFallback(pi)` y que los
+`registerXUsage` corren antes de `installHostPatches()` (`before any render`). Al repartirlos en
+paquetes ese orden pasa a depender de la posición en el array:
+
+```text
+pi-router-glue  →  pi-provider-quota  →  pi-host-patches  →  pi-bounded-search
+```
+
+**La prueba de que carga no es el fichero `settings.json`, que solo declara la intención.** Es arrancar
+Pi y contar paquetes cargados en la lista de la extensión, y en el caso de `pi-host-patches`, ver que
+el rail y el panel de modelos siguen pintados. Un paquete mal cableado produce una sesión que
+arranca bien y simplemente se comporta como si no existiera.
+
+---
+
 ## 5. Contratos de estado en tiempo de ejecución
 
 Ficheros que un paquete escribe y otro lee. Son interfaces: si cambian, cambia más de un repo.
