@@ -278,6 +278,30 @@ and keeps a timestamped backup under `~/.pi/agent/backups/gentle-pi-banner-patch
 that `revert` restores and verifies. Nothing here is required: unpatched, LOON
 works exactly as before.
 
+### Measuring a frame
+
+Every frame in this repository comes from one script, because the alternative is
+measuring on top of the person's real configuration:
+
+```sh
+scripts/probe-frame.sh capture --label brand-stock-120 --width 120 --height 32 --theme Gentle
+```
+
+It snapshots `settings.json`, `loon-tui.json`, gentle-pi's
+`visual-customization.json` and `banner.json`, plus the themes directory, into a
+state directory under `~/.local/state/loon-probe`; runs pi in tmux against **its own**
+gentle-pi config, never the real one; captures the frame; restores the snapshot; and
+verifies every sha256 against what it recorded. A difference is exit 3, and the restore
+also runs when the capture fails or is interrupted.
+
+Two details matter. An absent file is restored as absent, and a file that was already
+partial is restored with its exact bytes — never rebuilt from defaults. And the snapshot
+is written before pi starts: if it cannot be written, pi does not start at all.
+
+This exists because earlier hand-rolled scripts wrote and deleted
+`~/.pi/agent/loon-tui.json` without restoring it, which left a one-key file behind and
+made the person's choices look like they kept resetting.
+
 ### Settings LOON adds
 
 gentle-pi's menu has no switch for the banner itself and none for where the

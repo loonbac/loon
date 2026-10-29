@@ -67,3 +67,30 @@ L2 (usuario, verbatim): "tambien que borra del header usage · alt+u".
 L3. Interpretación declarada y no silenciosa: ambas reglas son condicionales al tema
     LOON; con tema stock nada cambia. Si el usuario quería la pista fuera siempre,
     se cambia.
+
+## Regla de medición (a raíz del incidente del 17:30)
+
+Cualquier medida que necesite escribir configuración real hace snapshot antes, y pasa
+por `scripts/probe-frame.sh`. No hay captura a mano.
+
+- El script fotografía `settings.json`, `loon-tui.json`,
+  `~/.pi/gentle-ai/visual-customization.json`, `~/.pi/gentle-ai/banner.json` y el
+  directorio de temas, con `sha256` por archivo y un digest recursivo del directorio.
+- Copia los bytes a un directorio de estado, lanza pi en tmux con su **propia**
+  configuración de gentle-pi (nunca la del usuario), captura, restaura y verifica.
+- Restaura incluso si la captura falla, se interrumpe o la terminal muere (`trap EXIT`).
+- Exit 2 si el snapshot no se puede escribir: pi no arranca. Exit 3 si el disco no
+  coincide con el snapshot.
+- Un archivo ausente se restaura como ausente; uno a medias se restaura **a medias**,
+  con sus bytes exactos. Nunca se reescribe un archivo parcial con valores por defecto,
+  y sin snapshot no se toca nada.
+- Ningún test ni script de verificación escribe `loon-tui.json` directamente ni lo
+  borra: hay un test (`tests/probe-frame.test.ts`) que lo impide en `scripts/` y
+  `tests/`.
+
+El incidente: `/tmp/verify-mark.sh` hacía `rm -f ~/.pi/agent/loon-tui.json` y escribía
+objetos de tres claves sin restaurar; `/tmp/verify-loon.sh` escribía dos claves. Con el
+archivo ausente, el escritor parcheado de gentle-pi arrancó con estado `{}` y escribió
+`{"accent": "wallpaper"}` — una clave de cuatro. La lógica del plugin no está en
+cuestión: el lector tolerante rellenó el resto con los valores por defecto, que es
+justo lo que el usuario notó («se restablece»).
