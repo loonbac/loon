@@ -72,6 +72,10 @@ test('an unreadable file is the defaults, not a crash', () => {
 test('the settings file lives in pi’s own config home', () => {
 	assert.equal(piConfigHome({ PI_CODING_AGENT_DIR: '/tmp/agent' }, '/home/someone'), '/tmp/agent');
 	assert.equal(piConfigHome({}, '/home/someone'), join('/home/someone', '.pi', 'agent'));
-	assert.deepEqual([...ACCENT_SOURCES], ['theme', 'banner']);
+	assert.deepEqual([...ACCENT_SOURCES], ['theme', 'banner', 'wallpaper']);
+	assert.deepEqual(parseLoonSettings(JSON.stringify({ accent: 'wallpaper' })), {
+		...DEFAULT_LOON_SETTINGS,
+		accent: 'wallpaper',
+	});
 	assert.deepEqual([...BANNER_SOURCES], ['loon', 'rose', 'off']);
 });
