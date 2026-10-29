@@ -85,6 +85,14 @@ paso 0 del plan los borra, y ese borrado está **autorizado por el dueño** en e
 *Superseded*: conservarlos era defendible con un solo repo y deja de serlo al repartir el código
 en cuatro.
 
+**Plan B, si esa decisión vuelve a cambiar.** El PR del paso 0 se queda entonces solo con
+`a64a8cb` —el script de alcanzabilidad— y pierde el commit de borrado, que repone los nueve
+módulos y su test. **No es una alternativa equivalente y no debe presentarse como tal**: deja las
+4.896 líneas en disco y en el store. Su única virtud, que conviene no perder de vista, es que *la
+mitad valiosa —la invariante de alcanzabilidad— no necesita borrar nada para funcionar*: la
+comprobación sigue valiendo con el código muerto presente, y por eso se puede ceder el borrado sin
+ceder la red.
+
 Efecto colateral: las dos únicas dependencias de `package.json:29-32` las usa **solo**
 `tools/diff.ts` (`from "diff"` en `diff.ts:11`) y `tools/builtins.ts` (shiki). Tras el borrado
 quedan **sin uso pero se dejan**: quitarlas exige regenerar `package-lock.json` y el
@@ -139,7 +147,12 @@ Dos detalles menores pero reales, encontrados de paso:
   `banner.ts:299` (1) y `tools/grouping.ts` (1, en el código que el paso 0 borra: offset 3678,
   línea 103, `const GROUP_BREAK = "\x00group-break";`; los otros nueve ficheros que ese paso borra
   no tienen ninguno). Son **separadores intencionados** que se unen con `.join("\x00")`, no
-  corrupción: al moverlos se trasladan tal cual. Efecto doble, y el segundo es peor que el primero.
+  corrupción, y al moverlos se trasladan tal cual. Quien los «limpie» cambiará **claves de caché en
+  silencio**: la `cacheKey` de `palette.ts:288` es `themeName`, NUL, `colorMode`, NUL,
+  `wallpaperAccentRevision`, así que sustituir el byte por un separador visible fragmenta la caché
+  sin fallar en ningún test de este repo. `grouping.ts` da igual porque se borra; `palette.ts` y
+  `banner.ts` sobreviven al paso 0 y viajan en el paso 1. Efecto doble, y el segundo es peor que
+  el primero.
   1. `rg`, `grep` y `git diff` los tratan como **binarios** y no muestran su contenido:
      una edición se revisa a ciegas. Al mover hay que usar `rg -a` y `git diff --text`. Ojo con
      el alcance: de los diez ficheros que el paso 0 borra, **solo `grouping.ts`** tiene NUL. Para
@@ -151,9 +164,28 @@ Dos detalles menores pero reales, encontrados de paso:
      borrados se reportan como **3.820** porque `grouping.ts` no se cuenta, y el total del PR es
      **3.838** (3.820 + 16 de `README.md` + 2 de `revert-pi-ui-overrides.md`). Quien revise por el
      número concluirá que se borraron 1.116 líneas menos de las que se borraron.
-- `extension/natural-adaptive-routing.ts:6` importa `"./fallback-config.js"` y el fichero es
-  `.ts`. Hoy no rompe porque es `import type` (se borra al transpilar), pero es la clase de
-  import que se rompe sola al cambiar de resolvedor o al volverse `import` de valor.
+- `extension/natural-adaptive-routing.ts:6` importaba `"./fallback-config.js"` con el fichero
+  en `.ts`, y no rompía porque era `import type` (se borra al transpilar). **Corregido en el paso
+  1** (#6): el tipo pasó al router y el import desapareció. Era justo la clase de import que se
+  rompe sola al cambiar de resolvedor o al volverse `import` de valor, y por eso el paso 1 lo
+  quitó antes de mover ningún fichero.
+
+### 0.6 Tres comprobaciones que no podían fallar
+
+El aprendizaje más transferible del paso 0 no es el borrado. Es que las tres comprobaciones usadas
+allí **no podían fallar**, y por eso se leyeron como aprobadas: *una comprobación que no puede
+fallar se lee como aprobada*.
+
+| Comprobación | Por qué no podía fallar | Control negativo que la delata |
+| --- | --- | --- |
+| `node -e 'await import("./extension/index.ts")'` | En un checkout limpio falla siempre por los peer deps (`@earendil-works/pi-tui`, `pi-coding-agent`), que no se instalan: no distingue un movimiento roto del hueco normal | Romper un import relativo real y comprobar que **también** falla. Si los dos casos son indistinguibles, no mide |
+| `rg -c $'\x00'` | Bash no puede poner un byte NUL en `argv`: el patrón colapsa a cadena vacía y casa **todas** las líneas | Contarlo sobre un fichero sin NUL. Devolvió `1116` sobre `grouping.ts`: su total de líneas, leído como éxito |
+| `git diff --stat` con un binario | Un fichero binario aporta cero líneas: reporta `0` para un fichero de 1.116 | Sumar `wc -l` de los borrados y compararlo con el total del diffstat. Diferencia distinta de cero ⇒ hay un binario |
+
+Los tres comparten la forma: **el instrumento devuelve un número plausible y nadie lo compara con
+nada**. El remedio es el mismo y es el que ya aplica `scripts/check-imports.mjs`: cada comprobación
+nueva se prueba en las dos direcciones —una copia rota a propósito debe fallar, y una sana debe
+pasar— antes de confiar en ella.
 
 ---
 
@@ -334,6 +366,11 @@ vocabulario del router** (es el tipo de `AdaptiveRoute.requestedEffort` /
 `effectiveEffort`, definido en `natural-adaptive-routing.ts:11`; el router ya es su dueño de
 hecho y solo lo importa de vuelta por herencia histórica). Con eso queda **D ← C**, una sola
 dirección.
+
+**Hecho en el paso 1** (PR #6, `11bffaf`): `FallbackEffort` vive en `natural-adaptive-routing.ts` y
+`fallback-config.ts` lo reexporta como tipo. El router no importa del config ni lo alcanza por
+ningún camino intermedio; `check-imports.mjs` pasa de 1 desajuste `.js/.ts` a 0, con los mismos 24
+módulos alcanzables y la suite en 79/78/1.
 
 ### 2.4 Aristas internas que **no** cruzan (y deben quedarse dentro)
 
