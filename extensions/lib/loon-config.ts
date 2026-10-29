@@ -25,13 +25,15 @@ export interface LoonSettings {
 	/** When false, LOON paints nothing and never reclaims the header. */
 	enabled: boolean;
 	accent: AccentSource;
+	/** The Pi mark. LOON's own switch: gentle-pi's `showTextLogo` is not this. */
+	mark: boolean;
 }
 
 /**
  * gentle-pi's `banner.json` already carries a colour the person picked in its own
  * menu, so that colour wins until someone asks for the theme's accent instead.
  */
-export const DEFAULT_LOON_SETTINGS: LoonSettings = { enabled: true, accent: 'banner' };
+export const DEFAULT_LOON_SETTINGS: LoonSettings = { enabled: true, accent: 'banner', mark: true };
 
 export function loonConfigPath(home: string): string {
 	return join(home, LOON_CONFIG_FILE_NAME);
@@ -57,7 +59,8 @@ export function parseLoonSettings(raw: string | undefined): LoonSettings {
 		typeof parsed.accent === 'string' && (ACCENT_SOURCES as readonly string[]).includes(parsed.accent)
 			? (parsed.accent as AccentSource)
 			: DEFAULT_LOON_SETTINGS.accent;
-	return { enabled, accent };
+	const mark = typeof parsed.mark === 'boolean' ? parsed.mark : DEFAULT_LOON_SETTINGS.mark;
+	return { enabled, accent, mark };
 }
 
 export function readLoonSettings(home: string): LoonSettings {
@@ -91,5 +94,5 @@ export function writeLoonSettings(settings: LoonSettings, home: string): string 
 
 /** True when two settings would draw and place the same banner. */
 export function sameLoonSettings(a: LoonSettings, b: LoonSettings): boolean {
-	return a.enabled === b.enabled && a.accent === b.accent;
+	return a.enabled === b.enabled && a.accent === b.accent && a.mark === b.mark;
 }

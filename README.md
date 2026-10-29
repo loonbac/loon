@@ -115,9 +115,13 @@ already writes, so what you pick in `/gentle:customization` reaches this header.
 | `density: minimal` | `visual-customization.json` | A three-row box with one row: `provider/model · effort effort`, cut with `…` when it does not fit. No mark, no tagline, no cwd, no sidebar. |
 | `headerPlacement: top` | `visual-customization.json` | LOON keeps the top slot, as it always did. |
 | `headerPlacement: below-input` | `visual-customization.json` | LOON releases the top slot (`setHeader(undefined)`) and draws itself as a `belowEditor` widget. |
-| `showTextLogo: false` | `banner.json` | Hides the mark. The tagline, the model row and the cwd stay. |
 | `color: pink\|cyan\|yellow\|green` | `banner.json` | Overrides the accent: box, divider, headings and mark. `text`, `muted` and `dim` keep coming from the theme. |
-| `showRose` | `banner.json` | Not applicable: LOON has no rose, so the value is read and ignored on purpose. |
+| `showTextLogo` | `banner.json` | **Not applicable.** It hides gentle-pi's ASCII wordmark, which this package does not draw; the Pi mark has its own switch below. Read, validated, ignored. |
+| `showRose` | `banner.json` | **Not applicable.** LOON has no rose. Read, validated, ignored. |
+
+The two `Not applicable` rows are deliberate. Those flags were written by a menu
+that governs gentle-pi's own banner, not the Pi mark, so honouring them here
+would delete a glyph this package draws and someone sized on purpose.
 
 Reads are tolerant on purpose. A missing file, malformed JSON, a schema from
 another version, an unknown key or a value that does not validate all fall back
@@ -132,7 +136,7 @@ accent comes from, so LOON keeps its own file, `loon-tui.json` in pi's config
 home (`$PI_CODING_AGENT_DIR`, or `~/.pi/agent`):
 
 ```json
-{ "enabled": true, "accent": "banner" }
+{ "enabled": true, "accent": "banner", "mark": true }
 ```
 
 - `enabled` — false means LOON paints nothing and never reclaims the header, so
@@ -140,13 +144,17 @@ home (`$PI_CODING_AGENT_DIR`, or `~/.pi/agent`):
 - `accent` — `banner` follows gentle-pi's `color`; `theme` keeps the theme's
   `accent` role. It defaults to `banner`, so a colour already chosen in
   gentle-pi's menu is honoured out of the box.
+- `mark` — the Pi mark, on by default. This is LOON's switch, not gentle-pi's
+  `showTextLogo`: that flag belongs to a different banner and never reaches this
+  glyph.
 
 | Command | Effect |
 | --- | --- |
-| `/loon:tui` | Menu: banner on or off, accent from the theme or from `banner.json`. |
+| `/loon:tui` | Menu: banner on or off, accent from the theme or from `banner.json`, mark on or off. |
 | `/loon:tui status` | One line: banner, accent source, density, placement, mark. |
 | `/loon:tui on\|off` | Same as the menu entry, without the dialog. |
 | `/loon:tui accent theme\|banner` | Switch the accent source. |
+| `/loon:tui mark on\|off` | Show or hide the Pi mark. |
 
 Writes are atomic (a temporary file in the same directory, then a rename), and an
 unreadable file means the defaults, never a crash.

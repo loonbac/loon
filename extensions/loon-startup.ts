@@ -186,6 +186,8 @@ interface HeaderDeps {
 	/** Read per render so a file change lands on the next paint. */
 	gentle(): GentleSettings;
 	accent(): AccentSource;
+	/** LOON's own mark switch, read per render. */
+	mark(): boolean;
 	/** Read per render so a theme change is picked up without reinstalling. */
 	theme(): LoonTheme;
 	/** Shared with the watchdog: a render is the proof that we own the header. */
@@ -212,7 +214,7 @@ class LoonHeader implements Component {
 			cwd: snapshot.cwd,
 			tips: snapshot.tips,
 			density: gentle.density,
-			showLogo: gentle.showTextLogo,
+			showLogo: this.deps.mark(),
 			palette: resolvePalette(this.deps.theme(), { accentColor }),
 		});
 	}
@@ -256,7 +258,7 @@ function describe(state: LoonState): string {
 		accent,
 		`density ${state.gentle.density}`,
 		`placement ${state.gentle.headerPlacement}`,
-		state.gentle.showTextLogo ? 'mark on' : 'mark off',
+		state.loon.mark ? 'mark on' : 'mark off',
 	].join(' · ');
 }
 
@@ -306,6 +308,7 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 				snapshot: () => current,
 				gentle: () => state?.gentle ?? gentle,
 				accent: () => state?.loon.accent ?? loon.accent,
+				mark: () => state?.loon.mark ?? loon.mark,
 				theme: () => ctx.ui.theme ?? fallbackTheme,
 				health,
 			});
@@ -370,14 +373,17 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 			const current = deps.read();
 			const bannerOption = `Banner: ${current.loon.enabled ? 'on' : 'off'}`;
 			const accentOption = `Accent: ${current.loon.accent === 'theme' ? 'theme' : 'gentle-pi banner.json'}`;
+			const markOption = `Mark: ${current.loon.mark ? 'on' : 'off'}`;
 			const closeOption = 'Close';
-			const choice = await ctx.ui.select('LOON banner', [bannerOption, accentOption, closeOption]);
+			const choice = await ctx.ui.select('LOON banner', [bannerOption, accentOption, markOption, closeOption]);
 			if (!choice || choice === closeOption) return;
 
 			const next: LoonSettings =
 				choice === bannerOption
 					? { ...current.loon, enabled: !current.loon.enabled }
-					: { ...current.loon, accent: current.loon.accent === 'theme' ? 'banner' : 'theme' };
+					: choice === accentOption
+						? { ...current.loon, accent: current.loon.accent === 'theme' ? 'banner' : 'theme' }
+						: { ...current.loon, mark: !current.loon.mark };
 			persist(next);
 			refresh(ctx);
 			ctx.ui.notify(describe({ loon: next, gentle: current.gentle }), 'info');
@@ -452,8 +458,14 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 				ctx.ui.notify(describe(deps.read()), 'info');
 				return;
 			}
+			if (verb === 'mark' && (value === 'on' || value === 'off')) {
+				persist({ ...current.loon, mark: value === 'on' });
+				refresh(ctx);
+				ctx.ui.notify(describe(deps.read()), 'info');
+				return;
+			}
 			if (verb) {
-				ctx.ui.notify('Usage: /loon:tui [on|off|accent theme|accent banner|status]', 'warning');
+				ctx.ui.notify('Usage: /loon:tui [on|off|accent theme|accent banner|mark on|mark off|status]', 'warning');
 				return;
 			}
 			await openMenu(ctx);

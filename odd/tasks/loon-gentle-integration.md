@@ -25,10 +25,16 @@ native header with `setHeader(undefined)` and draws itself as a `belowEditor` wi
 following gentle-pi. Back on `top`, the header is restored. Both directions must work
 without restarting the session.
 
-S4 — `banner.json`: `showTextLogo: false` hides the mark; `color` overrides the accent of
-the box, the divider, the headings and the logo, keeping `text`/`muted`/`dim` from the
-theme. `showRose` has no LOON equivalent: it is not invented and is documented as not
-applicable.
+S4 — `banner.json`: `color` overrides the accent of the box, the divider, the headings
+and the logo, keeping `text`/`muted`/`dim` from the theme. `showTextLogo` and `showRose`
+are **not applicable**: both were written for gentle-pi's own banner (its ASCII wordmark
+and its rose), never for the Pi mark. They are read, validated and ignored, and the
+README says why.
+
+S7 — The Pi mark is LOON's own setting: `/loon:tui mark on|off`, default `on`, persisted
+in LOON's own file with the same atomic write and the same tolerance to an unreadable
+file. Honouring `showTextLogo` here once deleted the mark, and the mark is exactly the
+glyph the owner has been resizing; a flag from another product must not remove it.
 
 S5 — A `/loon:tui` command with the two things gentle-pi's menu does not have: banner on
 or off, and accent source (theme vs `banner.json`). Own persistence in pi's config home,
@@ -56,6 +62,7 @@ Invariants that never break:
 | T4 | S2, S4 | inline | 81628d7 |
 | T5 | S3, S5, S6 | inline | 9bb311c |
 | T6 | - | inline | 9bb311c |
+| T7 | S4, S7 | inline | pending |
 
 ## Log
 
@@ -98,3 +105,20 @@ L3 — known limits recorded in the README: switching `headerPlacement` while pi
 runs leaves pi's built-in header at the top until the next start (gentle-pi only
 installs its banner at session start), and LOON never writes into gentle-pi's
 files, so `/gentle:customization` stays the only place they are written from.
+L4 — defect found by the owner on `f35010f`: mapping `showTextLogo` to the Pi mark.
+Their real `banner.json` says `{"color":"pink","showRose":false,"showTextLogo":false}`,
+and the flag was set while gentle-pi's ASCII wordmark ruled that file; honouring it
+made the header lose the mark (`filas_marca=4` with no files, `0` with theirs). Fix:
+
+- `showTextLogo` left the resolution entirely (the same treatment `showRose` always
+  had). `parseBannerConfig` still reports what the file says, so the parsing tests keep
+  their meaning; `GentleSettings` no longer carries the key at all, which makes
+  "honour it again by accident" a type error rather than a review catch.
+- The mark became `LoonSettings.mark` (default true) with `/loon:tui mark on|off`, the
+  same atomic file, the same tolerant read.
+- Tests: `showTextLogo:false` in a temp home resolves without the key and the render
+  keeps four mark rows; `mark off` gives zero and `mark on` brings back four; compact
+  keeps its mark while the flag is on (and loses it when off); the status line reports
+  the mark.
+- 84 tests, `tsc --noEmit` clean. The accent default stays `banner` until the owner
+  decides between its menu colour and the theme.

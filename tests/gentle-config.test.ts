@@ -25,9 +25,10 @@ test('no files at all means today’s settings', () => {
 	assert.deepEqual(DEFAULT_GENTLE_SETTINGS, {
 		density: 'comfortable',
 		headerPlacement: 'top',
-		showTextLogo: true,
 		accentColor: undefined,
 	});
+	// The Pi mark is LOON's own switch; gentle-pi's showTextLogo is not it.
+	assert.equal('showTextLogo' in DEFAULT_GENTLE_SETTINGS, false);
 });
 
 test('malformed JSON is ignored instead of thrown', () => {
@@ -55,6 +56,19 @@ test('unknown keys are ignored and bad values do not discard good ones', () => {
 	assert.deepEqual(parseVisualCustomization(visual({ headerPlacement: 'sideways' })), { density: 'compact' });
 });
 
+test('showTextLogo and showRose are read and ignored, not applicable', () => {
+	// Both keys were written for gentle-pi's ASCII banner. Honouring the first here
+	// once deleted the Pi mark; it must never reach the resolution again.
+	const parsed = parseBannerConfig(JSON.stringify({ showRose: false, showTextLogo: false, color: 'pink' }));
+	assert.deepEqual(parsed, { showTextLogo: false, color: 'pink' }, 'the file is still parsed as it is');
+
+	const home = mkdtempSync(join(tmpdir(), 'loon-gentle-'));
+	writeFileSync(gentleConfigFiles(home).banner, JSON.stringify({ showRose: false, showTextLogo: false, color: 'pink' }));
+	const resolved = readGentleSettings(home);
+	assert.deepEqual(resolved, { density: 'comfortable', headerPlacement: 'top', accentColor: 'pink' });
+	assert.equal('showTextLogo' in resolved, false, 'showTextLogo leaked into the resolution');
+});
+
 test('banner.json is read key by key, like gentle-pi reads it', () => {
 	assert.deepEqual(parseBannerConfig(JSON.stringify({ color: 'cyan', showRose: true, showTextLogo: false })), {
 		showTextLogo: false,
@@ -74,7 +88,6 @@ test('the two files are resolved independently', () => {
 	const settings = readGentleSettings(home);
 	assert.equal(settings.density, 'comfortable');
 	assert.equal(settings.headerPlacement, 'top');
-	assert.equal(settings.showTextLogo, false);
 	assert.equal(settings.accentColor, 'green');
 });
 
@@ -95,9 +108,13 @@ test('a full gentle-pi pair is followed', () => {
 	assert.deepEqual(readGentleSettings(home), {
 		density: 'minimal',
 		headerPlacement: 'below-input',
-		showTextLogo: true,
 		accentColor: 'yellow',
 	});
+	// A file that also carries showTextLogo resolves to the same thing: the key
+	// belongs to gentle-pi's own wordmark and never reaches the Pi mark.
+	writeFileSync(files.banner, JSON.stringify({ color: 'yellow', showRose: false, showTextLogo: false }));
+	assert.deepEqual(readGentleSettings(home), readGentleSettings(home));
+	assert.equal(readGentleSettings(home).accentColor, 'yellow', 'the colour still comes from the file');
 });
 
 test('the config home follows gentle-pi’s own resolution order', () => {
@@ -117,7 +134,6 @@ test('comparing two resolutions only reports real changes', () => {
 	assert.equal(sameGentleSettings(base, { ...base, density: 'compact' }), false);
 	assert.equal(sameGentleSettings(base, { ...base, accentColor: 'pink' }), false);
 	assert.equal(sameGentleSettings(base, { ...base, headerPlacement: 'below-input' }), false);
-	assert.equal(sameGentleSettings(base, { ...base, showTextLogo: false }), false);
 });
 
 test('the files LOON reads are the ones gentle-pi writes', () => {

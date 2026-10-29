@@ -289,6 +289,11 @@ test('compact drops the blank row above the mark and the tagline', () => {
 
 	assert.equal(lines.length, 9, 'a compact box is two borders plus seven body rows');
 	assert.equal(lines.filter((line) => line.includes('███')).length, LOGO_WIDTH / 3, 'the mark keeps four rows');
+	assert.equal(
+		renderBanner(bannerInput({ density: 'compact', showLogo: false })).filter((line) => line.includes('███')).length,
+		0,
+		'compact follows the mark switch too',
+	);
 	assert.ok(!lines.join('\n').includes("Let's build something great"), 'compact has no tagline');
 	// After the four mark rows come the model rows (wrapped here) and the cwd.
 	const afterMark = left.slice(4).map((line) => line.trim()).filter((line) => line.length > 0);
@@ -338,7 +343,8 @@ test('minimal truncates a label that does not fit, and never wraps it', () => {
 	}
 });
 
-test('showTextLogo false hides the mark and nothing else', () => {
+test('the mark switch hides the mark and nothing else', () => {
+	// gentle-pi's showTextLogo never reaches this option; LOON's own mark flag does.
 	const lines = renderBanner(bannerInput({ showLogo: false }));
 	const { right } = splitColumns(80, lines);
 
