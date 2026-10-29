@@ -206,9 +206,43 @@ const SHELL_BAR_CALLSITE_ANCHOR = [
 const SHELL_BAR_CALLSITE_REPLACEMENT =
 	'\tconst leftStages = headerLeftStages(model, theme, presentation?.visibility.modelDetails !== false, presentation);';
 
+// Card style loon: lib/shell-card.ts
+const SHELL_CARD_1_ANCHOR = 'export const CARD_STYLE = {\n\tNEON: "neon",\n\tFLOAT: "float",\n} as const;';
+const SHELL_CARD_1_REPLACEMENT = 'export const CARD_STYLE = {\n\tNEON: "neon",\n\tFLOAT: "float",\n\tLOON: "loon",\n} as const;';
+const SHELL_CARD_2_ANCHOR = 'export function cardStyle(): CardStyle {\n\treturn styleState[CARD_STYLE_SLOT] === CARD_STYLE.NEON ? CARD_STYLE.NEON : CARD_STYLE.FLOAT;\n}';
+const SHELL_CARD_2_REPLACEMENT = '// Every style is one geometry: how far the panel is inset on each side, and whether it\n// paints a tone background at all. float and neon keep the numbers they always had; loon\n// puts the border in column 0 and the text in column 2, with two columns of air on the\n// right, so the chrome and the conversation share one content box.\ninterface CardGeometry {\n\tbackground: boolean;\n\tpadLeft: number;\n\tpadRight: number;\n}\n\nconst CARD_GEOMETRY: Record<CardStyle, CardGeometry> = {\n\tneon: { background: false, padLeft: 0, padRight: 0 },\n\tfloat: { background: true, padLeft: 1, padRight: 1 },\n\tloon: { background: true, padLeft: 0, padRight: 2 },\n};\n\nfunction cardGeometry(): CardGeometry {\n\treturn CARD_GEOMETRY[cardStyle()] ?? CARD_GEOMETRY.float;\n}\n\nexport function cardStyle(): CardStyle {\n\tconst stored = styleState[CARD_STYLE_SLOT];\n\treturn stored === CARD_STYLE.NEON || stored === CARD_STYLE.LOON ? stored : CARD_STYLE.FLOAT;\n}';
+const SHELL_CARD_3_ANCHOR = '\treturn cardStyle() === CARD_STYLE.FLOAT && Math.floor(width) >= FLOAT_MIN_WIDTH ? panelOpener(theme, tone) : "";';
+const SHELL_CARD_3_REPLACEMENT = '\treturn cardGeometry().background && Math.floor(width) >= FLOAT_MIN_WIDTH ? panelOpener(theme, tone) : "";';
+const SHELL_CARD_4_ANCHOR = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst margin = " ".repeat(FLOAT_MARGIN);\n\treturn rows.map((row) => `${margin}${open}${row.replace(BG_CLEARING, (reset) => reset + open)}${BG_RESET}${margin}`);\n}';
+const SHELL_CARD_4_REPLACEMENT = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst geometry = cardGeometry();\n\tconst left = " ".repeat(geometry.padLeft);\n\tconst right = " ".repeat(geometry.padRight);\n\treturn rows.map((row) => `${left}${open}${row.replace(BG_CLEARING, (reset) => reset + open)}${BG_RESET}${right}`);\n}';
+const SHELL_CARD_5_ANCHOR = '\tconst inner = target - FLOAT_MARGIN * 2;';
+const SHELL_CARD_5_REPLACEMENT = '\tconst inner = target - cardGeometry().padLeft - cardGeometry().padRight;';
+const SHELL_CARD_6_ANCHOR = '\treturn floatOpener(theme, tone, width) ? cardInnerWidth(Math.floor(width) - FLOAT_MARGIN * 2) : cardInnerWidth(width);';
+const SHELL_CARD_6_REPLACEMENT = '\tconst geometry = cardGeometry();\n\treturn floatOpener(theme, tone, width) ? cardInnerWidth(Math.floor(width) - geometry.padLeft - geometry.padRight) : cardInnerWidth(width);';
+const SHELL_CARD_7_ANCHOR = '\tif (open) return paintFloat(withChrome(FLOAT_CHROME, () => floatPanel(card, theme, Math.floor(width) - FLOAT_MARGIN * 2, options)), open);';
+const SHELL_CARD_7_REPLACEMENT = '\tif (open) return paintFloat(withChrome(FLOAT_CHROME, () => floatPanel(card, theme, Math.floor(width) - cardGeometry().padLeft - cardGeometry().padRight, options)), open);';
+// Card style loon: lib/card-style-policy.ts
+const CARD_STYLE_POLICY_1_ANCHOR = 'function isCardStyle(value: unknown): value is CardStyle {\n\treturn value === CARD_STYLE.NEON || value === CARD_STYLE.FLOAT;\n}';
+const CARD_STYLE_POLICY_1_REPLACEMENT = 'function isCardStyle(value: unknown): value is CardStyle {\n\treturn value === CARD_STYLE.NEON || value === CARD_STYLE.FLOAT || value === CARD_STYLE.LOON;\n}';
+// Card style loon: lib/shell-prompt.ts
+const SHELL_PROMPT_1_ANCHOR = '\tlet background = "";\n\tif (style === CARD_STYLE.FLOAT && width >= 10 && bg) {';
+const SHELL_PROMPT_1_REPLACEMENT = '\tlet background = "";\n\t// loon paints the same band as float; it only changes where the rule and the text\n\t// sit, which resolvePromptLayout reports through chrome below.\n\tconst painted = (style === CARD_STYLE.FLOAT || style === CARD_STYLE.LOON) && width >= 10 && bg;\n\tif (painted) {';
+const SHELL_PROMPT_2_ANCHOR = '\treturn { width, nativeWidth: Math.max(1, width - (background ? 5 : 2)), prefixWidth: background ? 3 : 1, background };';
+const SHELL_PROMPT_2_REPLACEMENT = '\t// float spends one column on a margin and one on the right edge; loon puts the rule in\n\t// column 0 and keeps two columns of air on the right, so its text column starts at 2.\n\tconst loon = style === CARD_STYLE.LOON;\n\tconst chrome = loon ? "loon" : "float";\n\tconst margin = loon ? 4 : 5;\n\treturn { width, nativeWidth: Math.max(1, width - (background ? margin : 2)), prefixWidth: background ? (loon ? 2 : 3) : 1, background, chrome };';
+const SHELL_PROMPT_3_ANCHOR = 'export interface PromptLayout {\n\twidth: number;\n\tnativeWidth: number;\n\tprefixWidth: number;\n\tbackground: string;\n}';
+const SHELL_PROMPT_3_REPLACEMENT = 'export interface PromptLayout {\n\twidth: number;\n\tnativeWidth: number;\n\tprefixWidth: number;\n\tbackground: string;\n\t/** Which painted chrome drew this row: float\'s margin, or loon\'s flush rule. */\n\tchrome?: "float" | "loon";\n}';
+const SHELL_PROMPT_4_ANCHOR = '\tconst clipped = truncateToWidth(line, layout.nativeWidth, "");\n\tconst content = borderColor("▎") + " " + clipped + " ".repeat(Math.max(0, layout.nativeWidth - visibleWidth(clipped))) + " ";\n\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m ";';
+const SHELL_PROMPT_4_REPLACEMENT = '\tconst clipped = truncateToWidth(line, layout.nativeWidth, "");\n\tconst padding = " ".repeat(Math.max(0, layout.nativeWidth - visibleWidth(clipped)));\n\tif (layout.chrome === "loon") {\n\t\t// Rule in column 0, text in column 2, two columns of air on the right.\n\t\tconst content = borderColor("▎") + " " + clipped + padding;\n\t\treturn layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m  ";\n\t}\n\tconst content = borderColor("▎") + " " + clipped + padding + " ";\n\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m ";';
+
+// The third Card style row needs its own preview line, or the menu prints an
+// undefined sample for it.
+const SHELL_CARD_PREVIEW_ANCHOR = '\t\t\tconst cardStylePreview = { [CARD_STYLE.NEON]: "╭─ ✿ read ─╮  outlined chrome + prompt", [CARD_STYLE.FLOAT]: "▎ ✿ read  painted chrome + prompt" };';
+const SHELL_CARD_PREVIEW_REPLACEMENT = '\t\t\tconst cardStylePreview = { [CARD_STYLE.NEON]: "╭─ ✿ read ─╮  outlined chrome + prompt", [CARD_STYLE.FLOAT]: "▎ ✿ read  painted chrome + prompt", [CARD_STYLE.LOON]: "▎ ✿ read  flush rule, text at column 2, two columns of air" };';
+
 export const ANCHORS = {
 	shellInit: SHELL_INIT_ANCHOR,
 	shellRows: SHELL_ROWS_ANCHOR,
+	shellCardPreview: SHELL_CARD_PREVIEW_ANCHOR,
 	bannerConfig: BANNER_CONFIG_ANCHOR,
 	bannerEvent: BANNER_EVENT_ANCHOR,
 	viewLabelType: VIEW_LABEL_TYPE_ANCHOR,
@@ -220,18 +254,32 @@ export const ANCHORS = {
 	shellBarCallsite: SHELL_BAR_CALLSITE_ANCHOR,
 	shellBarFallback: SHELL_BAR_FALLBACK_ANCHOR,
 	shellBarUsage: SHELL_BAR_USAGE_ANCHOR,
+	shellcard1: SHELL_CARD_1_ANCHOR,
+	shellcard2: SHELL_CARD_2_ANCHOR,
+	shellcard3: SHELL_CARD_3_ANCHOR,
+	shellcard4: SHELL_CARD_4_ANCHOR,
+	shellcard5: SHELL_CARD_5_ANCHOR,
+	shellcard6: SHELL_CARD_6_ANCHOR,
+	shellcard7: SHELL_CARD_7_ANCHOR,
+	cardstylepolicy1: CARD_STYLE_POLICY_1_ANCHOR,
+	shellprompt1: SHELL_PROMPT_1_ANCHOR,
+	shellprompt2: SHELL_PROMPT_2_ANCHOR,
+	shellprompt3: SHELL_PROMPT_3_ANCHOR,
+	shellprompt4: SHELL_PROMPT_4_ANCHOR,
+
 };
 
 export const TARGETS: TargetSpec[] = [
 	{
 		file: 'extensions/gentle-shell.ts',
 		md5: 'ad1bfce79b655fc4f7cae71449d05d88',
-		md5PatchedV1: ['8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df'],
-		md5Patched: '945363c38d21403cce653143e0305a6a',
+		md5PatchedV1: ['8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a'],
+		md5Patched: '24763fed19449f3a4e31a52bbe1be72e',
 		v2Marker: 'Banner color: wallpaper',
 		edits: [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
 			{ anchor: SHELL_ROWS_ANCHOR, replacement: SHELL_ROWS_REPLACEMENT },
+			{ anchor: SHELL_CARD_PREVIEW_ANCHOR, replacement: SHELL_CARD_PREVIEW_REPLACEMENT },
 		],
 	},
 	{
@@ -269,6 +317,42 @@ export const TARGETS: TargetSpec[] = [
 			{ anchor: SHELL_BAR_CALLSITE_ANCHOR, replacement: SHELL_BAR_CALLSITE_REPLACEMENT },
 			{ anchor: SHELL_BAR_FALLBACK_ANCHOR, replacement: SHELL_BAR_FALLBACK_REPLACEMENT },
 			{ anchor: SHELL_BAR_USAGE_ANCHOR, replacement: SHELL_BAR_USAGE_REPLACEMENT },
+		],
+	},
+	{
+		// Card style loon: lib/shell-card.ts
+		file: 'lib/shell-card.ts',
+		md5: 'd189f85262f41f5a5e8f590a0c57ed2d',
+		md5Patched: '8dbecc2f2ac057b87ce5c344d7ba5241',
+		edits: [
+			{ anchor: SHELL_CARD_1_ANCHOR, replacement: SHELL_CARD_1_REPLACEMENT },
+			{ anchor: SHELL_CARD_2_ANCHOR, replacement: SHELL_CARD_2_REPLACEMENT },
+			{ anchor: SHELL_CARD_3_ANCHOR, replacement: SHELL_CARD_3_REPLACEMENT },
+			{ anchor: SHELL_CARD_4_ANCHOR, replacement: SHELL_CARD_4_REPLACEMENT },
+			{ anchor: SHELL_CARD_5_ANCHOR, replacement: SHELL_CARD_5_REPLACEMENT },
+			{ anchor: SHELL_CARD_6_ANCHOR, replacement: SHELL_CARD_6_REPLACEMENT },
+			{ anchor: SHELL_CARD_7_ANCHOR, replacement: SHELL_CARD_7_REPLACEMENT },
+		],
+	},
+	{
+		// Card style loon: lib/card-style-policy.ts
+		file: 'lib/card-style-policy.ts',
+		md5: '2833f69f68273d351a09fd1d39424756',
+		md5Patched: '874f4ca140cf3c951af7f3403a57b4ee',
+		edits: [
+			{ anchor: CARD_STYLE_POLICY_1_ANCHOR, replacement: CARD_STYLE_POLICY_1_REPLACEMENT },
+		],
+	},
+	{
+		// Card style loon: lib/shell-prompt.ts
+		file: 'lib/shell-prompt.ts',
+		md5: '6dccc1c4bf36e217d308a67c5e690c14',
+		md5Patched: '0d07a750ae6162d2c8bbfbda7760e55f',
+		edits: [
+			{ anchor: SHELL_PROMPT_1_ANCHOR, replacement: SHELL_PROMPT_1_REPLACEMENT },
+			{ anchor: SHELL_PROMPT_2_ANCHOR, replacement: SHELL_PROMPT_2_REPLACEMENT },
+			{ anchor: SHELL_PROMPT_3_ANCHOR, replacement: SHELL_PROMPT_3_REPLACEMENT },
+			{ anchor: SHELL_PROMPT_4_ANCHOR, replacement: SHELL_PROMPT_4_REPLACEMENT },
 		],
 	},
 ];
