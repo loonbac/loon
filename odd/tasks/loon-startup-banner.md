@@ -30,7 +30,7 @@ S11 — Boundary. "Trabaja solo dentro de /home/loonbac/Proyectos/pi-loon/loon. 
 
 S12 — Reset. "Los 48 archivos anteriores aparecen como borrados sin commitear: son intencionales, el contenido viejo se reemplaza por completo. Puedes commitear ese reset como primer slice."
 
-S13 — Static mark. "Logo \"Pi\" grande y estático: marca de bloques cuadrados (celdas tipo \"███\") formando la P y la i, en UN SOLO color = acento del tema. En la captura ocupa unas 7 filas de alto y ~10 celdas de ancho." Grid corrected against the measured reference: **4 x 4 cells** (12 columns x 4 rows), rows `###.` / `#.#.` / `##.#` / `#..#`. The first reading (10 x 7) was wrong; see L7.
+S13 — Static mark. "Logo \"Pi\" grande y estático: marca de bloques cuadrados (celdas tipo \"███\") formando la P y la i, en UN SOLO color = acento del tema. En la captura ocupa unas 7 filas de alto y ~10 celdas de ancho." Grid corrected against the measured reference: **4 x 4 cells** (12 columns x 4 rows), rows `###.` / `#.#.` / `##.#` / `#..#`. The first reading (10 x 7) was wrong; see L7. The mark centres as one 12-column rectangle: every row keeps its trailing blanks so the left edge stays straight (L9).
 
 S14 — Box. "Caja de borde fino redondeado, con el color de acento del tema activo, ocupando el ancho completo. En el borde superior, cerca de la izquierda, la etiqueta \"─ Pi v<version> ─\" con los guiones y el texto en acento".
 
@@ -70,7 +70,8 @@ S24 — Startup race. The 120 ms re-assert must land after gentle-pi installs it
 | T10 | S5, S20, S22 | inline | 64475db |
 | T11 | S8, S21 | inline | 64475db |
 | T12 | S6, S9 | inline | 2ef6b01 |
-| T13 | S13, S15, S21, S23, S24 | inline | pending |
+| T13 | S13, S15, S21, S23, S24 | inline | 1768abb |
+| T14 | S13, S21 | inline | pending |
 ## Log
 
 L1 (user request, verbatim):
@@ -189,3 +190,28 @@ L8 (T13 evidence, corrections applied on top of 37e4fec):
 - `npm test`: 26 tests, 26 pass. `npx tsc --noEmit`: clean.
 - Startup race (S24), verified by reading gentle-pi's source at `~/.pi/agent/npm/node_modules/gentle-pi/extensions/startup-banner.ts`: `pi.on("session_start", async ...)` at line 652, `await readBannerConfig()` at 666, `setTimeout(() => { ctx.ui.setHeader(...)` at 757 closing with `}, 50)` at 1113; resize handler lines 784-801 calls `tui.requestRender()` at 794 only. LOON's 120 ms re-assert therefore lands after gentle-pi's install and nothing re-registers the header afterwards; the 400 ms re-assert stays as a second net.
 - Still not verified: the header inside a live pi TUI (L7 point 5). Everything else above is measured or run.
+L9 (owner review of 1768abb, verbatim):
+
+> Revisión de `1768abb`. El glifo, el apóstrofo, el ritmo vertical (S23) y la carrera quedan verificados de mi lado: correctos. Queda un defecto de alineación que el propio golden está fijando como si fuera correcto.
+>
+> DEFECTO: LA MARCA QUEDA ESCALONADA 2 COLUMNAS. En tests/fixtures/header-80.txt, líneas 4-7: líneas 4 y 5 (`█████████` y `███   ███`): contenido empieza en la columna 23; líneas 6 y 7 (`██████   ███` y `███      ███`): contenido empieza en la columna 21. O sea: las dos filas superiores están 2 columnas a la derecha de las dos inferiores. La marca no tiene borde izquierdo recto.
+>
+> CAUSA: `renderLogo` hace `.trimEnd()` por fila. Las filas 0-1 miden 9 columnas de tinta y las 2-3 miden 12, y como cada fila se centra por separado, cada una se corre distinto. El comentario dice "centres on its ink" — para un glifo de varias filas eso es justo lo incorrecto: se centra la caja de la rejilla, no la tinta de cada fila.
+>
+> EN LA CAPTURA el borde izquierdo es recto: la columna A arranca en x=388 en las cuatro filas (bbox medido 388-615; A ocupa 0-56 en todas). La caja de 12 columnas se centra como bloque.
+>
+> FIX: quita el `.trimEnd()`. Cada fila devuelve las 12 columnas (3 de relleno al final cuando corresponde) y el centrado se hace sobre 12 para todas. Los espacios finales son invisibles, así que no cambian el ancho visible.
+>
+> ASERCIÓN QUE HAY QUE CAMBIAR: la de `tests/banner.test.ts:97-104` valida centrado por línea (`Math.abs(start - slack) <= 1`), que es exactamente lo que permite el escalonado. Sustitúyela por: las cuatro filas del logo arrancan en la MISMA columna. Y en el golden a 80 las cuatro líneas del logo deben empezar en la columna 21.
+>
+> Regenera ambos goldens después del cambio; el resto del banner no debe moverse.
+>
+> Sobre tus apóstrofos curvos en prosa: déjalos como están, son prosa, no texto renderizado. Solo el texto de la UI va recto, y ya está.
+L10 (T14 evidence):
+
+- `.trimEnd()` removed from `renderLogo`: every row is `LOGO_WIDTH` (12) columns, blanks included, so `center()` centres one rectangle. The docstring says why, since the obvious "tidy up the trailing spaces" edit is exactly the defect.
+- The per-line centring assertion is replaced by the block assertion: `renderBanner(bannerInput())` lines 3-6 must each have their first `█` at index 21 (`assert.deepEqual(starts, [21, 21, 21, 21])`). Measured in the goldens with `awk`: 80 columns -> 22/22/22/22 (1-based, i.e. index 21), 120 columns -> 36/36/36/36 (index 35). Straight left edge at both widths.
+- The centring check that still runs covers only the three text lines (tagline, model line, cwd), which are single lines and are meant to be centred individually.
+- Goldens regenerated: the diff is exactly the two upper mark rows shifting two columns left (`██...` starting at index 23 -> 21); no other line moves, at 80 or 120.
+- `npm test`: 26 tests, 26 pass. `npx tsc --noEmit`: clean.
+- Prose apostrophes (README, test titles, comments) stay as they are, per the owner: only rendered UI text uses the straight apostrophe.
