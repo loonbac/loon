@@ -9,8 +9,11 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { FallbackEffort } from "./natural-adaptive-routing.ts";
 
-export type FallbackEffort = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+// Owned by the router, which types its routes with it. Re-exported so config consumers keep the
+// import path they already use.
+export type { FallbackEffort };
 
 export interface FallbackProfile {
 	model: string;
