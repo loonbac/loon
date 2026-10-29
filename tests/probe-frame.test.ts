@@ -127,17 +127,23 @@ test('a restore that cannot reproduce the snapshot fails loudly', () => {
 	}
 });
 
-test('a manifest cannot point the restore outside the config homes', () => {
+test('a manifest cannot name a file the slot does not own', () => {
 	const home = scratchHome();
 	try {
 		const outside = join(home.root, 'outside.json');
 		writeFileSync(outside, 'keep me\n');
-		const state = snapshot(home.env);
-		writeFileSync(join(state, 'manifest'), '0\t' + outside + '\tfile:0000\n');
-		const restored = run(['restore', '--state', state], home.env);
-		assert.notEqual(restored.status, 0);
-		assert.match(restored.stderr, /outside the config homes/);
-		assert.equal(readFileSync(outside, 'utf8'), 'keep me\n', 'a file outside the homes must never be touched');
+
+		// An absolute path elsewhere, and a traversal dressed up as a path inside the
+		// agent home. Both must be refused: the slot decides the path, not the file.
+		for (const escape of [outside, join(home.agent, '..', 'outside.json')]) {
+			const state = snapshot(home.env);
+			writeFileSync(join(state, 'manifest'), '0\t' + escape + '\tfile:0000\n');
+			const restored = run(['restore', '--state', state], home.env);
+			assert.notEqual(restored.status, 0, 'restore must refuse ' + escape);
+			assert.match(restored.stderr, /refusing slot 0/);
+			assert.equal(readFileSync(outside, 'utf8'), 'keep me\n', 'a file outside the slot must never be touched');
+			assert.equal(readFileSync(join(home.agent, 'settings.json'), 'utf8'), '{"theme":"Gentle"}\n', 'the real slot file must be left alone too');
+		}
 	} finally {
 		rmSync(home.root, { recursive: true, force: true });
 	}
@@ -164,12 +170,17 @@ test('a probe that never draws a frame fails, and still restores the configurati
 	try {
 		// A session that stays blank: the old capture loop accepted it and wrote an
 		// empty file, which is not a measurement.
-		const captured = run(['capture', '--label', 'blank', '--settle', '1', '--command', 'sleep 30', '--out', join(home.root, 'frame.txt')], home.env);
+		// The fake session both stays blank and rewrites the settings, which is what a
+		// real pi does under a probe. The exit trap has to undo that.
+		const mutate = 'printf \'{"enabled":true,"accent":"banner"}\' > ' + join(home.agent, 'loon-tui.json') + '; sleep 30';
+		const captured = run(['capture', '--label', 'blank', '--settle', '1', '--command', mutate, '--out', join(home.root, 'frame.txt')], home.env);
 		assert.equal(captured.status, 4, 'an empty pane must not count as a frame');
 		assert.match(captured.stderr, /produced no frame/);
 		assert.throws(() => readFileSync(join(home.root, 'frame.txt')), 'no frame file may be left behind');
-		const state = /state: (\S+)/.exec(captured.stdout + captured.stderr);
-		if (state) assert.equal(run(['verify', '--state', state[1]!], home.env).status, 0, 'the configuration must be restored even on failure');
+		const state = /state: (\S+)/.exec(captured.stderr);
+		assert.ok(state, 'the state directory must be announced before pi starts');
+		assert.equal(run(['verify', '--state', state[1]!], home.env).status, 0, 'the exit trap must restore after a failed probe');
+		assert.equal(readFileSync(join(home.agent, 'loon-tui.json'), 'utf8'), '{\n\t"accent": "wallpaper"\n}\n', 'the bytes must be the ones from before the probe');
 	} finally {
 		rmSync(home.root, { recursive: true, force: true });
 	}

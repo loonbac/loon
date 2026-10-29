@@ -72,16 +72,23 @@ write_manifest() {
 	done
 }
 
-# Every path the manifest may restore must sit under one of the two config homes: the
-# manifest is evidence we wrote, but it is still not permission to touch anything.
-inside_roots() {
-	local path=$1
-	case "$path" in
-		"$AGENT_DIR"/*|"$GENTLE_REAL_DIR"/*) return 0 ;;
+# The path for a manifest slot comes from these tables, never from the manifest: a
+# state directory is evidence we wrote, but it is not permission to name a file. A
+# recorded path that disagrees with the slot is refused rather than followed.
+expected_path() {
+	case "$1" in
+		0) printf '%s\n' "${CONFIG_PATHS[0]}" ;;
+		1) printf '%s\n' "${CONFIG_PATHS[1]}" ;;
+		2) printf '%s\n' "${CONFIG_PATHS[2]}" ;;
+		3) printf '%s\n' "${CONFIG_PATHS[3]}" ;;
+		4) printf '%s\n' "$THEMES_DIR" ;;
 		*) return 1 ;;
 	esac
 }
 
+# Sets STATE_DIR and PENDING in the caller's shell. It deliberately prints nothing:
+# running it in a command substitution would set those in a subshell, and the exit
+# trap would then never fire.
 snapshot() {
 	local label=${1:-probe}
 	mkdir -p "$PROBE_ROOT" 2>/dev/null || die "cannot create $PROBE_ROOT; nothing was started"
@@ -108,16 +115,20 @@ snapshot() {
 	fi
 	write_manifest || die "cannot record the digests; nothing was started"
 	PENDING=1
-	printf '%s\n' "$STATE_DIR"
 }
 
 # A configuration file handed back verbatim, never rewritten from defaults: a
 # half-written file the person already had is restored as the half-written file it
 # was, and a file that did not exist is removed again.
 restore_one() {
-	local index=$1 path=$2 expected=$3
+	local index=$1 recorded_path=$2 expected=$3
+	local path
+	path=$(expected_path "$index") || { printf 'probe-frame: unknown snapshot slot %s\n' "$index" >&2; return 1; }
+	if [ "$recorded_path" != "$path" ]; then
+		printf 'probe-frame: refusing slot %s: the manifest names %s, the slot is %s\n' "$index" "$recorded_path" "$path" >&2
+		return 1
+	fi
 	local copy="$STATE_DIR/files/$index"
-	inside_roots "$path" || { printf 'probe-frame: refusing to restore %s: outside the config homes\n' "$path" >&2; return 1; }
 	case "$expected" in
 		absent)
 			rm -rf -- "$path" || return 1
@@ -218,8 +229,10 @@ capture() {
 	done
 
 	report_partial
-	STATE_DIR=$(snapshot "$label") || exit 2
+	snapshot "$label" || exit 2
 	[ -n "$STATE_DIR" ] || die "snapshot produced no state directory"
+	# Printed before pi starts, so a failed probe still says where its snapshot is.
+	printf 'state: %s\n' "$STATE_DIR" >&2
 
 	# The probe never points pi at the person's gentle-pi config: its own copy lives
 	# inside the state directory, so visual-customization.json and banner.json are
@@ -291,7 +304,7 @@ main() {
 					*) die "unknown argument: $1" ;;
 				esac
 			done
-			STATE_DIR=$(snapshot "$label") || exit 2
+			snapshot "$label" || exit 2
 			PENDING=0
 			printf '%s\n' "$STATE_DIR"
 			;;
