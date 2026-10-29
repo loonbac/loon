@@ -210,6 +210,19 @@ test('a probe that never draws a frame fails, and still restores the configurati
 	}
 });
 
+test('a failed probe never deletes a file the caller already had', () => {
+	const home = scratchHome();
+	try {
+		const existing = join(home.root, 'notes.txt');
+		writeFileSync(existing, 'something the person wrote\n');
+		const captured = run(['capture', '--label', 'keeps-out', '--settle', '1', '--command', 'sleep 30', '--out', existing], home.env);
+		assert.equal(captured.status, 4);
+		assert.equal(readFileSync(existing, 'utf8'), 'something the person wrote\n', 'a pre-existing --out file must survive');
+	} finally {
+		rmSync(home.root, { recursive: true, force: true });
+	}
+});
+
 test('no script or test writes a configuration file directly', () => {
 	// The failure this guards: a verification script redirecting a partial object into
 	// pi's real loon-tui.json, or deleting it, and leaving it that way.

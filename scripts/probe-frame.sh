@@ -297,7 +297,11 @@ capture() {
 		command=$override_command
 	fi
 
-	[ -n "$out" ] || out="$STATE_DIR/frame.txt"
+	# The pane is read into the state directory first: an --out that names a file the
+	# person already has is written only once there is a frame to write, so a failed
+	# probe cannot clobber it.
+	local frame_file="$STATE_DIR/frame.txt"
+	[ -n "$out" ] || out="$frame_file"
 	tmux kill-session -t "$session" 2>/dev/null
 	if ! tmux new-session -d -s "$session" -x "$width" -y "$height" "$command"; then
 		printf 'probe-frame: tmux could not start the session\n' >&2
@@ -314,7 +318,7 @@ capture() {
 	local captured=0
 	local tries=0
 	while [ "$tries" -lt 5 ]; do
-		if tmux capture-pane -pt "$session" > "$out" 2>/dev/null && [ -s "$out" ] && grep -q '[^[:space:]]' "$out"; then
+		if tmux capture-pane -pt "$session" > "$frame_file" 2>/dev/null && [ -s "$frame_file" ] && grep -q '[^[:space:]]' "$frame_file"; then
 			captured=1
 			break
 		fi
@@ -325,9 +329,13 @@ capture() {
 	ACTIVE_SESSION=""
 	if [ "$captured" -ne 1 ]; then
 		# An empty file is worse than none: it looks like evidence.
-		rm -f -- "$out"
+		rm -f -- "$frame_file"
 		printf 'probe-frame: the session produced no frame\n' >&2
 		exit 4
+	fi
+	if [ "$out" != "$frame_file" ]; then
+		mkdir -p -- "$(dirname -- "$out")" || { printf 'probe-frame: cannot write %s\n' "$out" >&2; exit 4; }
+		cp -a -- "$frame_file" "$out" || { printf 'probe-frame: cannot write %s\n' "$out" >&2; exit 4; }
 	fi
 
 	restore_state || { printf 'probe-frame: the configuration changed during the probe and was not restored\n' >&2; exit 3; }
