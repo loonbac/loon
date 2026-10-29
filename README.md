@@ -129,6 +129,47 @@ to the layout above (comfortable, top, mark on, theme accent) — never an error
 never a different banner. Every change is picked up live: both config homes are
 watched, so editing gentle-pi's settings repaints without restarting pi.
 
+
+### Who paints the banner: the optional gentle-pi patch
+
+gentle-pi's menu is the one place a person configures its banner, so LOON can also
+appear *there* — as a third state of a single row, next to gentle-pi's own banner
+and pi's native header. That needs a small, reversible patch of the installed
+package, applied with the tool in this repository:
+
+```sh
+node --experimental-strip-types scripts/gentle-pi-patch.ts check
+node --experimental-strip-types scripts/gentle-pi-patch.ts apply
+node --experimental-strip-types scripts/gentle-pi-patch.ts revert
+```
+
+What it changes, in gentle-pi 4.5.1 only:
+
+- `/gentle:customize` gets one row, `Banner: loon` / `Banner: rose` / `Banner: off`,
+  which cycles on select. `Banner rose:` and `Banner text logo:` are gone; the
+  text-logo row stays reachable inside `rose`, where it still means something, and
+  `Banner color:` keeps working in every state (it colours their art in `rose` and
+  this header's accent in `loon`).
+- gentle-pi's banner does not install its header in `loon` or `off`, so nothing
+  fights over the slot.
+
+The choice is stored as `source` in LOON's own `loon-tui.json`, never in
+`banner.json`: gentle-pi rewrites that file with its three keys and would drop it.
+Semantics:
+
+| `source` | who paints |
+| --- | --- |
+| `loon` (default) | this header; gentle-pi stays out when patched, and loses the race when not |
+| `rose` | gentle-pi's banner; LOON releases the slot and never reclaims it |
+| `off` | nobody: pi's own header |
+
+The tool refuses to touch a file that is not the exact 4.5.1 build it was written
+against (md5), checks that each anchor appears exactly once, imports the patched
+copy in a child process with the same loader pi uses *before* replacing anything,
+and keeps a timestamped backup under `~/.pi/agent/backups/gentle-pi-banner-patch-*`
+that `revert` restores and verifies. Nothing here is required: unpatched, LOON
+works exactly as before.
+
 ### Settings LOON adds
 
 gentle-pi's menu has no switch for the banner itself and none for where the
@@ -136,7 +177,7 @@ accent comes from, so LOON keeps its own file, `loon-tui.json` in pi's config
 home (`$PI_CODING_AGENT_DIR`, or `~/.pi/agent`):
 
 ```json
-{ "enabled": true, "accent": "banner", "mark": true }
+{ "enabled": true, "accent": "banner", "mark": true, "source": "loon" }
 ```
 
 - `enabled` — false means LOON paints nothing and never reclaims the header, so
@@ -147,6 +188,8 @@ home (`$PI_CODING_AGENT_DIR`, or `~/.pi/agent`):
 - `mark` — the Pi mark, on by default. This is LOON's switch, not gentle-pi's
   `showTextLogo`: that flag belongs to a different banner and never reaches this
   glyph.
+- `source` — who paints the banner: `loon` (default), `rose` or `off`. Written by
+  the patched row in gentle-pi's menu; without the patch it simply stays `loon`.
 
 | Command | Effect |
 | --- | --- |
