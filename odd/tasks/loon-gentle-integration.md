@@ -62,7 +62,7 @@ Invariants that never break:
 | T4 | S2, S4 | inline | 81628d7 |
 | T5 | S3, S5, S6 | inline | 9bb311c |
 | T6 | - | inline | 9bb311c |
-| T7 | S4, S7 | inline | pending |
+| T7 | S4, S7 | inline | ea6df5e (PR #29) |
 
 ## Log
 
@@ -122,3 +122,18 @@ made the header lose the mark (`filas_marca=4` with no files, `0` with theirs). 
   the mark.
 - 84 tests, `tsc --noEmit` clean. The accent default stays `banner` until the owner
   decides between its menu colour and the theme.
+L5 — real verification of the mark fix (issue #28, PR #29, squash `ea6df5e`):
+
+- `GENTLE_PI_CONFIG_HOME` pointed at a copy of the owner's real `banner.json`
+  (`{"color":"pink","showRose":false,"showTextLogo":false}`), the file that caused
+  the defect. One session, 80x32, `pi --use-theme Gentle`:
+
+| moment | rows with `█` |
+| --- | --- |
+| start, mark on (default) | 4 |
+| `mark:false` written while pi runs | 0 |
+| `mark:true` written again | 4 |
+
+- Their `banner.json` is `sha256sum -c` clean afterwards and `loon-tui.json` was
+  removed, so the real config home is byte-identical.
+- 84 tests, `tsc --noEmit` clean.
