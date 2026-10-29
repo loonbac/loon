@@ -40,8 +40,6 @@ test('the patch targets the gentle-pi build it was written for', () => {
 		[
 			['extensions/gentle-shell.ts', 'ad1bfce79b655fc4f7cae71449d05d88'],
 			// The view is patched only to hand each row the width it really has.
-			// The prompt band borrowed a success background; a surface is not a success.
-			['lib/shell-prompt.ts', '6dccc1c4bf36e217d308a67c5e690c14'],
 			['lib/visual-customize-view.ts', '6f1b71a9aa898fcf55196d73634b0076'],
 			['extensions/startup-banner.ts', '028bd98910468c7076ef31c65f36e09f'],
 		],
@@ -177,14 +175,6 @@ test('a patched file edited afterwards is a different version, not ours', () => 
 	assert.equal(isMarked(edited, specWithV2), true, 'the refusal should be able to explain itself');
 });
 
-test('the prompt band takes the selection surface, not a success colour', () => {
-	const prompt = TARGETS.find((target) => target.file === 'lib/shell-prompt.ts')!;
-	const result = patchText('export function band(bg: (role: string, text: string) => string) {\n' + ANCHORS.promptBand + '\n}\n', prompt);
-	assert.ok(result.ok);
-	const text = (result as { text: string }).text;
-	assert.ok(text.includes('bg("selectedBg", " ")'), 'the band does not use the selection surface');
-	assert.ok(!text.includes('toolSuccessBg'), 'the success role is still painted as a surface');
-});
 test('the view hands each row the width it really has', () => {
 	const view = TARGETS.find((target) => target.file === 'lib/visual-customize-view.ts');
 	assert.ok(view, 'the view target is missing');
@@ -320,21 +310,14 @@ function viewStand(): string {
 	return ['export class View {', ANCHORS.viewLabelType, '}', '', 'export const pick = (start: number) => {', ANCHORS.viewLabelCall, '};', ''].join('\n');
 }
 
-function promptStand(): string {
-	return ['export function resolvePromptLayout(bg: (role: string, text: string) => string) {', ANCHORS.promptBand, '  return { background: "" };', '}', ''].join('\n');
-}
-
-function fourTargets(): TargetSpec[] {
+function threeTargets(): TargetSpec[] {
 	const shellText = shellStand();
 	const bannerText = bannerStand();
 	const viewText = viewStand();
-	const promptText = promptStand();
 	const shellV2 = patchText(shellText, shellSpec);
 	const bannerV2 = patchText(bannerText, TARGETS.find((target) => target.file === 'extensions/startup-banner.ts')!);
-	const promptSpec = TARGETS.find((target) => target.file === 'lib/shell-prompt.ts')!;
 	const viewV2 = patchText(viewText, viewSpec);
-	const promptV2 = patchText(promptText, promptSpec);
-	assert.ok(shellV2.ok && bannerV2.ok && viewV2.ok && promptV2.ok);
+	assert.ok(shellV2.ok && bannerV2.ok && viewV2.ok);
 	return [
 		{
 			...shellSpec,
@@ -344,7 +327,6 @@ function fourTargets(): TargetSpec[] {
 		},
 		{ ...TARGETS.find((target) => target.file === 'extensions/startup-banner.ts')!, md5: md5(bannerText), md5Patched: md5((bannerV2 as { text: string }).text) },
 		{ ...viewSpec, md5: md5(viewText), md5Patched: md5((viewV2 as { text: string }).text) },
-		{ ...promptSpec, md5: md5(promptText), md5Patched: md5((promptV2 as { text: string }).text) },
 	];
 }
 
@@ -365,12 +347,11 @@ test('revert restores every target from snapshots split across backups', async (
 	const backups = join(root, 'backups');
 	mkdirSync(join(install, 'extensions'), { recursive: true });
 	mkdirSync(join(install, 'lib'), { recursive: true });
-	const targets = fourTargets();
+	const targets = threeTargets();
 	const pristine = {
 		'extensions/gentle-shell.ts': shellStand(),
 		'extensions/startup-banner.ts': bannerStand(),
 		'lib/visual-customize-view.ts': viewStand(),
-		'lib/shell-prompt.ts': promptStand(),
 	};
 	// The installation is patched; the snapshots live in two different backups.
 	for (const spec of targets) {
@@ -380,7 +361,6 @@ test('revert restores every target from snapshots split across backups', async (
 	}
 	plantBackup(backups, 'gentle-pi-banner-patch-20260101000001', {
 		'extensions/gentle-shell.ts': pristine['extensions/gentle-shell.ts'],
-		'lib/shell-prompt.ts': pristine['lib/shell-prompt.ts'],
 	});
 	plantBackup(backups, 'gentle-pi-banner-patch-20260101000002', {
 		'extensions/startup-banner.ts': pristine['extensions/startup-banner.ts'],
@@ -402,12 +382,11 @@ test('a missing snapshot names the file and copies nothing at all', async () => 
 	const backups = join(root, 'backups');
 	mkdirSync(join(install, 'extensions'), { recursive: true });
 	mkdirSync(join(install, 'lib'), { recursive: true });
-	const targets = fourTargets();
+	const targets = threeTargets();
 	const pristine = {
 		'extensions/gentle-shell.ts': shellStand(),
 		'extensions/startup-banner.ts': bannerStand(),
 		'lib/visual-customize-view.ts': viewStand(),
-		'lib/shell-prompt.ts': promptStand(),
 	};
 	const patchedText: Record<string, string> = {};
 	for (const spec of targets) {
@@ -432,9 +411,6 @@ test('a missing snapshot names the file and copies nothing at all', async () => 
 	}
 	assert.deepEqual(planRestore({ install, backups }, targets), {
 		ok: false,
-		missing: [
-			{ file: 'lib/visual-customize-view.ts', md5: targets[2]!.md5 },
-			{ file: 'lib/shell-prompt.ts', md5: targets[3]!.md5 },
-		],
+		missing: [{ file: 'lib/visual-customize-view.ts', md5: targets[2]!.md5 }],
 	});
 });
