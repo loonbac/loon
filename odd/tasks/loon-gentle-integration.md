@@ -25,6 +25,9 @@ native header with `setHeader(undefined)` and draws itself as a `belowEditor` wi
 following gentle-pi. Back on `top`, the header is restored. Both directions must work
 without restarting the session.
 
+**SUPERSEDED by S10**: the owner reported that the banner slid under the editor together
+with gentle-pi's bar, which is not what a startup banner should do.
+
 S4 — `banner.json`: `color` overrides the accent of the box, the divider, the headings
 and the logo, keeping `text`/`muted`/`dim` from the theme. `showTextLogo` and `showRose`
 are **not applicable**: both were written for gentle-pi's own banner (its ASCII wordmark
@@ -160,3 +163,28 @@ L6 — owner asked to patch gentle-pi's own menu after all, verbatim:
 This supersedes the earlier "never touch their menu" decision. Their code is still
 never copied: the patch is a text edit of their own rows plus a guard in their own
 banner, nothing imported.
+S10 — The banner never follows `headerPlacement`. That setting moves gentle-pi's own bar
+(`gentle-shell.ts:2281-2297` registers it as a `belowEditor` widget); pi's header slot is a
+different thing and the banner belongs there, on top, in both placements. LOON stops reading
+the setting for anything but the status line.
+
+L7 — the defect and the decision:
+
+- Reported by the user: «cuando voy a la opcion de layout y lo pongo abajo tambien se mueve
+  el banner de pi, eso no deberia moverse junto con el header».
+- Measured before the fix: with `headerPlacement: below-input` the banner title sat at row
+  31 and the tagline at row 39 of a 160x46 frame, under the prompt at row 29.
+- Cause, from the code: `extensions/loon-startup.ts` had its own `below-input` branch that
+  released the header with `setHeader(undefined)` and re-drew the banner as a
+  `belowEditor` widget, so it moved with gentle-pi's bar. gentle-pi itself only moves its
+  own widget and its own hoisted header component (`lib/shell-sidebar-layout.ts:372`); the
+  banner was never theirs to move.
+- Decision: this is LOON's defect, not gentle-pi's. The fix is in `loon-startup.ts` and the
+  patch stays at three targets - no fourth patch of a third party's layout module.
+- After the fix: at 160x46 the banner title is row 4 with `top` (bar row 1) and row 0 with
+  `below-input` (bar row 43, under the prompt at 38); at 100x34, rows 4 / 0, prompt 30 / 26,
+  bar 1 / 31. The banner is on top in both, the bar is what moves.
+- Tests: below-input keeps the header installed and sets no widget; a live placement change
+  does not move it; the watchdog keeps defending it there.
+- `visual-customization.json` was changed for the frames and restored: sha
+  `e7e7b652520db77bf6c7146a7771794f205b2589f1da1bf19282d5298fbe01f4` before and after.
