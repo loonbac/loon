@@ -32,8 +32,6 @@ export const BANNER_FILE_NAME = 'banner.json';
 export interface GentleSettings {
 	density: Density;
 	headerPlacement: HeaderPlacement;
-	/** `banner.json`'s `showTextLogo`; the mark is drawn when this is true. */
-	showTextLogo: boolean;
 	/** `banner.json`'s `color`, or undefined when it never said anything usable. */
 	accentColor: BannerColor | undefined;
 }
@@ -42,7 +40,6 @@ export interface GentleSettings {
 export const DEFAULT_GENTLE_SETTINGS: GentleSettings = {
 	density: 'comfortable',
 	headerPlacement: 'top',
-	showTextLogo: true,
 	accentColor: undefined,
 };
 
@@ -101,6 +98,13 @@ export function parseVisualCustomization(
  * The slice of `banner.json` LOON follows. That file carries no schema — gentle-pi
  * validates it key by key — so the same tolerance applies here: a field that does
  * not validate is dropped and the rest still counts.
+ *
+ * Two keys of that file are deliberately absent from the resolution.
+ * `showTextLogo` hides gentle-pi's own ASCII wordmark, and `showRose` its rose;
+ * both were written by a menu that never governed the Pi mark, so honouring them
+ * here would silently delete a glyph this package draws and someone resized on
+ * purpose. They are read, validated and ignored — not applicable — and the mark
+ * is LOON's own setting instead.
  */
 export function parseBannerConfig(raw: string | undefined): { showTextLogo?: boolean; color?: BannerColor } | undefined {
 	if (raw === undefined) return undefined;
@@ -150,7 +154,6 @@ export function readGentleSettings(home: string, reader: GentleConfigReader = fi
 	return {
 		density: visual?.density ?? DEFAULT_GENTLE_SETTINGS.density,
 		headerPlacement: visual?.headerPlacement ?? DEFAULT_GENTLE_SETTINGS.headerPlacement,
-		showTextLogo: banner?.showTextLogo ?? DEFAULT_GENTLE_SETTINGS.showTextLogo,
 		accentColor: banner?.color ?? DEFAULT_GENTLE_SETTINGS.accentColor,
 	};
 }
@@ -160,7 +163,6 @@ export function sameGentleSettings(a: GentleSettings, b: GentleSettings): boolea
 	return (
 		a.density === b.density &&
 		a.headerPlacement === b.headerPlacement &&
-		a.showTextLogo === b.showTextLogo &&
 		a.accentColor === b.accentColor
 	);
 }

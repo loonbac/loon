@@ -251,7 +251,7 @@ test('the restore command clears the header, the widget, the footer and the spin
 });
 
 test('the reapply command turns the banner on and applies it again', async () => {
-	const { pi, ctx, config } = boot({ loon: { enabled: false, accent: 'banner' } });
+	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, enabled: false, accent: 'banner' } });
 	const look = pi.commands.get(LOOK_COMMAND)!;
 	await (look.handler as (args: string, ctx: FakeContext) => Promise<void>)('', ctx);
 	assert.equal(config.writes.at(-1)?.enabled, true);
@@ -299,7 +299,7 @@ test('a live change from below-input to top restores the header, and back again'
 /* S6: off means off — nothing painted, nothing reclaimed. */
 
 test('a disabled banner installs nothing at all', async () => {
-	const { pi, ctx } = boot({ loon: { enabled: false, accent: 'banner' } });
+	const { pi, ctx } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, enabled: false, accent: 'banner' } });
 	startSession(pi, ctx);
 	await wait(500);
 
@@ -308,7 +308,7 @@ test('a disabled banner installs nothing at all', async () => {
 });
 
 test('the settings command turns a disabled banner on without a restart', async () => {
-	const { pi, ctx, config } = boot({ loon: { enabled: false, accent: 'banner' } });
+	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, enabled: false, accent: 'banner' } });
 	startSession(pi, ctx);
 	await wait(50);
 
@@ -322,26 +322,61 @@ test('the settings command turns a disabled banner on without a restart', async 
 
 test('the accent source decides between the theme and gentle-pi’s colour', async () => {
 	const { pi, ctx, config } = boot({
-		loon: { enabled: true, accent: 'banner' },
+		loon: { ...DEFAULT_LOON_SETTINGS, enabled: true, accent: 'banner' },
 		gentle: { ...DEFAULT_GENTLE_SETTINGS, accentColor: 'cyan' },
 	});
 	startSession(pi, ctx);
 	await wait(50);
 	assert.ok(renderHeader(ctx).join('\n').includes('\x1b[38;2;95;210;255m'), 'the gentle colour was not painted');
 
-	config.set({ loon: { enabled: true, accent: 'theme' } });
+	config.set({ loon: { ...DEFAULT_LOON_SETTINGS, enabled: true, accent: 'theme' } });
 	config.emit();
 	assert.ok(!renderHeader(ctx).join('\n').includes('\x1b[38;2;'), 'the theme accent was not restored');
 });
 
-test('density and the mark flag reach the drawn header', async () => {
-	const { pi, ctx } = boot({ gentle: { ...DEFAULT_GENTLE_SETTINGS, density: 'minimal', showTextLogo: false } });
+test('density reaches the drawn header', async () => {
+	const { pi, ctx } = boot({ gentle: { ...DEFAULT_GENTLE_SETTINGS, density: 'minimal' } });
 	startSession(pi, ctx);
 	await wait(50);
 
 	const rendered = renderHeader(ctx);
 	assert.equal(rendered.length, 3, 'minimal is a three-row box');
 	assert.ok(!rendered.join('\n').includes('████'));
+});
+
+/* The mark is LOON's own switch: gentle-pi's showTextLogo never reaches it. */
+
+const markRows = (lines: string[]) => lines.filter((line) => line.includes('███')).length;
+
+test('the mark is drawn by default, whatever gentle-pi’s files say', async () => {
+	const { pi, ctx } = boot();
+	startSession(pi, ctx);
+	await wait(50);
+	assert.equal(markRows(renderHeader(ctx)), 4);
+});
+
+test('/loon:tui mark off hides the mark and mark on brings it back', async () => {
+	const { pi, ctx, config } = boot();
+	startSession(pi, ctx);
+	await wait(50);
+	const menu = pi.commands.get(MENU_COMMAND)!;
+	const run = menu.handler as (args: string, ctx: FakeContext) => Promise<void>;
+
+	await run('mark off', ctx);
+	assert.equal(config.writes.at(-1)?.mark, false);
+	assert.equal(markRows(renderHeader(ctx)), 0, 'the mark survived mark off');
+
+	await run('mark on', ctx);
+	assert.equal(config.writes.at(-1)?.mark, true);
+	assert.equal(markRows(renderHeader(ctx)), 4, 'the mark did not come back');
+});
+
+test('compact keeps the mark while the mark switch is on', async () => {
+	const { pi, ctx } = boot({ gentle: { ...DEFAULT_GENTLE_SETTINGS, density: 'compact' } });
+	startSession(pi, ctx);
+	await wait(50);
+	assert.equal(markRows(renderHeader(ctx)), 4);
+	assert.equal(renderHeader(ctx).length, 9, 'two borders plus seven body rows');
 });
 
 test('the settings command reports what it is following', async () => {
@@ -352,6 +387,7 @@ test('the settings command reports what it is following', async () => {
 	assert.match(message, /banner on/);
 	assert.match(message, /density compact/);
 	assert.match(message, /placement below-input/);
+	assert.match(message, /mark on/, 'the status line reports the mark switch');
 });
 
 test('the settings command switches the accent source and repaints', async () => {
@@ -498,7 +534,7 @@ test('the watchdog gives up at the ceiling', () => {
 
 test('the extension stops re-asserting while the banner is disabled or below the editor', async () => {
 	const scenarios = [
-		{ loon: { enabled: false, accent: 'banner' as const }, gentle: DEFAULT_GENTLE_SETTINGS },
+		{ loon: { ...DEFAULT_LOON_SETTINGS, enabled: false }, gentle: DEFAULT_GENTLE_SETTINGS },
 		{ loon: DEFAULT_LOON_SETTINGS, gentle: { ...DEFAULT_GENTLE_SETTINGS, headerPlacement: 'below-input' as const } },
 	];
 	for (const scenario of scenarios) {

@@ -30,7 +30,7 @@ export interface BannerInput {
 	palette: Palette;
 	/** gentle-pi's density; `comfortable` is the captured layout. */
 	density?: Density;
-	/** gentle-pi's `showTextLogo`; false hides the mark. */
+	/** Draw the Pi mark. LOON's own switch, not gentle-pi's `showTextLogo`. */
 	showLogo?: boolean;
 }
 

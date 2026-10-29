@@ -20,33 +20,37 @@ const home = () => mkdtempSync(join(tmpdir(), 'loon-config-'));
 
 test('a missing file means the defaults', () => {
 	assert.deepEqual(readLoonSettings('/nonexistent/pi-home'), DEFAULT_LOON_SETTINGS);
-	assert.deepEqual(DEFAULT_LOON_SETTINGS, { enabled: true, accent: 'banner' });
+	assert.deepEqual(DEFAULT_LOON_SETTINGS, { enabled: true, accent: 'banner', mark: true });
 	assert.deepEqual(parseLoonSettings(undefined), DEFAULT_LOON_SETTINGS);
 });
 
 test('malformed or foreign content falls back per field', () => {
 	assert.deepEqual(parseLoonSettings('{ broken'), DEFAULT_LOON_SETTINGS);
 	assert.deepEqual(parseLoonSettings('[1,2,3]'), DEFAULT_LOON_SETTINGS);
-	assert.deepEqual(parseLoonSettings(JSON.stringify({ enabled: false })), { enabled: false, accent: 'banner' });
+	assert.deepEqual(parseLoonSettings(JSON.stringify({ enabled: false })), { enabled: false, accent: 'banner', mark: true });
+	assert.deepEqual(parseLoonSettings(JSON.stringify({ mark: false })), { enabled: true, accent: 'banner', mark: false });
+	assert.deepEqual(parseLoonSettings(JSON.stringify({ mark: 'off' })), DEFAULT_LOON_SETTINGS);
 	assert.deepEqual(parseLoonSettings(JSON.stringify({ accent: 'neon' })), DEFAULT_LOON_SETTINGS);
 	assert.deepEqual(parseLoonSettings(JSON.stringify({ enabled: 'off', accent: 'theme', extra: 1 })), {
 		enabled: true,
 		accent: 'theme',
+		mark: true,
 	});
 });
 
 test('what is written is what is read back', () => {
 	const dir = home();
-	const path = writeLoonSettings({ enabled: false, accent: 'theme' }, dir);
+	const path = writeLoonSettings({ enabled: false, accent: 'theme', mark: false }, dir);
 	assert.equal(path, join(dir, LOON_CONFIG_FILE_NAME));
-	assert.deepEqual(readLoonSettings(dir), { enabled: false, accent: 'theme' });
+	assert.deepEqual(readLoonSettings(dir), { enabled: false, accent: 'theme', mark: false });
 	assert.equal(JSON.parse(readFileSync(path, 'utf8')).enabled, false);
+	assert.equal(JSON.parse(readFileSync(path, 'utf8')).mark, false);
 });
 
 test('the write is atomic and leaves no temporary behind', () => {
 	const dir = home();
-	writeLoonSettings({ enabled: true, accent: 'theme' }, dir);
-	writeLoonSettings({ enabled: false, accent: 'banner' }, dir);
+	writeLoonSettings({ enabled: true, accent: 'theme', mark: true }, dir);
+	writeLoonSettings({ enabled: false, accent: 'banner', mark: false }, dir);
 	assert.deepEqual(readdirSync(dir), [LOON_CONFIG_FILE_NAME], 'a temporary file survived the write');
 	assert.equal(statSync(join(dir, LOON_CONFIG_FILE_NAME)).mode & 0o777, 0o600);
 });
