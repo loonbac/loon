@@ -130,6 +130,38 @@ never a different banner. Every change is picked up live: both config homes are
 watched, so editing gentle-pi's settings repaints without restarting pi.
 
 
+
+### Wallpaper accent
+
+With the desktop already recolouring itself from the wallpaper, the banner can
+follow the same colour. `accent: "wallpaper"` makes the accent roles - box,
+divider, headings and the mark - use the `#RRGGBB` in
+`~/.config/mpvpaper/accent.txt`; `text`, `muted` and `dim` keep coming from the
+theme.
+
+- The file is written atomically (`write · fsync · os.replace`), so its inode
+  changes on every wallpaper. LOON therefore watches the **directory**
+  `~/.config/mpvpaper`, never the file, and a wallpaper change recolours a
+  running session without restarting pi.
+- A missing, unreadable or malformed file falls back to the theme accent - never
+  black, never a crash - and `/loon:tui status` says
+  `accent wallpaper (unavailable, theme fallback)` instead of a colour it does
+  not have.
+- With the patched gentle-pi menu, the choice is a fifth row,
+  `Banner color: wallpaper`, whose preview reads
+  `Wallpaper accent · #9B484A (static)`. Picking any of the four named colours
+  writes `accent: "banner"` in the same write, so going back from the wallpaper
+  colour is never a silent no-op.
+- Nothing is written into `banner.json`: its own `color` key keeps its four-value
+  format. In `source: "rose"` mode gentle-pi's banner reads `banner.json`, so this
+  accent has no effect on it - by design.
+
+```sh
+/loon:tui accent wallpaper   # follow the wallpaper
+/loon:tui accent banner      # back to gentle-pi's colour
+/loon:tui accent theme       # back to the theme
+```
+
 ### Who paints the banner: the optional gentle-pi patch
 
 gentle-pi's menu is the one place a person configures its banner, so LOON can also
@@ -182,9 +214,10 @@ home (`$PI_CODING_AGENT_DIR`, or `~/.pi/agent`):
 
 - `enabled` — false means LOON paints nothing and never reclaims the header, so
   gentle-pi's own banner is free to take the slot.
-- `accent` — `banner` follows gentle-pi's `color`; `theme` keeps the theme's
-  `accent` role. It defaults to `banner`, so a colour already chosen in
-  gentle-pi's menu is honoured out of the box.
+- `accent` — `banner` follows gentle-pi's `color`, `theme` keeps the theme's
+  `accent` role, and `wallpaper` follows the wallpaper file (see below). It
+  defaults to `banner`, so a colour already chosen in gentle-pi's menu is honoured
+  out of the box.
 - `mark` — the Pi mark, on by default. This is LOON's switch, not gentle-pi's
   `showTextLogo`: that flag belongs to a different banner and never reaches this
   glyph.
@@ -196,7 +229,7 @@ home (`$PI_CODING_AGENT_DIR`, or `~/.pi/agent`):
 | `/loon:tui` | Menu: banner on or off, accent from the theme or from `banner.json`, mark on or off. |
 | `/loon:tui status` | One line: banner, accent source, density, placement, mark. |
 | `/loon:tui on\|off` | Same as the menu entry, without the dialog. |
-| `/loon:tui accent theme\|banner` | Switch the accent source. |
+| `/loon:tui accent theme\|banner\|wallpaper` | Switch the accent source. |
 | `/loon:tui mark on\|off` | Show or hide the Pi mark. |
 
 Writes are atomic (a temporary file in the same directory, then a rename), and an

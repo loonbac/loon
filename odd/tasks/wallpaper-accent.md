@@ -95,3 +95,22 @@ L2 — product decisions already taken, not to be changed without asking: the ro
 the value lives in `loon-tui.json` as `accent: "wallpaper"` and never in `banner.json`;
 picking any named colour writes `accent: "banner"`; a missing or invalid file falls back
 to the theme accent and `status` says so; the patch must upgrade over its own v1.
+
+L3 — implementation notes and evidence:
+
+- `extensions/lib/accent.ts` now exposes `rgbPainter(rgb)` and `parseHexColor`, with
+  `accentPainter(color)` a one-line wrapper; `resolvePalette` takes `accentRgb`, so
+  the escape is still built in one place.
+- `extensions/lib/wallpaper-accent.ts` reads only `~/.config/mpvpaper/accent.txt` and
+  returns `undefined` for missing, unreadable or malformed content.
+- `loon-tui.json` gains `accent: "wallpaper"`; `resolveAccentRgb` maps the setting to
+  an RGB (theme -> undefined, banner -> gentle-pi colour, wallpaper -> file), so both
+  fallbacks end at the theme instead of black.
+- The extension caches the parsed accent, reloads it on every refresh (install,
+  `/loon:tui`, watcher event) and adds `~/.config/mpvpaper` to the watched
+  directories; `status` reports `accent wallpaper #RRGGBB` or
+  `accent wallpaper (unavailable, theme fallback)`.
+- The v2 patch adds the `Banner color: wallpaper` row, makes the four named colours
+  write `accent: "banner"`, and upgrades a v1 install: `patched-v1` is detected by
+  the marker without the v2 row, the pristine copy is recovered from a verified
+  backup, and every backup now holds pristine bytes so `revert` can always verify.
