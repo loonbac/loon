@@ -1,24 +1,30 @@
 LOON-Pi
 Copyright (c) 2026 Joshua Rosales
 
-This package is a port of the startup banner shipped by pi-claude-code-tui
+This package reproduces the startup header of pi-claude-code-tui
 (https://github.com/Phoobobo/pi-claude-code-tui), Copyright (c) 2026 Phoobobo,
 licensed under the MIT License.
 
-Derived material:
+Derived material (from that project's extensions/claude-code-startup.ts and
+extensions/render-utils.ts):
 
-- The 22-frame logo animation built from "███" cells, its frame table, the
-  cell-coordinate helpers and the per-cell colour rules come from
-  extensions/claude-code-startup.ts of pi-claude-code-tui.
-- The box layout (border line, boxed rows, two-column body), the sidebar tips
-  and the width helpers (center, padRight, headerColumnWidths, formatCwd,
-  formatModelLabel, pickSlashCommandTips, collectPiCommandNames) come from
-  that project’s extensions/render-utils.ts.
+- The box layout: the rounded border with the `Pi v<version>` label, the boxed
+  body rows and the two-column body.
+- The tips sidebar: its headings, the `Ask Pi to build it` line, the short rule
+  and the pool-and-sample tip selection.
+- The width helpers: center, padRight, headerColumnWidths, formatCwd,
+  formatModelLabel, pickSlashCommandTips and collectPiCommandNames.
 
-LOON changes: every colour is resolved from the active pi theme through
-extensions/lib/palette.ts, so the banner never emits a raw SGR colour code;
-the commands are loon:look and loon:default; the working-verb override was
-dropped, so the only feature is the startup banner.
+LOON changes:
+
+- Every colour resolves from the active pi theme through
+  extensions/lib/palette.ts, so the header never emits an SGR colour of its own.
+- The animated upstream logo (22 frames of three-column cells, each frame
+  coloured with raw SGR codes) is replaced by a static 10 x 7 block Pi mark
+  drawn in the theme accent: extensions/lib/logo.ts.
+- The vertical divider sits at a fixed 69% of the interior.
+- Commands are use-loon-tui (reapply) and use-default-tui (restore).
+- The working-message verbs, footer, spinner and window title are not touched.
 
 The upstream MIT license follows verbatim.
 

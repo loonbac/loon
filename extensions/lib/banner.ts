@@ -1,38 +1,37 @@
 /**
- * The banner body: a boxed two-column header, rendered from a palette.
+ * The header body: one rounded box, the Pi mark and the tagline on the left,
+ * the tips sidebar on the right, one accent divider between them.
  *
- * Pure: it takes one width, one frame index and plain label strings, so the
- * golden test can pin the exact output at a fixed width.
+ * Pure: it takes one width and plain label strings, so the golden test can pin
+ * the exact output at a fixed width.
  */
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
-import { center, headerColumnWidths, padRight } from './layout.ts';
-import { logoFrameLines } from './logo.ts';
+import { TIPS_RULE_WIDTH, center, headerColumnWidths, padRight } from './layout.ts';
+import { renderLogo } from './logo.ts';
 import type { Palette } from './palette.ts';
 
 /** Below this width only the version label fits. */
-export const MIN_BANNER_WIDTH = 24;
+export const MIN_BANNER_WIDTH = 34;
 
 export interface BannerInput {
 	/** Total width, borders included. */
 	width: number;
-	/** Logo animation frame index; wraps around `LOGO_FRAME_COUNT`. */
-	frame: number;
-	/** Host version, shown next to the LOON wordmark. */
+	/** Host version, shown in the top border. */
 	version: string;
-	/** Already formatted model label, e.g. `anthropic/claude`. */
+	/** Already formatted model label, e.g. `openai-codex/gpt-5.5`. */
 	model: string;
 	/** Thinking effort, e.g. `high`. */
 	effort: string;
 	/** Already shortened cwd. */
 	cwd: string;
-	/** Slash-prefixed tip commands. */
+	/** Slash-prefixed tip commands: the restore command, then three real ones. */
 	tips: readonly string[];
 	palette: Palette;
 }
 
 type Paint = (text: string) => string;
 
-/** `╭─── label ─────╮`, sized to `width`. */
+/** `╭─── label ─────╮`, sized to `width`, painted as one accent run. */
 function borderLine(left: string, label: string, right: string, width: number, paint: Paint): string {
 	if (width <= 1) return '';
 	if (width < 8 || label.length === 0) {
@@ -43,7 +42,7 @@ function borderLine(left: string, label: string, right: string, width: number, p
 	const after = ' ─────';
 	const fixedWidth = visibleWidth(before) + visibleWidth(label) + visibleWidth(after);
 	const fill = Math.max(0, width - 2 - fixedWidth);
-	return `${paint(left)}${paint(before)}${label}${paint(after)}${paint('─'.repeat(fill))}${paint(right)}`;
+	return paint(`${left}${before}${label}${after}${'─'.repeat(fill)}${right}`);
 }
 
 /** One body row, framed by painted vertical rules. */
@@ -52,37 +51,38 @@ function boxedLine(content: string, width: number, paint: Paint): string {
 	return `${paint('│')}${padRight(content, width - 2)}${paint('│')}`;
 }
 
-/** The logo half and the tips sidebar side by side; tips truncate with an ellipsis. */
+/** Left half and tips sidebar side by side; tips truncate with an ellipsis. */
 function twoColumn(left: string, right: string, leftWidth: number, rightWidth: number, paint: Paint): string {
 	return `${padRight(left, leftWidth)} ${paint('│')} ${padRight(right, rightWidth, '…')}`;
 }
 
-/** Render the whole banner, one string per terminal row. */
+/** Render the whole header, one string per terminal row. */
 export function renderBanner(input: BannerInput): string[] {
 	const { width, palette } = input;
+	const title = `Pi v${input.version}`;
 
 	if (width < MIN_BANNER_WIDTH) {
-		return [truncateToWidth(`${palette.label('LOON')} Pi v${input.version}`, Math.max(0, width), '')];
+		return [truncateToWidth(palette.frame(title), Math.max(0, width), '')];
 	}
 
 	const innerWidth = width - 2;
 	const { leftWidth, rightWidth, useTips } = headerColumnWidths(innerWidth);
 
 	const leftLines = [
-		...logoFrameLines(input.frame, palette).map((line) => center(line, leftWidth)),
-		center(palette.label('Let’s build something great'), leftWidth),
+		...renderLogo(palette).map((line) => center(line, leftWidth)),
+		center(palette.tagline('Let’s build something great'), leftWidth),
 		center(palette.body(`${input.model} · ${input.effort} effort`), leftWidth),
 		center(palette.subtle(input.cwd), leftWidth),
 	];
 
-	const tipDivider = palette.divider('─'.repeat(Math.max(8, Math.min(rightWidth, 22))));
+	const rule = palette.divider('─'.repeat(Math.max(8, Math.min(rightWidth, TIPS_RULE_WIDTH))));
 	const [tip0 = '', tip1 = '', tip2 = '', tip3 = ''] = input.tips;
 	const tipLines = [
 		'',
-		palette.label('Getting started'),
+		palette.heading('Getting started'),
 		palette.body('Ask Pi to build it'),
-		tipDivider,
-		palette.label('Commands'),
+		rule,
+		palette.heading('Commands'),
 		palette.body(tip0),
 		palette.body(tip1),
 		palette.body(tip2),
@@ -90,7 +90,6 @@ export function renderBanner(input: BannerInput): string[] {
 		'',
 	];
 
-	const title = `${palette.label('LOON')} Pi v${input.version}`;
 	const lines = [borderLine('╭', title, '╮', width, palette.frame)];
 	for (let i = 0; i < leftLines.length; i++) {
 		const content = useTips

@@ -1,31 +1,30 @@
 /**
- * LOON-Pi: a theme-aware startup banner for pi.
+ * LOON-Pi: a theme-aware startup header for pi, and nothing else.
  *
- * The banner is pi-claude-code-tui's header (MIT, see NOTICE) with every
- * colour resolved from the active theme, so it reads correctly with the
- * gentle-pi themes and with any other theme. It declares no theme of its own.
+ * The header is the pi-claude-code-tui box (MIT, see NOTICE) with the layout,
+ * the static Pi mark and every colour taken from the active theme. It declares
+ * no theme of its own and touches no footer, spinner or editor.
  */
 import { VERSION, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { Component, TUI } from '@earendil-works/pi-tui';
-import { createLogoClock, type LogoClock } from './lib/animation.ts';
 import { renderBanner } from './lib/banner.ts';
 import { collectPiCommandNames, formatCwd, formatModelLabel, pickSlashCommandTips } from './lib/layout.ts';
 import { resolvePalette, type LoonTheme } from './lib/palette.ts';
 
-/** Reapply the LOON look. */
-export const LOOK_COMMAND = 'loon:look';
+/** Reapply the header. */
+export const LOOK_COMMAND = 'use-loon-tui';
 /** Restore pi's own header, footer and spinner. */
-export const RESTORE_COMMAND = 'loon:default';
+export const RESTORE_COMMAND = 'use-default-tui';
 
 /**
  * Install on the next macrotask so pi has started its renderer, then
  * re-assert: gentle-pi registers its own banner after an `await`, so its
- * `setHeader` can land after ours and win. Re-asserting is invisible because
- * the animation clock keeps its frame instead of restarting.
+ * `setHeader` can land after ours and win. The header is static, so
+ * re-asserting repaints the same rows.
  */
 const INSTALL_DELAYS_MS = [0, 120, 400] as const;
 
-interface BannerSnapshot {
+interface HeaderSnapshot {
 	version: string;
 	model: string;
 	effort: string;
@@ -33,7 +32,11 @@ interface BannerSnapshot {
 	tips: string[];
 }
 
-function takeSnapshot(pi: ExtensionAPI, ctx: ExtensionContext): BannerSnapshot {
+/**
+ * Everything the header shows, taken once per install so the tips do not
+ * shuffle: the restore command first, then three real commands of this pi.
+ */
+function takeSnapshot(pi: ExtensionAPI, ctx: ExtensionContext): HeaderSnapshot {
 	return {
 		version: VERSION,
 		model: formatModelLabel(ctx.model),
@@ -48,14 +51,12 @@ function takeSnapshot(pi: ExtensionAPI, ctx: ExtensionContext): BannerSnapshot {
 }
 
 interface HeaderDeps {
-	tui: TUI;
-	snapshot: BannerSnapshot;
-	clock: LogoClock;
+	snapshot: HeaderSnapshot;
 	/** Read per render so a theme change is picked up without reinstalling. */
 	theme(): LoonTheme;
 }
 
-class LoonStartupHeader implements Component {
+class LoonHeader implements Component {
 	private readonly deps: HeaderDeps;
 
 	constructor(deps: HeaderDeps) {
@@ -63,27 +64,22 @@ class LoonStartupHeader implements Component {
 	}
 
 	render(width: number): string[] {
+		const { snapshot } = this.deps;
 		return renderBanner({
 			width,
-			frame: this.deps.clock.getFrame(),
-			version: this.deps.snapshot.version,
-			model: this.deps.snapshot.model,
-			effort: this.deps.snapshot.effort,
-			cwd: this.deps.snapshot.cwd,
-			tips: this.deps.snapshot.tips,
+			version: snapshot.version,
+			model: snapshot.model,
+			effort: snapshot.effort,
+			cwd: snapshot.cwd,
+			tips: snapshot.tips,
 			palette: resolvePalette(this.deps.theme()),
 		});
 	}
 
 	invalidate(): void {}
-
-	dispose(): void {
-		this.deps.clock.attach(undefined);
-	}
 }
 
-let clock: LogoClock | undefined;
-let snapshot: BannerSnapshot | undefined;
+let snapshot: HeaderSnapshot | undefined;
 let timers: NodeJS.Timeout[] = [];
 
 function cancelTimers(): void {
@@ -95,24 +91,18 @@ function install(pi: ExtensionAPI, ctx: ExtensionContext, refreshSnapshot = fals
 	if (ctx.mode !== 'tui' || !ctx.hasUI) return false;
 	if (refreshSnapshot || !snapshot) snapshot = takeSnapshot(pi, ctx);
 	const current = snapshot;
-	const bannerClock = (clock ??= createLogoClock());
 
-	ctx.ui.setHeader((tui, fallbackTheme) => {
-		bannerClock.attach(tui);
-		return new LoonStartupHeader({
-			tui,
+	ctx.ui.setHeader((tui: TUI, fallbackTheme: LoonTheme) =>
+		new LoonHeader({
 			snapshot: current,
-			clock: bannerClock,
 			theme: () => ctx.ui.theme ?? fallbackTheme,
-		});
-	});
+		}),
+	);
 	return true;
 }
 
 function restoreNative(ctx: ExtensionContext): void {
 	cancelTimers();
-	clock?.dispose();
-	clock = undefined;
 	snapshot = undefined;
 	if (ctx.mode !== 'tui') return;
 	ctx.ui.setHeader(undefined);
@@ -136,16 +126,14 @@ export default function loonPi(pi: ExtensionAPI): void {
 
 	pi.on('session_shutdown', () => {
 		cancelTimers();
-		clock?.dispose();
-		clock = undefined;
 		snapshot = undefined;
 	});
 
 	pi.registerCommand(LOOK_COMMAND, {
-		description: 'Apply the LOON startup banner',
+		description: 'Apply the LOON startup header',
 		handler: async (_args, ctx) => {
 			cancelTimers();
-			if (install(pi, ctx, true)) ctx.ui.notify('LOON banner applied', 'info');
+			if (install(pi, ctx, true)) ctx.ui.notify('LOON header applied', 'info');
 		},
 	});
 

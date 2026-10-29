@@ -3,51 +3,105 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { MIN_BANNER_WIDTH, renderBanner, type BannerInput } from '../extensions/lib/banner.ts';
-import { LOGO_FRAME_COUNT } from '../extensions/lib/logo.ts';
+import { DIVIDER_RATIO, MIN_LEFT_WIDTH, MIN_TIPS_WIDTH } from '../extensions/lib/layout.ts';
+import { LOGO_GRID, LOGO_WIDTH, renderLogo } from '../extensions/lib/logo.ts';
 import { resolvePalette } from '../extensions/lib/palette.ts';
 import { ansiTheme, darkTheme, lightTheme, plainTheme, strictTheme } from './support/themes.ts';
 
-const GOLDEN_PATH = new URL('./fixtures/banner-80.txt', import.meta.url);
+const TIPS = ['/use-default-tui', '/model', '/theme', '/compact'];
+
 
 function bannerInput(overrides: Partial<BannerInput> = {}): BannerInput {
 	return {
 		width: 80,
-		frame: 0,
 		version: '1.4.0',
-		model: 'gentle/gentleman',
+		model: 'openai-codex/gpt-5.5',
 		effort: 'high',
-		cwd: '~/Proyectos/pi-loon/loon',
-		tips: ['loon:default', '/model', '/theme', '/compact'],
+		cwd: '~/Workspace/mypi',
+		tips: TIPS,
 		palette: resolvePalette(plainTheme()),
 		...overrides,
 	};
 }
 
-test('renders the golden banner at 80 columns', () => {
-	const golden = readFileSync(GOLDEN_PATH, 'utf8').replace(/\n$/, '').split('\n');
-	assert.deepEqual(renderBanner(bannerInput()), golden);
-});
-
-/**
- * With a theme that paints nothing, the only escape left can be a reset that
- * pi-tui appends when it truncates a row. Anything that sets a colour or an
- * attribute would be a colour the banner invented instead of asking the theme.
- */
-function rawColorEscapes(line: string): string[] {
-	return line.replace(/\x1b\[0m/g, '').match(/\x1b\[[0-9;]*m/g) ?? [];
+/** Golden files are the plain render: structure without any colour. */
+function golden(name: string): string[] {
+	return readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')
+		.replace(/\n$/, '')
+		.split('\n');
 }
 
-test('no frame of the animation emits a raw ANSI colour', () => {
-	for (let frame = 0; frame < LOGO_FRAME_COUNT; frame++) {
-		for (const width of [MIN_BANNER_WIDTH, 40, 80, 120, 200]) {
-			const lines = renderBanner(bannerInput({ frame, width }));
-			for (const line of lines) {
-				assert.deepEqual(
-					rawColorEscapes(line),
-					[],
-					`frame ${frame} at width ${width} painted a raw colour: ${JSON.stringify(line)}`,
-				);
-			}
+/** The interior of the box, one string per body row, borders and divider out. */
+function splitColumns(width: number, lines: string[]): { left: string[]; right: string[] } {
+	const innerWidth = width - 2;
+	const dividerIndex = Math.round(innerWidth * DIVIDER_RATIO);
+	return {
+		left: lines.slice(1, -1).map((line) => line.slice(1, 1 + dividerIndex - 1)),
+		right: lines.slice(1, -1).map((line) => line.slice(1 + dividerIndex + 1, width - 1)),
+	};
+}
+
+test('renders the golden header at 80 columns', () => {
+	assert.deepEqual(renderBanner(bannerInput()), golden('header-80.txt'));
+});
+
+test('renders the golden header at 120 columns', () => {
+	assert.deepEqual(renderBanner(bannerInput({ width: 120 })), golden('header-120.txt'));
+});
+
+test('the divider sits at 69% of the interior and spans every body row', () => {
+	for (const width of [80, 120]) {
+		const innerWidth = width - 2;
+		const dividerIndex = Math.round(innerWidth * DIVIDER_RATIO);
+		const body = renderBanner(bannerInput({ width })).slice(1, -1);
+		for (const line of body) {
+			assert.equal([...line][dividerIndex + 1], '│', `no divider in ${JSON.stringify(line)}`);
+		}
+	}
+});
+
+test('the sidebar keeps the literal order of the capture', () => {
+	const { right } = splitColumns(80, renderBanner(bannerInput()));
+	const trimmed = right.map((cell) => cell.trim());
+	assert.deepEqual(trimmed.slice(0, 9), [
+		'',
+		'Getting started',
+		'Ask Pi to build it',
+		'─'.repeat(22),
+		'Commands',
+		'/use-default-tui',
+		'/model',
+		'/theme',
+		'/compact',
+	]);
+});
+
+test('the left half centres the mark, the tagline, the model and the cwd', () => {
+	const lines = renderBanner(bannerInput());
+	const { left } = splitColumns(80, lines);
+	const cell = '███';
+	assert.equal(left[0]!.trim(), cell.repeat(5) + ' '.repeat(2 * cell.length) + cell.repeat(3));
+	assert.equal(left[7]!.trim(), 'Let’s build something great');
+	assert.equal(left[8]!.trim(), 'openai-codex/gpt-5.5 · high effort');
+	assert.equal(left[9]!.trim(), '~/Workspace/mypi');
+});
+
+test('the mark is a single colour of the theme, on a 10 x 7 grid', () => {
+	assert.equal(LOGO_GRID.length, 7);
+	assert.equal(LOGO_WIDTH, 30);
+	const lines = renderLogo(resolvePalette(strictTheme()));
+	assert.equal(lines.length, 7);
+	for (const line of lines) {
+		const painted = line.replace(/accent<███>/g, '');
+		assert.ok(!painted.includes('<'), `the mark used another role: ${JSON.stringify(line)}`);
+	}
+});
+
+test('no render emits a raw ANSI colour', () => {
+	for (const width of [MIN_BANNER_WIDTH, 40, 60, 80, 120, 200]) {
+		for (const line of renderBanner(bannerInput({ width }))) {
+			const raw = line.replace(/\x1b\[0m/g, '').match(/\x1b\[[0-9;]*m/g) ?? [];
+			assert.deepEqual(raw, [], `width ${width} painted a raw colour: ${JSON.stringify(line)}`);
 		}
 	}
 });
@@ -56,22 +110,21 @@ test('with a painting theme every escape comes from the theme itself', () => {
 	const theme = ansiTheme();
 	const lines = renderBanner(bannerInput({ palette: resolvePalette(theme) }));
 	const escapes = lines.join('\n').match(/\x1b\[[0-9;]*m/g) ?? [];
-	assert.ok(escapes.length > 0, 'expected the themed banner to paint something');
+	assert.ok(escapes.length > 0, 'expected the themed header to paint something');
 	for (const escape of escapes) {
 		assert.ok(theme.sequences.has(escape), `unexpected escape ${JSON.stringify(escape)}`);
 	}
 });
 
 test('every rendered row is exactly the requested width', () => {
-	for (const width of [MIN_BANNER_WIDTH, 40, 80, 120]) {
-		const lines = renderBanner(bannerInput({ width, frame: 6 }));
-		for (const line of lines) {
+	for (const width of [MIN_BANNER_WIDTH, 40, 60, 80, 120]) {
+		for (const line of renderBanner(bannerInput({ width }))) {
 			assert.equal(visibleWidth(line), width, `row ${JSON.stringify(line)} at width ${width}`);
 		}
 	}
 });
 
-test('the banner follows whichever theme is active', () => {
+test('the header follows whichever theme is active', () => {
 	const dark = renderBanner(bannerInput({ palette: resolvePalette(darkTheme()) }));
 	const light = renderBanner(bannerInput({ palette: resolvePalette(lightTheme()) }));
 	assert.notDeepEqual(dark, light);
@@ -79,18 +132,22 @@ test('the banner follows whichever theme is active', () => {
 	assert.match(light.join('\n'), /\x1b\[38;5;25m/);
 });
 
-test('a theme restricted to the gentle roles renders every frame', () => {
-	const theme = strictTheme();
-	for (let frame = 0; frame < LOGO_FRAME_COUNT; frame++) {
-		const lines = renderBanner(bannerInput({ frame, palette: resolvePalette(theme) }));
-		assert.ok(lines.length > 3);
+test('a theme restricted to the gentle roles renders the whole header', () => {
+	const lines = renderBanner(bannerInput({ palette: resolvePalette(strictTheme()) }));
+	assert.equal(lines.length, 12);
+});
+
+test('the sidebar is dropped when the columns do not fit', () => {
+	const width = MIN_LEFT_WIDTH + MIN_TIPS_WIDTH + 3;
+	const lines = renderBanner(bannerInput({ width }));
+	assert.ok(!lines.join('\n').includes('Getting started'));
+	// No divider inside the body: the left half owns the whole interior.
+	for (const line of lines.slice(1, -1)) {
+		assert.equal([...line].slice(1, -1).join('').includes('│'), false);
 	}
 });
 
-test('narrow widths stay inside the available columns', () => {
-	for (const width of [8, 16, 23]) {
-		const lines = renderBanner(bannerInput({ width }));
-		assert.equal(lines.length, 1);
-		assert.ok(visibleWidth(lines[0]!) <= width);
-	}
+test('below the mark width only the version label is printed', () => {
+	const lines = renderBanner(bannerInput({ width: MIN_BANNER_WIDTH - 1 }));
+	assert.deepEqual(lines, ['Pi v1.4.0']);
 });

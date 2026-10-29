@@ -2,8 +2,8 @@
  * Theme stubs for the tests.
  *
  * `strictTheme` only knows the roles all three gentle-pi themes define, and
- * throws for anything else the way pi's `Theme.fg()` does. That is what turns
- * 'the banner only asks for roles every theme carries' into a checked property.
+ * throws for anything else the way pi’s `Theme.fg()` does. That is what turns
+ * 'the header only asks for roles every theme carries' into a checked property.
  */
 import type { LoonTheme, LoonThemeRole } from '../../extensions/lib/palette.ts';
 
@@ -70,19 +70,14 @@ export function plainTheme(): LoonTheme {
 }
 
 /** Distinct SGR per role, so a rendering test can allow-list every sequence. */
-export function ansiTheme(codes: Partial<Record<LoonThemeRole, number>> = {}): LoonTheme & {
-	readonly sequences: ReadonlySet<string>;
-} {
+export function ansiTheme(
+	codes: Partial<Record<LoonThemeRole, number>> = {},
+): LoonTheme & { readonly sequences: ReadonlySet<string> } {
 	const base: Record<LoonThemeRole, number> = {
 		accent: 109,
-		border: 240,
-		borderMuted: 238,
+		text: 252,
 		muted: 245,
 		dim: 244,
-		text: 252,
-		success: 108,
-		warning: 173,
-		error: 131,
 	};
 	const resolved = { ...base, ...codes };
 	const sequences = new Set<string>();
@@ -92,19 +87,16 @@ export function ansiTheme(codes: Partial<Record<LoonThemeRole, number>> = {}): L
 	sequences.add('\x1b[22m');
 	return {
 		sequences,
-		fg: (role, text) => {
-			const open = `\x1b[38;5;${resolved[role]}m`;
-			return `${open}${text}\x1b[39m`;
-		},
+		fg: (role, text) => `\x1b[38;5;${resolved[role]}m${text}\x1b[39m`,
 		bold: (text) => `\x1b[1m${text}\x1b[22m`,
 	};
 }
 
-/** Two opposite themes, to prove the banner follows whatever is active. */
+/** Two opposite themes, to prove the header follows whatever is active. */
 export function darkTheme() {
 	return ansiTheme();
 }
 
 export function lightTheme() {
-	return ansiTheme({ accent: 25, border: 250, borderMuted: 253, muted: 240, dim: 245, text: 235, success: 28, warning: 130, error: 160 });
+	return ansiTheme({ accent: 25, text: 235, muted: 240, dim: 245 });
 }
