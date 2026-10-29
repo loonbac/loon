@@ -3,9 +3,15 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { FallbackEffort } from "./fallback-config.js";
 import { detectWorkUnitLanguage } from "./repository-language.ts";
 import type { RunMetrics } from "./run-metrics.ts";
+
+/**
+ * Effort levels the router can request or apply. Owned here, not in `fallback-config.ts`:
+ * `AdaptiveRoute` is typed with it and the config only carries it into a profile. Keeping the
+ * vocabulary with its owner is what removes the router -> fallback-config edge.
+ */
+export type FallbackEffort = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type AdaptiveMode = "OFF" | "SHADOW" | "ACTIVE_GUARDED";
 export interface AdaptiveRoute { provider: string; model: string; requestedEffort: FallbackEffort; effectiveEffort: FallbackEffort; account?: string }
