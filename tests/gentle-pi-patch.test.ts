@@ -444,6 +444,7 @@ const shellBarFixture = [
 	'\tconst leftStages = headerLeftStages(model, theme, presentation?.visibility.modelDetails !== false)',
 	'\t\t.map((stage) => presentation?.density === "minimal" ? stage.slice(1) : stage);',
 	ANCHORS.shellBarFallback,
+	ANCHORS.shellBarUsage,
 	'// tail',
 ].join('\n');
 
@@ -464,27 +465,38 @@ const fakeTheme = (name?: string): FakeTheme => ({
  * test exercises the bytes that would be written rather than a copy of them.
  */
 async function loadEmittedShellBar(): Promise<{
+	loonThemeActive: (theme: FakeTheme) => boolean;
 	barBrandSegments: (theme: FakeTheme, text: string, options?: { bold?: boolean; hidden?: boolean }) => string[];
 	headerLeftStages: (model: { modelId: string; effort?: string; profile?: string }, theme: FakeTheme, showModelDetails: boolean, presentation?: { density?: string }) => string[][];
+	usageSegmentText: (windows: Array<{ text?: string }>, theme: FakeTheme, stage: string, hint?: string) => string | undefined;
 }> {
 	const patched = patchText(shellBarFixture, shellBarTarget);
 	assert.ok(patched.ok, 'the shell-bar fixture did not patch');
+	const loon = /function loonThemeActive[\s\S]*?\n}/.exec(patched.text);
 	const helper = /function barBrandSegments[\s\S]*?\n}/.exec(patched.text);
 	const stages = /function headerLeftStages[\s\S]*?\n}/.exec(patched.text);
+	const usage = /function usageSegmentText[\s\S]*?\n}/.exec(patched.text);
+	assert.ok(loon, 'the emitted theme test is missing');
 	assert.ok(helper, 'the emitted helper is missing');
 	assert.ok(stages, 'the emitted header stages are missing');
+	assert.ok(usage, 'the emitted usage segment is missing');
 
 	const dir = mkdtempSync(join(tmpdir(), 'loon-shell-bar-'));
 	const path = join(dir, 'shell-bar-probe.mts');
 	writeFileSync(path, [
 		'const ROLE = { BRAND: "brand", LABEL: "label", MODEL: "model", SEPARATOR: "separator" };',
 		'const HEADER_BRAND = "✿ Gentle Shell";',
+		'const USAGE_LABEL_ROLE = "label";',
+		'const USAGE_HINT_ROLE = "dim";',
 		'const locationSegment = () => "~/proj";',
 		'const executionSegment = (id: string, effort?: string) => effort === undefined ? id : id + " " + effort;',
 		'const sanitizeStatus = (text: string) => text;',
+		'const usageWindowText = (window: { text?: string }) => window.text ?? "";',
+		loon[0],
 		helper[0],
 		stages[0],
-		'export { barBrandSegments, headerLeftStages };',
+		usage[0],
+		'export { loonThemeActive, barBrandSegments, headerLeftStages, usageSegmentText };',
 	].join('\n'));
 	// The probe is a scratch file, not evidence: it must not outlive the test.
 	try {
@@ -514,12 +526,12 @@ test('minimal density drops the brand exactly where the old slice did', async ()
 	const { headerLeftStages } = await loadEmittedShellBar();
 	const theme = fakeTheme('Gentle');
 	const model = { modelId: 'gpt-5', effort: 'high', profile: 'reviewer' };
-	// The old call site sliced the brand off every stage; the last stage was the
-	// brand alone, which left an empty one. Dropping it changes no visible row.
-	const sliced = headerLeftStages(model, theme, true)
-		.map((stage) => stage.slice(1))
-		.filter((stage) => stage.length > 0);
+	// Both the stages and the trailing brand-alone stage must match the slice the
+	// call site used to do, empty last stage included: the fallback cascade counts
+	// stages, so a shorter list would render a different row at narrow widths.
+	const sliced = headerLeftStages(model, theme, true).map((stage) => stage.slice(1));
 	assert.deepEqual(headerLeftStages(model, theme, true, { density: 'minimal' }), sliced);
+	assert.deepEqual(headerLeftStages(model, theme, false, { density: 'minimal' }), [['~/proj'], []]);
 });
 
 test('a theme LOON generated hides the brand without leaving an empty stage', async () => {
@@ -543,6 +555,8 @@ test('a theme LOON generated hides the brand without leaving an empty stage', as
 		);
 	}
 	assert.deepEqual(headerLeftStages(model, theme, false), [['~/proj']], 'the narrowest header must not be blank');
+	// Minimal density has nothing left to hide, and must not slice a real segment.
+	assert.deepEqual(headerLeftStages(model, theme, true, { density: 'minimal' }), stages);
 });
 
 test('a theme with no name fails open instead of hiding the brand', async () => {
@@ -554,3 +568,36 @@ test('a theme with no name fails open instead of hiding the brand', async () => 
 	}
 });
 
+test('the LOON theme test lives in one helper, not copied per decision', () => {
+	const patched = patchText(shellBarFixture, shellBarTarget);
+	assert.ok(patched.ok);
+	const text = patched.text;
+	assert.equal(text.split('function loonThemeActive').length - 1, 1, 'the theme test is defined more than once');
+	assert.equal(text.split('endsWith(" (LOON)")').length - 1, 1, 'the suffix is compared more than once');
+	assert.ok(text.includes('if (options.hidden || loonThemeActive(theme)) return [];'), 'the brand does not use the helper');
+	assert.ok(text.includes('const loon = loonThemeActive(theme);'), 'the usage segment does not use the helper');
+});
+
+test('a stock theme keeps the usage hint, and its standing affordance with no data', async () => {
+	const { usageSegmentText } = await loadEmittedShellBar();
+	const theme = fakeTheme('Gentle');
+	// No provider data: the segment still reads as a clickable affordance, as today.
+	assert.equal(usageSegmentText([], theme, 'full', 'alt+u'), 'usage · alt+u');
+	assert.equal(usageSegmentText([{ text: '5h 40%' }], theme, 'full', 'alt+u'), 'usage 5h 40% · alt+u');
+});
+
+test('a LOON theme silences the shortcut and never leaves an orphan usage', async () => {
+	const { usageSegmentText } = await loadEmittedShellBar();
+	const theme = fakeTheme('Wallpaper (LOON)');
+	assert.equal(usageSegmentText([], theme, 'full', 'alt+u'), undefined, 'an orphan usage segment survived');
+	assert.equal(usageSegmentText([{ text: '' }], theme, 'full', 'alt+u'), undefined, 'an empty body left a bare usage');
+	// Data keeps the gauges; only the reminder goes.
+	assert.equal(usageSegmentText([{ text: '5h 40%' }], theme, 'full', 'alt+u'), 'usage 5h 40%');
+	assert.equal(usageSegmentText([{ text: '5h 40%' }], theme, 'primary', 'alt+u'), 'usage 5h 40%');
+});
+
+test('a theme with no name keeps the usage hint too', async () => {
+	const { usageSegmentText } = await loadEmittedShellBar();
+	assert.equal(usageSegmentText([], fakeTheme(undefined), 'full', 'alt+u'), 'usage · alt+u');
+	assert.equal(usageSegmentText([], fakeTheme(''), 'full', 'alt+u'), 'usage · alt+u');
+});

@@ -243,12 +243,20 @@ What it changes, in gentle-pi 4.5.1 only — four files, each for one reason:
 - `lib/visual-customize-view.ts`: a row's label is called with the width the row
   actually has, so a long label can pick a shorter wording instead of being cut
   mid-word. Without it the view offers no width at all.
-- `lib/shell-bar.ts`: with a theme LOON generated the shell bar drops its brand.
-  Those themes carry `" (LOON)"` at the end of their name, and the header already
-  says which tool this is; any other theme keeps `✿ Gentle Shell` exactly where it
-  was, and a theme whose name cannot be read fails open, brand shown. The bar, the
-  header's left stages and its last-resort widths all agree, so nothing leaves a
-  stray separator or an empty row when the brand goes.
+- `lib/shell-bar.ts`: with a theme LOON generated the shell bar drops its brand and
+  stops advertising the usage shortcut. Those themes carry `" (LOON)"` at the end of
+  their name; the header already says which tool this is, and `alt+u` is a shortcut
+  one learns once. Any other theme keeps `✿ Gentle Shell` and `usage · alt+u` exactly
+  where they were, and a theme whose name cannot be read fails open: brand shown, hint
+  shown.
+
+  One helper decides "is this a LOON theme", and both decisions read it. Without it,
+  the bar, the header's left stages and its last-resort widths would each test the name
+  on their own. A hidden brand leaves no stray separator and no empty row - the
+  narrowest stage becomes the bare model id - and a hidden usage hint takes the whole
+  segment with it when there is nothing to report: no orphan `usage` with no gauges.
+  Hiding the hint does not unregister the shortcut; `alt+u` still opens the usage
+  panel, it just stops being advertised.
 
 The prompt card's band needed no patch in the end: a theme tints its surfaces with
 its accent, so once our palette stopped painting cards green the band followed.

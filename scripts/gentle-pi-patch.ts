@@ -93,14 +93,47 @@ const VIEW_LABEL_CALL_REPLACEMENT =
 const SHELL_BAR_BRAND_ANCHOR = 'const HEADER_BRAND = "✿ Gentle Shell";';
 const SHELL_BAR_BRAND_ADDITION = [
 	'// LOON banner patch: a theme this plugin generates marks itself with " (LOON)" in',
-	'// its name. With one of those active the bar drops its brand, because the header',
-	'// already identifies the tool. Any other theme keeps the brand, and a theme whose',
-	'// name is missing or not a string fails open (brand shown) instead of hiding it.',
-	'function barBrandSegments(theme: ShellBarTheme, text: string, options: { bold?: boolean; hidden?: boolean } = {}): string[] {',
-	'\tif (options.hidden) return [];',
+	'// its name, and that one fact drives two decisions: the bar drops a brand the',
+	'// header already implies, and it stops advertising the usage shortcut. Any other',
+	'// theme keeps both, and a theme whose name is missing or not a string fails open',
+	'// (brand shown, hint shown) instead of hiding either by accident.',
+	'function loonThemeActive(theme: ShellBarTheme): boolean {',
 	'\tconst name = (theme as ShellBarTheme & { name?: unknown }).name;',
-	'\tif (typeof name === "string" && name.endsWith(" (LOON)")) return [];',
+	'\treturn typeof name === "string" && name.endsWith(" (LOON)");',
+	'}',
+	'',
+	'function barBrandSegments(theme: ShellBarTheme, text: string, options: { bold?: boolean; hidden?: boolean } = {}): string[] {',
+	'\tif (options.hidden || loonThemeActive(theme)) return [];',
 	'\treturn [options.bold ? theme.fg(ROLE.BRAND, theme.bold(text)) : theme.fg(ROLE.BRAND, text)];',
+	'}',
+].join('\n');
+
+// The header's usage affordance. Under a LOON theme the shortcut hint goes, and a
+// segment with nothing to report goes with it: a bare "usage" is noise, not an
+// affordance. The shortcut itself stays registered; only the reminder is silenced.
+const SHELL_BAR_USAGE_ANCHOR = [
+	'function usageSegmentText(windows: UsageWindow[], theme: ShellBarTheme, stage: UsageStage, hint: string | undefined, paint?: GaugePaint): string {',
+	'\tconst label = theme.fg(USAGE_LABEL_ROLE, "usage");',
+	'\tconst shown = stage === "primary" ? windows.slice(0, 1) : windows;',
+	'\tconst body = shown.map((window) => usageWindowText(window, theme, stage === "full", paint)).join(` ${theme.fg(ROLE.LABEL, "·")} `);',
+	'\tconst head = body.length > 0 ? `${label} ${body}` : label;',
+	'\treturn hint ? `${head} ${theme.fg(ROLE.LABEL, "·")} ${theme.fg(USAGE_HINT_ROLE, hint)}` : head;',
+	'}',
+].join('\n');
+const SHELL_BAR_USAGE_REPLACEMENT = [
+	'function usageSegmentText(windows: UsageWindow[], theme: ShellBarTheme, stage: UsageStage, hint: string | undefined, paint?: GaugePaint): string | undefined {',
+	'\t// LOON banner patch: with a theme LOON generated the header stops advertising',
+	'\t// the usage shortcut, and a segment with nothing to report is dropped whole',
+	'\t// rather than left as an orphan "usage". The shortcut stays registered; only',
+	'\t// this reminder is silenced.',
+	'\tconst loon = loonThemeActive(theme);',
+	'\tconst label = theme.fg(USAGE_LABEL_ROLE, "usage");',
+	'\tconst shown = stage === "primary" ? windows.slice(0, 1) : windows;',
+	'\tconst body = shown.map((window) => usageWindowText(window, theme, stage === "full", paint)).join(` ${theme.fg(ROLE.LABEL, "·")} `);',
+	'\tif (loon && body.length === 0) return undefined;',
+	'\tconst head = body.length > 0 ? `${label} ${body}` : label;',
+	'\tconst shownHint = loon ? undefined : hint;',
+	'\treturn shownHint ? `${head} ${theme.fg(ROLE.LABEL, "·")} ${theme.fg(USAGE_HINT_ROLE, shownHint)}` : head;',
 	'}',
 ].join('\n');
 
@@ -130,12 +163,13 @@ const SHELL_BAR_STAGES_ANCHOR = [
 ].join('\n');
 const SHELL_BAR_STAGES_REPLACEMENT = [
 	'function headerLeftStages(model: ShellHeaderModel, theme: ShellBarTheme, showModelDetails: boolean, presentation?: Presentation): string[][] {',
-	'\t// LOON banner patch: minimal density dropped the brand by slicing it off every',
-	'\t// stage; keeping that here means the stages below are built from the segments',
-	'\t// that actually show.',
+	'\t// LOON banner patch: both decisions live here now, because minimal density and a',
+	'\t// LOON theme each take the brand away, and the stages must be built from the',
+	'// segments that actually show. The arithmetic below is the same as it always was.',
+	'\tconst loon = loonThemeActive(theme);',
 	'\tconst brandSegments = presentation?.density === "minimal" ? [] : barBrandSegments(theme, HEADER_BRAND, { bold: true });',
 	'\tconst location = locationSegment(model, theme);',
-	'\tif (!showModelDetails) return brandSegments.length > 0 ? [[...brandSegments, location], brandSegments] : [[location]];',
+	'\tif (!showModelDetails) return loon ? [[location]] : [[...brandSegments, location], brandSegments];',
 	'\tconst withEffort = executionSegment(model.modelId, model.effort, theme);',
 	'\tconst modelOnly = executionSegment(model.modelId, undefined, theme);',
 ].join('\n');
@@ -151,12 +185,15 @@ const SHELL_BAR_STAGES_TAIL_ANCHOR = [
 ].join('\n');
 const SHELL_BAR_STAGES_TAIL_REPLACEMENT = [
 	'\tconst withBrand = (segments: string[]) => [...brandSegments, ...segments];',
+	'\t// The brand-alone stage stays for every theme that can paint a brand, exactly as',
+	'\t// it was, empty included when density took the brand; with a LOON theme it would',
+	'\t// be an empty stage and nothing else, so it goes.',
 	'\treturn [',
 	'\t\twithBrand([location, withProfile]),',
 	'\t\twithBrand([location, withEffort]),',
 	'\t\twithBrand([location, modelOnly]),',
 	'\t\twithBrand([modelOnly]),',
-	'\t\t...(brandSegments.length > 0 ? [brandSegments] : []),',
+	'\t\t...(loon ? [] : [brandSegments]),',
 	'\t];',
 ].join('\n');
 
@@ -182,6 +219,7 @@ export const ANCHORS = {
 	shellBarStagesTail: SHELL_BAR_STAGES_TAIL_ANCHOR,
 	shellBarCallsite: SHELL_BAR_CALLSITE_ANCHOR,
 	shellBarFallback: SHELL_BAR_FALLBACK_ANCHOR,
+	shellBarUsage: SHELL_BAR_USAGE_ANCHOR,
 };
 
 export const TARGETS: TargetSpec[] = [
@@ -222,7 +260,7 @@ export const TARGETS: TargetSpec[] = [
 		// brand gives way to it. Stock themes keep the bar exactly as it was.
 		file: 'lib/shell-bar.ts',
 		md5: 'c5b3819241a587f960834409312a72a0',
-		md5Patched: 'c4392741927c8da26d0b9d24142e3a41',
+		md5Patched: '36afe7b323c27f7c2753a22d08cb57fa',
 		edits: [
 			{ anchor: SHELL_BAR_BRAND_ANCHOR, replacement: SHELL_BAR_BRAND_ANCHOR + '\n\n' + SHELL_BAR_BRAND_ADDITION },
 			{ anchor: SHELL_BAR_MINIMAL_ANCHOR, replacement: SHELL_BAR_MINIMAL_REPLACEMENT },
@@ -230,6 +268,7 @@ export const TARGETS: TargetSpec[] = [
 			{ anchor: SHELL_BAR_STAGES_TAIL_ANCHOR, replacement: SHELL_BAR_STAGES_TAIL_REPLACEMENT },
 			{ anchor: SHELL_BAR_CALLSITE_ANCHOR, replacement: SHELL_BAR_CALLSITE_REPLACEMENT },
 			{ anchor: SHELL_BAR_FALLBACK_ANCHOR, replacement: SHELL_BAR_FALLBACK_REPLACEMENT },
+			{ anchor: SHELL_BAR_USAGE_ANCHOR, replacement: SHELL_BAR_USAGE_REPLACEMENT },
 		],
 	},
 ];

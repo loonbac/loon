@@ -37,3 +37,33 @@ L1. "Cuarto destino del parche en `lib/shell-bar.ts`: la marca del header se ocu
     nombre no está: marca visible. Sin espacios dobles, sin filas en blanco y sin tramo
     `[brand]` vacío cuando la marca se oculta. Con tema stock las filas del header deben
     quedar idénticas a hoy: eso es el caso que protege a los demás."
+
+## Ampliación: la pista de uso
+
+Con el mismo tema LOON activo, el header deja de anunciar el atajo de uso.
+
+S7. La pista `· alt+u` no se pinta en el header. El atajo sigue registrado
+    (`extensions/gentle-shell.ts:1991-1993`): ocultar la pista no es desregistrar.
+S8. Sin ventanas de uso (sin datos del proveedor, o cuerpo vacío) el segmento entero
+    desaparece: nunca un `usage` huérfano sin gauges.
+S9. Con datos, los gauges se pintan como hoy; lo único que se calla es la pista.
+    Con tema stock, comportamiento idéntico al de hoy.
+S10. Una sola condición de «tema LOON activo» (`loonThemeActive`), compartida por la
+    marca y la pista; no dos copias del `endsWith`.
+
+T6 (S7-S9) `usageSegmentText` devuelve `undefined` cuando no hay nada que contar, y
+   nunca pinta la pista bajo LOON — commit `?`
+T7 (S10) `loonThemeActive()` extraído y usado por `barBrandSegments` y por el uso —
+   commit `?`
+T8 (S9) Frames reales por combinación de tema y densidad — commit `?`
+
+Una corrección de rumbo: la primera versión quitaba el tramo final `[brand]` para
+*todos* los temas, y eso desplazaba la cascada de respaldo — con tema stock y densidad
+minimal a 80 columnas el header pasaba de `model` a `~ ⟡ model`. El tramo final se
+conserva para todo tema que pueda pintar marca; bajo LOON desaparece porque quedaría
+vacío. La densidad minimal vuelve a tomar exactamente la misma lista que antes.
+
+L2 (usuario, verbatim): "tambien que borra del header usage · alt+u".
+L3. Interpretación declarada y no silenciosa: ambas reglas son condicionales al tema
+    LOON; con tema stock nada cambia. Si el usuario quería la pista fuera siempre,
+    se cambia.
