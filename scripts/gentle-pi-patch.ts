@@ -47,9 +47,13 @@ export interface TargetSpec {
 	/** md5 of the untouched 4.5.1 build. */
 	md5: string;
 	edits: PatchEdit[];
+	/** md5 of the exact bytes this version writes. */
+	md5Patched?: string;
+	/** md5 of the bytes the previous version wrote, when they differ. */
+	md5PatchedV1?: string;
 	/**
-	 * Text that only the current patch version writes. A marked file without it is
-	 * the previous version, which `apply` upgrades over its recorded backup.
+	 * Text that only the current patch version writes. Used to explain a file that
+	 * carries our marker but matches neither version: it was edited afterwards.
 	 */
 	v2Marker?: string;
 }
@@ -78,6 +82,8 @@ export const TARGETS: TargetSpec[] = [
 	{
 		file: 'extensions/gentle-shell.ts',
 		md5: 'ad1bfce79b655fc4f7cae71449d05d88',
+		md5PatchedV1: '8ae96c97de14436e9755608a81579441',
+		md5Patched: 'b808107af050aa1778410fefa67974df',
 		v2Marker: 'Banner color: wallpaper',
 		edits: [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
@@ -87,6 +93,8 @@ export const TARGETS: TargetSpec[] = [
 	{
 		file: 'extensions/startup-banner.ts',
 		md5: '028bd98910468c7076ef31c65f36e09f',
+		// Its patched bytes are the same in both versions: the guard did not change.
+		md5Patched: '79167d2ce9c12de796f7c751778d0b18',
 		edits: [
 			{ anchor: BANNER_EVENT_ANCHOR, replacement: BANNER_EVENT_REPLACEMENT },
 			{ anchor: BANNER_CONFIG_ANCHOR, replacement: BANNER_CONFIG_ANCHOR + '\n' + BANNER_CONFIG_ADDITION },
@@ -100,16 +108,25 @@ export function md5(text: string): string {
 	return createHash('md5').update(text).digest('hex');
 }
 
-/** What the file on disk is, relative to this patch. */
+/**
+ * What the file on disk is, relative to this patch.
+ *
+ * The patched states are decided by md5, not by the marker alone: a file that
+ * carries our marker but no longer matches the bytes we write was edited after
+ * the patch, and `apply` must refuse it instead of pretending it is ours.
+ */
 export function classify(text: string | undefined, spec: TargetSpec): PatchState {
 	if (text === undefined) return 'missing';
-	if (text.includes(PATCH_MARKER)) {
-		// A marked file written by the previous version still has to be upgraded.
-		if (spec.v2Marker === undefined || text.includes(spec.v2Marker)) return 'patched';
-		return 'patched-v1';
-	}
-	if (md5(text) === spec.md5) return 'clean';
+	const digest = md5(text);
+	if (digest === spec.md5) return 'clean';
+	if (spec.md5PatchedV1 !== undefined && digest === spec.md5PatchedV1) return 'patched-v1';
+	if (spec.md5Patched !== undefined && digest === spec.md5Patched) return 'patched';
 	return 'different-version';
+}
+
+/** True when the file carries our marker, so a refusal can say what happened. */
+export function isMarked(text: string | undefined, spec: TargetSpec): boolean {
+	return text !== undefined && text.includes(PATCH_MARKER) && (spec.v2Marker === undefined || text.includes(spec.v2Marker));
 }
 
 export type PatchResult = { ok: true; text: string; changed: boolean } | { ok: false; reason: string };
@@ -302,7 +319,11 @@ export function apply(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numbe
 		}
 		if (state === 'different-version') {
 			console.error(spec.file + ': md5 ' + md5(text ?? '') + ', expected ' + spec.md5 + ' for gentle-pi ' + GENTLE_PI_VERSION);
-			console.error('this file is not the build the patch was written against; nothing was changed');
+			console.error(
+				isMarked(text, spec)
+					? 'this file was patched and edited afterwards; restore it before patching again; nothing was changed'
+					: 'this file is not the build the patch was written against; nothing was changed',
+			);
 			return 2;
 		}
 
