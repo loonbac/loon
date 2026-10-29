@@ -48,7 +48,16 @@ export interface LoonThemeFile {
 
 const SCHEMA = 'https://raw.githubusercontent.com/earendil-works/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json';
 
-/** The 55 colour keys pi's shipped themes bind, in their order. */
+/**
+ * pi's theme API resolves `fg`/`bg` over **colour keys**, not over `vars`: a var such as
+ * `selection` is reachable only through the key bound to it (`selectedBg`). Passing a var
+ * name throws `Unknown theme color`, and a caller that catches it - gentle-pi does, when
+ * it probes a background for its prompt card - silently gets no background at all rather
+ * than a visible error. That is why every surface a caller may probe is bound here as a
+ * key of its own.
+ *
+ * The 55 colour keys pi's shipped themes bind, in their order.
+ */
 const COLOR_KEYS = [
 	'accent', 'border', 'borderAccent', 'borderMuted', 'success', 'error', 'warning', 'muted',
 	'dim', 'text', 'thinkingText', 'selectedBg', 'scrollbarThumb', 'searchMatchBg',
@@ -124,6 +133,19 @@ const COLOR_TO_VAR: Record<(typeof COLOR_KEYS)[number], string> = {
 const paint = (L: number, C: number, H: number): string => oklchToHex({ L, C, H });
 
 /**
+ * A card surface at a given lightness, with the chroma the caller asked for capped by
+ * what the eight-bit hex can actually hold: rounding can push a colour past the ceiling,
+ * and the ceiling is a promise to the caller, not a wish.
+ */
+function cardSurface(lightness: number, hue: number, chroma: number): string {
+	for (let candidate = chroma; candidate >= 0.01; candidate -= 0.001) {
+		const hex = paint(lightness, candidate, hue);
+		if (rgbToOklch(hexToRgb(hex) as Rgb).C <= 0.035) return hex;
+	}
+	return paint(lightness, 0.01, hue);
+}
+
+/**
  * The lightest-fitting surface of one hue at one chroma: the first lightness whose
  * contrast against `background` reaches `minContrast` while its chroma survives the
  * sRGB gamut, and undefined when the range cannot hold it.
@@ -189,8 +211,10 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 
 	const bg = hexToRgb(paint(0.16, low, H)) as Rgb;
 	const accentHex = liftToContrast(accent, bg, 3);
-	// Card surfaces: barely tinted with the accent, never a semantic colour.
-	const surface = Math.min(0.03, Math.max(0.012, tint * 0.45));
+	// Card surfaces: tinted with the accent, never a semantic colour. The top of the
+	// allowed range, because the lightness window below is narrow and a dull grey is
+	// worse than a visible tint.
+	const surface = Math.min(0.034, Math.max(0.02, tint * 0.6));
 
 	const vars: Record<string, string> = {
 		bg: paint(0.16, low, H),
@@ -217,9 +241,9 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 		warning: paint(0.82, 0.13, 75),
 		error: paint(0.72, 0.15, 25),
 		success: paint(0.8, 0.12, 150),
-		toolSuccessBg: paint(0.2335, surface, H),
-		toolPendingBg: paint(0.2343, surface, H),
-		toolErrorBg: paint(0.235, surface, H),
+		toolSuccessBg: cardSurface(0.2335, H, surface),
+		toolPendingBg: cardSurface(0.2343, H, surface),
+		toolErrorBg: cardSurface(0.235, H, surface),
 		syntaxComment: paint(0.62, 0.05, rotateHue(H, 30)),
 		syntaxKeyword: paint(0.78, 0.1, rotateHue(H, 60)),
 		syntaxFunction: paint(0.82, 0.1, rotateHue(H, 120)),

@@ -85,7 +85,7 @@ export function ensureWallpaperTheme(options: EnsureOptions): EnsureOutcome {
 		const themeTime = modifiedAt(path);
 		const accentTime = options.accentModifiedAt;
 		const fresh = themeTime !== undefined && (accentTime === undefined || themeTime >= accentTime);
-		if (fresh && sameAccent(existing, options.accent)) return { result: 'up-to-date', path };
+		if (fresh && sameDerivation(existing, options.accent)) return { result: 'up-to-date', path };
 	}
 
 	const theme = deriveWallpaperTheme(options.accent);
@@ -100,10 +100,16 @@ export function ensureWallpaperTheme(options: EnsureOptions): EnsureOutcome {
 	return { result: 'written', path };
 }
 
-/** A fresh file still has to match today's accent: the wallpaper may have changed. */
-function sameAccent(theme: LoonThemeFile, accent: Rgb): boolean {
+/**
+ * A fresh file still has to match what the derivation produces today.
+ *
+ * Comparing only the accent colour is not enough: the palette rules themselves change
+ * (a surface was green yesterday and is tinted today) while the accent stays the same,
+ * and the file would look "up to date". The whole variable set is the fingerprint.
+ */
+function sameDerivation(theme: LoonThemeFile, accent: Rgb): boolean {
 	const expected = deriveWallpaperTheme(accent);
-	return theme.vars?.bg === expected.vars.bg && theme.vars?.accent === expected.vars.accent;
+	return JSON.stringify(theme.vars) === JSON.stringify(expected.vars) && JSON.stringify(theme.colors) === JSON.stringify(expected.colors);
 }
 
 /** The names currently installed, for the status line. */
