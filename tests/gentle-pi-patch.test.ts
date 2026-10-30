@@ -420,10 +420,9 @@ test('every pinned digest is what the patch produces from the pristine file', ()
  *   fa3cc525  lib/shell-prompt.ts          bcbb260
  *   23bb9997  lib/visual-customize-view.ts cd944eb
  *
- * Recomputing needs those objects, so that half skips - loudly - where they are not: a
- * tarball has no history. What never skips is the first half, which needs no git: every
- * accepted digest must have a producer, and every producer must still be accepted. */
-test('every accepted digest is produced by the commit that claims it', async (t) => {
+ * The record also names the commit each set came from: that is provenance, not proof - what
+ * this test proves is that the registered strings still produce the digest. */
+test('every accepted digest is produced by the edit set recorded for it', async () => {
 	const record = JSON.parse(readFileSync(join(PRISTINE, '..', 'patch-digests.json'), 'utf8')) as {
 		producers: Record<string, { file: string; commit: string }>;
 	};
@@ -441,39 +440,32 @@ test('every accepted digest is produced by the commit that claims it', async (t)
 	const stale = Object.keys(record.producers).filter((digest) => !accepted.some((item) => item.digest === digest));
 	assert.deepEqual(stale, [], 'recorded producers for digests that are no longer accepted: ' + stale.map((digest) => digest.slice(0, 8)).join(', '));
 
-	// Each digest, recomputed by the engine of the commit that produced it.
-	const work = mkdtempSync(join(tmpdir(), 'loon-lineage-'));
-	const pathFor = (commit: string) => join(work, commit + '.mts');
-	let gitAvailable = true;
-	for (const commit of new Set(Object.values(record.producers).map((entry) => entry.commit))) {
-		try {
-			const source = execFileSync('git', ['show', commit + ':scripts/gentle-pi-patch.ts'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-			writeFileSync(pathFor(commit), source);
-		} catch {
-			gitAvailable = false;
-			break;
-		}
-	}
-	if (!gitAvailable) {
-		t.skip('the history is not in this checkout, so the engines cannot be read; the producers are still checked');
-		return;
-	}
-	for (const item of accepted) {
-		const entry = record.producers[item.digest]!;
-		const engine = (await import(pathToFileURL(pathFor(entry.commit)).href)) as {
-			TARGETS: Array<{ file: string; edits: Array<{ anchor: string; replacement: string }> }>;
-			patchText: (text: string, spec: unknown) => { ok: true; text: string } | { ok: false; reason: string };
-			md5: (text: string) => string;
-		};
-		const historical = engine.TARGETS.find((target) => target.file === item.file);
-		assert.ok(historical, entry.commit + ' has no target for ' + item.file);
-		const pristine = readFileSync(join(PRISTINE, item.file), 'utf8');
-		const patched = engine.patchText(pristine, historical);
-		assert.ok(patched.ok, entry.commit + ' cannot patch ' + item.file + ' any more');
+	// The lineage: the edit set that reproduced each accepted digest, recorded in the fixture
+	// so this test reads no git. Recomputing needs only the pristine sources and these strings.
+	const lineage = JSON.parse(readFileSync(join(PRISTINE, 'digest-lineage.json'), 'utf8')) as Array<{
+		digest: string;
+		file: string;
+		commit: string;
+		edits: Array<{ anchor: string; replacement: string }>;
+	}>;
+	const registered = new Set(lineage.map((entry) => entry.digest));
+	const unregistered = accepted.filter((item) => !registered.has(item.digest));
+	assert.deepEqual(
+		unregistered,
+		[],
+		'accepted digests that no recorded edit set reproduces: ' + unregistered.map((item) => item.file + ' ' + item.digest.slice(0, 8)).join(', '),
+	);
+	const unused = lineage.filter((entry) => !accepted.some((item) => item.digest === entry.digest));
+	assert.deepEqual(unused.map((entry) => entry.digest.slice(0, 8)), [], 'recorded edit sets for digests that are no longer accepted');
+
+	for (const entry of lineage) {
+		const pristine = readFileSync(join(PRISTINE, entry.file), 'utf8');
+		const patched = patchText(pristine, { file: entry.file, md5: '', edits: entry.edits } as TargetSpec);
+		assert.ok(patched.ok, entry.digest.slice(0, 8) + ': the recorded edit set no longer applies to ' + entry.file);
 		assert.equal(
-			patched.ok ? engine.md5(patched.text) : '',
-			item.digest,
-			item.file + ' ' + item.digest.slice(0, 8) + ': commit ' + entry.commit + ' no longer produces it',
+			patched.ok ? md5(patched.text) : '',
+			entry.digest,
+			entry.file + ' ' + entry.digest.slice(0, 8) + ': the edit set of ' + entry.commit + ' does not produce it',
 		);
 	}
 });
