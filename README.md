@@ -300,12 +300,14 @@ cuando el scrollback se corta.
 Dos piezas, una de este repositorio y otra de gentle-pi:
 
 - `extensions/inline-work.ts` escribe un registro con la forma de `TaskRecord` (agente
-  `gentle-ai-worker`, modo `inline`) por sesión, en `~/.pi/agent/state/loon-inline/`. Se
-  crea con la primera llamada de herramienta, late cada 20 segundos mientras corre, se
-  cierra como `completed` con la primera línea de la respuesta final cuando el turno
-  termina, y se borra al cerrar la sesión. Es solo presentación: no hay proceso hijo, no
-  hay segunda llamada al modelo, no cambia el conteo de tokens y el registro nunca es
-  autoridad de lanzamiento.
+  `gentle-ai-worker`, modo `inline`) por unidad de trabajo, en
+  `~/.pi/agent/state/loon-inline/`. Se crea con la primera llamada de herramienta, late
+  cada 20 segundos mientras corre, se cierra como `completed` con la primera línea de la
+  respuesta final cuando el turno termina, y se borra al cerrar la sesión. Es solo
+  presentación: no hay proceso hijo, no hay segunda llamada al modelo, no cambia el conteo
+  de tokens y el registro nunca es autoridad de lanzamiento. Además, al cerrarse, la unidad
+  se guarda **con su hilo** en el directorio de historia de gentle-pi —eso es lo que la hace
+  sobrevivir a una recarga, y está más abajo—.
 - `scripts/apply-inline-carrier-patch.mjs` enseña a `visibleTasks()` de gentle-pi, en
   `extensions/gentle-agents.ts`, a dibujar ese registro. Nada más del paquete cambia.
 
@@ -364,14 +366,33 @@ node scripts/apply-inline-carrier-patch.mjs apply
 Y si quieres el transcript de antes sin tocar `node_modules`, `LOON_INLINE_WORK=0` apaga las
 dos mitades a la vez.
 
-Relacionado, y esto se ve como defecto sin serlo: la tarjeta se crea con la primera llamada a
-una herramienta y se borra al apagar la sesión. Recargar o reiniciar pi deja la sesión sin
-registro, así que abrir `/gentle:agents` justo después de recargar muestra solo las tareas de
-subagentes, y la tarjeta vuelve en cuanto el trabajo hace su primera llamada. Que falte ahí no
-significa que el registro esté roto.
+### Lo que sobrevive a una recarga
 
-Cinco límites que conviene conocer. El panel completo de `/gentle:agents` lee el store de
-gentle-pi directamente y no verá el registro (la tarjeta lateral sí lo hace). El contador de
+El registro vivo es estado de pantalla y se borra con la sesión, pero la unidad cerrada no:
+al cerrarse se escribe `{ task, thread }` en el directorio de historia del propio gentle-pi,
+`~/.pi/agent/gentle-agents/tasks/loon-inline-<sesión>-<n>.json`. Ese archivo es dato, no
+código: se escribe en un directorio que gentle-pi ya lee, no se parchea nada del paquete, y su
+forma es la que su `loadHistory` acepta (la comprueba una prueba que lo lee con el lector de
+gentle-pi). Al reabrir la sesión, gentle-pi la vuelve a meter en su store, así que
+`/gentle:agents` la lista y abrirla muestra su transcripción: las llamadas de la unidad con su
+nombre y un resumen acotado, y el texto del cierre. Nada de eso es el log completo: un panel no
+es un log, y un volcado de herramienta ahí es ruido.
+
+Una unidad por registro, con su número: `…-1`, `…-2`. La segunda nunca sobrescribe la primera,
+y el número se reparte mirando lo que ya hay en disco, así que una sesión reanudada sigue la
+cuenta en vez de reutilizar un id tomado.
+
+Dos precisiones, porque las dos se ven como defecto sin serlo. Mientras una unidad corre, el
+panel completo todavía no la muestra —el panel lee el store de gentle-pi, y el registro vivo no
+entra ahí—: la tarjeta de la derecha sí, y el panel la muestra en cuanto la unidad cierra. Y
+gentle-pi solo restaura historia en una reanudación: su `session_start` restaura cuando el
+motivo es `resume`, o cuando es `startup` y la sesión ya tenía entradas; nunca en una sesión
+nueva, un fork ni un `/reload` en proceso. Si abres `/gentle:agents` después de un `/reload` y
+la tarjeta no está, es esa puerta, no un archivo que falta.
+
+Cinco límites que conviene conocer. El hilo vive dentro del panel; abrir la sesión del hijo
+(Enter) avisa de que esta tarea no tiene archivo de sesión, porque no hay hijo detrás. El
+contador de
 trabajo en curso, en cambio, no cuenta la tarjeta: gentle-pi lo calcula en
 `gentle-agents.ts:573` desde `store.list(...).filter(ownedTaskIds.has(...))`, no desde el
 `visibleTasks()` que el parche reescribe, y el registro nunca entra al store ni a
