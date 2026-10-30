@@ -96,7 +96,7 @@ imagen ni prompt.
 ## Pruebas
 
 ```sh
-npm install   # dev dependencies for the tests and the type checker
+npm install   # dependencias de desarrollo para las pruebas y el comprobador de tipos
 npm test      # node --experimental-strip-types --test
 npm run typecheck
 ```
@@ -158,9 +158,9 @@ encabezados y marca— usen el `#RRGGBB` de `~/.config/mpvpaper/accent.txt`; `te
   que este acento no le afecta, por diseño.
 
 ```sh
-/loon:tui accent wallpaper   # follow the wallpaper
-/loon:tui accent banner      # back to gentle-pi's colour
-/loon:tui accent theme       # back to the theme
+/loon:tui accent wallpaper   # sigue el fondo de pantalla
+/loon:tui accent banner      # vuelve al color de gentle-pi
+/loon:tui accent theme       # vuelve al tema
 ```
 
 
@@ -369,13 +369,10 @@ sobrescrituras, ni la cabecera de hoy.
 
 ## Convenciones de idioma
 
-- **Español**: `README.md` y la documentación de usuario del repositorio, es decir, lo que
-  lee alguien que llega al proyecto.
-- **Inglés**: `odd/tasks/*.md`, todos, tanto los existentes como los nuevos. Son artefactos
-  de trabajo del agente, no documentación de usuario, y no se traducen ni al pasar.
-- **Inglés**: `AGENTS.md`, que es el manifiesto del proyecto y no se traduce, y `NOTICE`,
-  que es una atribución legal.
-- **Inglés**: comentarios de código, identificadores y mensajes de commit.
+- Documentación de usuario (`README.md` y la documentación del proyecto): **español**.
+- Artefactos de trabajo del agente (`odd/tasks/*.md`): **inglés**.
+- `AGENTS.md` y `NOTICE`: **inglés** (manifiesto del usuario y atribución legal).
+- Comentarios de código, identificadores y mensajes de commit: **inglés**.
 
 ## Licencia
 
