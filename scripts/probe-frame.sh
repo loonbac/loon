@@ -13,7 +13,7 @@
 # even when the probe fails, is interrupted, or the terminal dies.
 #
 #   scripts/probe-frame.sh capture --label NAME --width 80 --height 32 --theme "Gentle"
-#   scripts/probe-frame.sh capture --label BAND --theme "Wallpaper (LOON)" --sgr
+#   scripts/probe-frame.sh capture --label BAND --theme "Wallpaper (LOON)" --sgr --card-style loon
 #       --sgr keeps the escape sequences, so a frame carries the colours it was painted with.
 #   scripts/probe-frame.sh snapshot --label NAME          # prints the state directory
 #   scripts/probe-frame.sh restore --state DIR            # restores and verifies
@@ -270,7 +270,7 @@ report_partial() {
 }
 
 capture() {
-	local label=probe width=80 height=32 theme=Gentle density="" settle=14 out="" start_dir=$HOME gentle_dir=""
+	local label=probe width=80 height=32 theme=Gentle density="" card_style="" settle=14 out="" start_dir=$HOME gentle_dir=""
 	local override_command=""
 	local sgr=0
 	local extra=()
@@ -281,6 +281,7 @@ capture() {
 			--height) height=$2; shift 2 ;;
 			--theme) theme=$2; shift 2 ;;
 			--density) density=$2; shift 2 ;;
+			--card-style) card_style=$2; shift 2 ;;
 			--settle) settle=$2; shift 2 ;;
 			--out) out=$2; shift 2 ;;
 			--start-dir) start_dir=$2; shift 2 ;;
@@ -305,6 +306,11 @@ capture() {
 		gentle_dir="$STATE_DIR/gentle-config"
 	fi
 	mkdir -p "$gentle_dir" || die "cannot create $gentle_dir; nothing was started"
+	# The style under test has to travel with the probe: a labelled frame whose config
+	# does not carry that style measures the default and proves nothing.
+	if [ -n "$card_style" ]; then
+		printf '{"schema":"gentle-pi.card-style/v1","style":"%s"}\n' "$card_style" > "$gentle_dir/card-style.json" || die "cannot write the probe's card style; nothing was started"
+	fi
 	if [ -n "$density" ]; then
 		printf '{"schema":"gentle-pi.visual-customization/v1","statusPlacement":"auto","headerPlacement":"top","density":"%s","visibility":{"changes":true,"rdd":true,"agents":true,"todo":true,"usageCost":true,"modelDetails":true,"contextWarning":true}}\n' "$density" > "$gentle_dir/visual-customization.json" || die "cannot write the probe's own config; nothing was started"
 	fi

@@ -232,7 +232,7 @@ const SHELL_PROMPT_2_REPLACEMENT = '\t// float spends one column on a margin and
 const SHELL_PROMPT_3_ANCHOR = 'export interface PromptLayout {\n\twidth: number;\n\tnativeWidth: number;\n\tprefixWidth: number;\n\tbackground: string;\n}';
 const SHELL_PROMPT_3_REPLACEMENT = 'export interface PromptLayout {\n\twidth: number;\n\tnativeWidth: number;\n\tprefixWidth: number;\n\tbackground: string;\n\t/** Which painted chrome drew this row: float\'s margin, or loon\'s flush rule. */\n\tchrome?: "float" | "loon";\n}';
 const SHELL_PROMPT_4_ANCHOR = '\tconst clipped = truncateToWidth(line, layout.nativeWidth, "");\n\tconst content = borderColor("▎") + " " + clipped + " ".repeat(Math.max(0, layout.nativeWidth - visibleWidth(clipped))) + " ";\n\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m ";';
-const SHELL_PROMPT_4_REPLACEMENT = '\tconst clipped = truncateToWidth(line, layout.nativeWidth, "");\n\tconst padding = " ".repeat(Math.max(0, layout.nativeWidth - visibleWidth(clipped)));\n\tif (layout.chrome === "loon") {\n\t\t// Rule in column 0, text in column 2, two columns of air on the right.\n\t\tconst content = borderColor("▎") + " " + clipped + padding;\n\t\treturn layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m  ";\n\t}\n\tconst content = borderColor("▎") + " " + clipped + padding + " ";\n\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m ";';
+const SHELL_PROMPT_4_REPLACEMENT = '\tconst clipped = truncateToWidth(line, layout.nativeWidth, "");\n\tconst padding = " ".repeat(Math.max(0, layout.nativeWidth - visibleWidth(clipped)));\n\tif (layout.chrome === "loon") {\n\t\t// Rule in column 0, text in column 2, two columns of air on the right. The first\n\t\t// byte is the rule glyph itself, with no escape before it, for the same reason the\n\t\t// float row starts with a bare space: a row whose first cell is an escape loses its\n\t\t// ESC when the prompt editor trims that cell, and the terminal prints the parameter.\n\t\t// The rule therefore takes the terminal\'s default colour, and the accent surface is\n\t\t// armed from column 1.\n\t\tconst content = " " + clipped + padding;\n\t\treturn "▎" + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m  ";\n\t}\n\tconst content = borderColor("▎") + " " + clipped + padding + " ";\n\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m ";';
 
 // The third Card style row needs its own preview line, or the menu prints an
 // undefined sample for it.
@@ -347,7 +347,7 @@ export const TARGETS: TargetSpec[] = [
 		// Card style loon: lib/shell-prompt.ts
 		file: 'lib/shell-prompt.ts',
 		md5: '6dccc1c4bf36e217d308a67c5e690c14',
-		md5Patched: '0d07a750ae6162d2c8bbfbda7760e55f',
+		md5Patched: '5bd10c1347200edb2f181e7631e67b52',
 		edits: [
 			{ anchor: SHELL_PROMPT_1_ANCHOR, replacement: SHELL_PROMPT_1_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_2_ANCHOR, replacement: SHELL_PROMPT_2_REPLACEMENT },
