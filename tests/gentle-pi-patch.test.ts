@@ -229,6 +229,11 @@ test('the v2 rows add the wallpaper colour and return the accent to banner', () 
 		'the label must decide on the width the layout reports',
 	);
 	assert.ok(text.includes('return (fits ? full : short) + suffix;'), 'the fallback label is missing');
+	// The mark is LOON's own switch, and it has to be reachable from the menu: the
+	// command that used to carry it is going away.
+	assert.ok(text.includes('Mark: '), 'the menu has no mark row');
+	assert.ok(text.includes('mark: loonSettings.mark === false'), 'the mark row does not toggle the setting');
+	assert.ok(text.includes('Mark saved.'), 'the mark row reports nothing when it saves');
 	assert.ok(!text.includes('Banner rose:'), 'the old rose row survived');
 });
 
