@@ -39,6 +39,7 @@ import { createTranscriptTransformer, transcriptMode } from './lib/inline-transc
 import {
 	INLINE_RESULT_MAX,
 	addText,
+	addThinking,
 	addToolEnd,
 	addToolStart,
 	boundedArgs,
@@ -80,6 +81,9 @@ export const DEFAULT_HEARTBEAT_MS = 20_000;
  * person still remembers asking for it.
  */
 export const IDLE_CLOSE_MS = 10 * 60 * 1000;
+
+/** How many captured reasoning blocks are remembered against a repaint. */
+const THINKING_CAPTURED_MAX = 100;
 
 /** Test seams: nothing here changes behaviour in a real session. */
 export interface InlineWorkDeps {
@@ -250,10 +254,32 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		// The answer of the current turn, untruncated, kept so the transcript can
 		// refuse to collapse it even after the turn is over.
 		let closingFull: string | undefined;
+		// The reasoning blocks already given to the thread in this session. A block is
+		// captured when it stops streaming, and a repaint of the same message is not a
+		// second thought: without this, every repaint would append it again.
+		const thinkingCaptured = new Set<string>();
+
 		const prose = createTranscriptTransformer({
 			mode: proseMode,
 			isLive: () => written && !closed,
 			closingText: () => closingFull,
+			onThinking: (text: string): void => {
+				// Collapsing is not losing: the transcript keeps one line, and the panel
+				// keeps the block. Nothing is captured when no job is open, because there
+				// is no card to show it in.
+				if (!jobOpen) return;
+				const trimmed = text.trim();
+				if (trimmed.length === 0) return;
+				if (thinkingCaptured.has(trimmed)) return;
+				thinkingCaptured.add(trimmed);
+				if (thinkingCaptured.size > THINKING_CAPTURED_MAX) {
+					const oldest = thinkingCaptured.values().next().value;
+					if (oldest !== undefined) thinkingCaptured.delete(oldest);
+				}
+				thread = addThinking(thread, trimmed);
+				const id = currentId();
+				if (id !== undefined && sessionId !== undefined) writeLiveThread(agentHome, sessionId, id, thread);
+			},
 		});
 
 		const currentId = (): string | undefined => (sessionId === undefined || job === 0 ? undefined : jobId(sessionId, job));

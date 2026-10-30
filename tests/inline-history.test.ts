@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { IDLE_CLOSE_MS, createInlineWork } from '../extensions/inline-work.ts';
 import { carrierDirectory, carrierPath, closeRequestPath } from '../extensions/lib/inline-carrier.ts';
+import { INLINE_THINKING_MAX, addThinking, emptyUnitThread } from '../extensions/lib/inline-history.ts';
 
 const SESSION_ID = 'sess-hist-1';
 /** The first job of the session: a job is the work, so it carries its own number. */
@@ -308,6 +309,15 @@ test('three turns inside one job are one record, and the card stays running', ()
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
+});
+
+test('reasoning is a thinking item of its own, and a long one is truncated', () => {
+	const thread = addThinking(addThinking(emptyUnitThread(), 'El primer bloque de razonamiento.'), 'x'.repeat(9000));
+	assert.equal(thread.items[0]?.kind, 'thinking', 'its own kind, so the panel labels it Thinking');
+	assert.equal(thread.items[0]?.text, 'El primer bloque de razonamiento.');
+	assert.equal(thread.items[1]?.kind, 'thinking');
+	assert.ok((thread.items[1]?.text ?? '').length <= INLINE_THINKING_MAX, 'bounded, like every other item');
+	assert.equal(addThinking(thread, '   ').items.length, 2, 'blank reasoning is not an item');
 });
 
 test('a job never shows completed between its turns, not for a moment', () => {

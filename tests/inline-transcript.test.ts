@@ -8,13 +8,15 @@
  * (registerMarkdownTransformer: "a transformer for user and assistant Markdown
  * before Pi renders it in the interactive transcript"), and these tests pin what
  * it must do: collapse the message while the carrier is live, keep it collapsed
- * on a later repaint, never touch a user message or the thinking text, and leave
- * the opening and the closing of the turn legible.
+ * on a later repaint, never touch a user message, collapse the thinking block
+ * under the same knob while handing its full text to whoever keeps the panel,
+ * and leave the opening and the closing of the turn legible.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	MARKER_SUFFIX,
+	THINKING_SUFFIX,
 	TRANSCRIPT_MEMORY,
 	collapseMarker,
 	createTranscriptMemory,
@@ -37,15 +39,19 @@ function transformer(options: {
 	live?: boolean;
 	closing?: string;
 	memory?: number;
+	onThinking?: (text: string, isStreaming: boolean) => void;
 } = {}) {
 	const memory = createTranscriptMemory(options.memory);
 	let live = options.live ?? true;
 	let closing = options.closing;
+	let mode = options.mode ?? 'summary';
 	const built = createTranscriptTransformer({
-		mode: options.mode ?? 'summary',
+		mode,
 		isLive: () => live,
 		closingText: () => closing,
 		memory,
+		...(options.onThinking === undefined ? {} : { onThinking: options.onThinking }),
+		modeOf: () => mode,
 	});
 	return {
 		...built,
@@ -54,6 +60,9 @@ function transformer(options: {
 		},
 		setClosing: (value: string | undefined): void => {
 			closing = value;
+		},
+		setMode: (value: 'summary' | 'off' | 'full'): void => {
+			mode = value;
 		},
 	};
 }
@@ -99,10 +108,55 @@ test('a user message is byte-identical, live or not, in every mode', () => {
 	}
 });
 
-test('thinking is never touched', () => {
+const thinking = (isStreaming = false): { messageType: 'assistant-thinking'; isStreaming: boolean; availableWidth: number } => ({
+	messageType: 'assistant-thinking',
+	isStreaming,
+	availableWidth: 100,
+});
+
+test('a thinking block collapses to one line while the session is live', () => {
 	const t = transformer({ live: true });
-	const context = { messageType: 'assistant-thinking' as const, isStreaming: true, availableWidth: 100 };
-	assert.equal(t.transformer(PARAGRAPHS, context), PARAGRAPHS);
+	const rendered = t.transformer(PARAGRAPHS, thinking());
+	assert.equal(rendered.split('\n').length, 1, 'the reasoning is the noise: one line');
+	assert.ok(rendered.startsWith('▸ '), rendered);
+	assert.ok(rendered.includes(THINKING_SUFFIX), 'and it says what it is: ' + rendered);
+	assert.ok(!rendered.includes(MARKER_SUFFIX), 'thinking is not inline work: ' + rendered);
+});
+
+test('off leaves only the thinking marker, and full leaves the block alone', () => {
+	const off = transformer({ mode: 'off', live: true });
+	assert.equal(off.transformer(PARAGRAPHS, thinking()), THINKING_SUFFIX);
+	const full = transformer({ mode: 'full', live: true });
+	assert.equal(full.transformer(PARAGRAPHS, thinking()), PARAGRAPHS);
+});
+
+test('a collapsed thinking block stays collapsed, and a kept one stays kept', () => {
+	const t = transformer({ live: true });
+	const first = t.transformer(PARAGRAPHS, thinking());
+	t.setLive(false);
+	assert.equal(t.transformer(PARAGRAPHS, thinking()), first, 'a repaint must not bring the noise back');
+	// The mirror bug: a decision taken as "kept" must not be collapsed later by a
+	// mode change any more than a collapsed one may be expanded.
+	const mirror = transformer({ mode: 'full', live: true });
+	assert.equal(mirror.transformer(PARAGRAPHS, thinking()), PARAGRAPHS, 'full keeps the block');
+	mirror.setMode('summary');
+	assert.equal(mirror.transformer(PARAGRAPHS, thinking()), PARAGRAPHS, 'and a later summary must not shrink it');
+});
+
+test('the thinking text reaches the sink when it stops streaming, never while it streams', () => {
+	const seen: Array<{ text: string; streaming: boolean }> = [];
+	const t = transformer({ live: true, onThinking: (text, streaming) => seen.push({ text, streaming }) });
+	t.transformer('Voy pensando en el siguiente paso', thinking(true));
+	assert.equal(seen.length, 0, 'a streaming frame is not a block: capturing it would fill the panel with prefixes');
+	t.transformer(PARAGRAPHS, thinking(false));
+	assert.deepEqual(seen, [{ text: PARAGRAPHS, streaming: false }], 'the whole block, once, for the panel');
+});
+
+test('the closing exemption is about the answer, and never about thinking', () => {
+	const t = transformer({ live: true, closing: PARAGRAPHS });
+	assert.equal(t.transformer(PARAGRAPHS, assistant()), PARAGRAPHS, 'the answer stays legible');
+	const asThinking = t.transformer(PARAGRAPHS, thinking());
+	assert.ok(asThinking.includes(THINKING_SUFFIX), 'the same text as reasoning is collapsed: ' + asThinking);
 });
 
 test('with no carrier, nothing is transformed - and it stays that way', () => {

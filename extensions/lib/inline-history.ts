@@ -68,13 +68,23 @@ export interface UnitTextItem {
 	text: string;
 }
 
+/**
+ * The model's reasoning for a stretch of work. Its own kind, because the panel
+ * labels it Thinking and colours it apart from the prose: collapsing the block
+ * out of the transcript must not lose it, so this is where it lives instead.
+ */
+export interface UnitThinkingItem {
+	kind: 'thinking';
+	text: string;
+}
+
 /** A divider: where one stretch of work ended and the next request began. */
 export interface UnitNoteItem {
 	kind: 'note';
 	text: string;
 }
 
-export type UnitThreadItem = UnitToolItem | UnitTextItem | UnitNoteItem;
+export type UnitThreadItem = UnitToolItem | UnitTextItem | UnitThinkingItem | UnitNoteItem;
 
 export interface UnitThread {
 	items: UnitThreadItem[];
@@ -94,6 +104,13 @@ export const INLINE_TOOL_SUMMARY_MAX = 120;
 
 /** The closing result, as the panel shows it. */
 export const INLINE_RESULT_MAX = 2000;
+
+/**
+ * How much of one reasoning block the panel keeps. Longer than a tool summary,
+ * shorter than a file: enough for the argument, bounded so a long session
+ * cannot grow a thread without limit.
+ */
+export const INLINE_THINKING_MAX = 4000;
 
 export function emptyUnitThread(): UnitThread {
 	return { items: [], dropped: 0, version: 0, limits: { ...INLINE_THREAD_LIMITS } };
@@ -168,6 +185,19 @@ export function addDivider(thread: UnitThread): UnitThread {
  */
 export function addNote(thread: UnitThread, text: string): UnitThread {
 	return push(thread, { kind: 'note', text });
+}
+
+/**
+ * Append one finished reasoning block. Blocks are never merged: each one is its
+ * own item, so the panel reads the order the model thought in.
+ * @param {UnitThread} thread
+ * @param {string} raw
+ * @returns {UnitThread}
+ */
+export function addThinking(thread: UnitThread, raw: string): UnitThread {
+	const text = keepTail(clean(raw), INLINE_THINKING_MAX);
+	if (text.trim().length === 0) return thread;
+	return push(thread, { kind: 'thinking', text });
 }
 
 export function addText(thread: UnitThread, raw: string): UnitThread {

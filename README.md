@@ -361,19 +361,41 @@ En `summary` un mensaje del asistente se dibuja como una línea:
 `off` deja solo `· inline · /gentle:agents`. El texto completo sigue en el panel, dentro de la
 tarjeta del trabajo.
 
+El **razonamiento** del modelo pasa por el mismo interruptor y por el mismo hook, con su propia
+marca, para que quien lee una línea sepa qué está mirando:
+
+```
+▸ Voy a comprobar primero si el hook recibe el pensamiento. · pensamiento · /gentle:agents
+```
+
+Que el hook lo recibe no está supuesto: pi construye el bloque de razonamiento con
+`createMarkdownTransform("assistant-thinking", …)` (`assistant-message.js:118`), así que el
+transformador se invoca con `messageType: "assistant-thinking"` y su salida es lo que se dibuja.
+La única excepción es la configuración que **oculta** los bloques de razonamiento: entonces pi
+dibuja una etiqueta sin Markdown, el transformador no corre y el panel tampoco recibe el bloque.
+
+Y colapsar no es perder: un transformador de Markdown no se puede volver a abrir con `Ctrl+O`, así
+que cada bloque terminado se guarda en el hilo del trabajo como un ítem propio
+(`kind: "thinking"`), que el panel rotula **Thinking**. Se registra cuando deja de transmitirse
+—una instantánea intermedia es un prefijo del bloque, no un bloque—, se recorta a 4000 caracteres,
+y un repintado del mismo mensaje no lo duplica. Si el razonamiento no se fuera al panel, este
+cambio sería peor que el ruido que quita.
+
 Cuatro reglas que hacen esto seguro:
 
-- Solo se transforma un mensaje **del asistente** y solo mientras la sesión trabaja inline. Los
-  mensajes del usuario, el razonamiento del modelo y cualquier mensaje de una sesión sin
-  trabajo inline se dibujan byte por byte como antes.
-- **La primera decisión es la que queda.** Un mensaje que se colapsó mientras la unidad corría
-  sigue colapsado al repintarse, y uno que ya era historia cuando la unidad empezó se queda
-  entero: por eso el transcript no se rellena hacia atrás mientras lees.
+- Solo se transforma un mensaje **del asistente** o un bloque de **razonamiento**, y solo
+  mientras la sesión trabaja inline. Los mensajes del usuario y cualquier mensaje de una sesión
+  sin trabajo inline se dibujan byte por byte como antes.
+- **La primera decisión es la que queda**, en las dos direcciones. Un mensaje —o un bloque de
+  razonamiento— que se colapsó mientras la unidad corría sigue colapsado al repintarse, y uno que
+  ya era historia, o que se dibujó con `full`, se queda entero aunque el modo cambie después: por
+  eso el transcript no se rellena ni se vacía hacia atrás mientras lees.
 - **El cierre del turno se queda legible entero, para siempre.** Al cerrar la unidad se guarda
   el texto exacto de la respuesta y se exime; se reconoce por su texto (o por su arranque, si un
   repintado normaliza los bordes), y se pide un repintado para que aparezca sin tocar una tecla.
   Una respuesta que solo existiera en el panel sería peor que la prosa que se quería esconder.
-- **La memoria está acotada**: 500 decisiones. Al llegar al tope se olvida la más antigua, y ese
+- **La memoria está acotada**: 500 decisiones por cada clase de mensaje (prosa y razonamiento
+  llevan memorias separadas). Al llegar al tope se olvida la más antigua, y ese
   mensaje se vuelve a decidir en su siguiente repintado —colapsado si la unidad sigue viva. Una
   sesión normal no llega ahí; una sesión muy larga puede, y entonces lo peor que pasa es que un
   mensaje viejo cambie de forma al repintarse.
