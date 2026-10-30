@@ -98,6 +98,30 @@ export const IDLE_CLOSE_MS = 10 * 60 * 1000;
  */
 export const INLINE_HEAVY_CALLS = 3;
 
+/**
+ * The tools that keep the record instead of working on the repository.
+ *
+ * A turn of `todo` plus `mem_save` plus one status check is a conversation: it
+ * asks and answers, it does not build anything. Counting bookkeeping as weight
+ * turned exactly such a turn into "heavy work" and hid a narration that was the
+ * answer. An entry ending in `_` is a family prefix; anything else is an exact
+ * name. `codemode` is deliberately absent: it is where the real work of this
+ * environment happens, tests and git included. A new bookkeeping tool is added
+ * here; the threshold itself does not move.
+ */
+export const INLINE_ACCOUNTING_TOOLS: readonly string[] = ['todo', 'mem_', 'orchestrator_'];
+
+/**
+ * Whether a tool call keeps the record rather than working on the repository.
+ * @param {string} name the tool name pi reports
+ * @returns {boolean}
+ */
+export function isAccountingTool(name: string): boolean {
+	const tool = typeof name === 'string' ? name.trim() : '';
+	if (tool.length === 0) return false;
+	return INLINE_ACCOUNTING_TOOLS.some((entry) => (entry.endsWith('_') ? tool.startsWith(entry) : tool === entry));
+}
+
 /** Test seams: nothing here changes behaviour in a real session. */
 export interface InlineWorkDeps {
 	/** Where the carrier files live. Defaults to pi's agent home. */
@@ -287,7 +311,7 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		let thread: UnitThread = emptyUnitThread();
 		// Reasoning written before the card exists: the first call of the turn opens
 		// the job, and this is what it starts from.
-		let pending: UnitThread = emptyUnitThread();
+
 		// True when pi could not hand over the conversation it restored. Until this
 		// process ends its first message, nothing is collapsed or captured: the
 		// alternative is deciding about messages we cannot tell apart from our own.
@@ -310,13 +334,10 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			closingText: () => closingFull,
 			onThinking: (text: string, streaming: boolean): void => {
 				// Collapsing is not losing: the transcript keeps one line, and the panel
-				// keeps the block. A block that happens before the card exists is held
-				// here and becomes the first thing the card shows.
+				// keeps the block. Only a block that was hidden arrives here, and a
+				// block is only hidden once its turn is heavy, which means the card
+				// already exists.
 				if (closed || sessionId === undefined || historyUnread) return;
-				if (!jobOpen) {
-					pending = upsertThinking(pending, text, streaming);
-					return;
-				}
 				thread = upsertThinking(thread, text, streaming);
 				const id = currentId();
 				if (id !== undefined) writeLiveThread(agentHome, sessionId, id, thread);
@@ -343,8 +364,7 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			jobClosedBy = undefined;
 			historyWritten = false;
 			turnOpen = false;
-			thread = pending;
-			pending = emptyUnitThread();
+
 			lastResult = null;
 			turns = 0;
 			toolCalls = 0;
@@ -536,7 +556,6 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			lastRealActivity = 0;
 			lastResult = null;
 			thread = emptyUnitThread();
-			pending = emptyUnitThread();
 			historyWritten = false;
 			stopHeartbeat();
 			// The conversation pi restored is history, not work in progress: seed the
@@ -567,7 +586,8 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			openJob(!turnOpen);
 			turnOpen = true;
 			toolCalls += 1;
-			toolCallsInTurn += 1;
+			// Bookkeeping is not weight: it is the record, not the work.
+			if (!isAccountingTool(event.toolName)) toolCallsInTurn += 1;
 			// The thread is the transcription the owner opens in the panel: one item
 			// per top-level call, with the arguments that name it.
 			thread = addToolStart(thread, {

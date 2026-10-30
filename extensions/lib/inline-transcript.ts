@@ -255,11 +255,13 @@ export function createTranscriptTransformer(options: {
 	const modeOf = options.modeOf ?? ((): TranscriptMode => options.mode);
 
 	/**
-	 * The reasoning path: the same knob, a different marker.
+	 * The reasoning path: the same gates as the prose, a different marker.
 	 *
-	 * A collapsed markdown transform cannot be opened again with the expand key,
-	 * so the whole block is handed to the panel *before* any decision is taken.
-	 * Losing the reasoning would be a worse trade than the noise it replaces.
+	 * Thinking out loud in a light turn is the turn itself, so the block is drawn
+	 * as written - no marker, and nothing to preserve in the panel. A block is only
+	 * collapsed, and only then handed over, when its turn is heavy work; a
+	 * collapsed markdown transform cannot be reopened with the expand key, so
+	 * losing the block would be a worse trade than the noise it replaces.
 	 * @param {string} markdown
 	 * @param {MarkdownTransformContext} context
 	 * @returns {string}
@@ -268,16 +270,6 @@ export function createTranscriptTransformer(options: {
 		const streaming = context?.isStreaming === true;
 		if (markdown.trim().length === 0) return markdown;
 		const decided = thinkingMemory.get(markdown);
-		// Only what this process is writing is captured. A block already decided is
-		// either restored history or a block already given to the panel, and a resume
-		// renders the whole conversation again: capturing there would credit the job
-		// that just started with another job's thinking.
-		if (decided !== 'kept' && decided !== 'exempt') {
-			// Every frame is handed over, not only the last one: pi may finish a block
-			// without drawing it again, and a block that was read must not be lost.
-			// Whoever keeps the panel decides whether a frame grows its item.
-			options.onThinking?.(markdown, streaming);
-		}
 		if (decided === 'kept' || decided === 'exempt') return markdown;
 		if (decided === 'collapsed') return collapseMarker(markdown, modeOf(), THINKING_SUFFIX);
 		// No liveness is not a decision: without a live session there is nobody to
@@ -288,7 +280,18 @@ export function createTranscriptTransformer(options: {
 			if (!streaming) thinkingMemory.set(markdown, 'kept');
 			return markdown;
 		}
+		// Same threshold and same moment of decision as the prose: below it the
+		// block is what the person is reading, and a visible block is not duplicated
+		// in the panel.
+		if (options.isHeavy !== undefined && !options.isHeavy()) {
+			if (!streaming) thinkingMemory.set(markdown, 'kept');
+			return markdown;
+		}
 		if (!streaming) thinkingMemory.set(markdown, 'collapsed');
+		// Every frame is handed over, not only the last one: pi may finish a block
+		// without drawing it again, and a hidden block must not be lost. Whoever
+		// keeps the panel decides whether a frame grows its item.
+		options.onThinking?.(markdown, streaming);
 		return collapseMarker(markdown, modeOf(), THINKING_SUFFIX);
 	};
 
