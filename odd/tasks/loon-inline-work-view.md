@@ -151,6 +151,29 @@ rather than as an error card." A read, a parse or a shape check that fails yield
 no thread, never an entry and never an exception. With the patch absent, or the provider
 absent, the panel behaves exactly as it does today.
 
+S14. **One card per job, not one per request.**
+"one card per job, not one per message the model launches". A session is one job. The card stays
+open for the session and accumulates: every stretch of work between two closing turns appends
+its thread items to the same transcript, in order, behind a divider marking where a new request
+began. The record id is the job, `loon-inline-<sessionId>`, rewritten at every close.
+
+S15. **Totals and status describe the job.**
+"Totals aggregate (tokens, cost, wall time) instead of showing the last unit's numbers, and the
+label reflects the current step, so a running card still looks alive." Tokens, cost and calls
+sum across the session; the wall time is the job's span, so `createdAt`/`startedAt` are set
+once. "Status: running while any unit is open, completed when none is. Do not let a closing unit
+mark the job completed while another is running."
+
+S16. **The records the previous design wrote are merged, not resurrected.**
+"a restore must not resurrect one per unit": gentle-pi restores every file it finds, so the
+numbered files from the previous design are merged into the job record at session start — their
+transcripts in order, behind dividers — and removed once their content is inside.
+
+S17. **Dedupe is keyed by job.**
+"Dedupe stays keyed by job, so the live carrier, the history and the restored record are one
+card." Every inline id of a session resolves to that session's job; when the store already
+serves any of them, the provider adds nothing, and otherwise the newest description wins.
+
 ## Tasks
 
 | ID | Spec | Route | Commit | Outcome |
@@ -167,6 +190,9 @@ absent, the panel behaves exactly as it does today.
 | T18 | S10, S11, S13 | inline | 302c445 | Provider for the overlay: `extensions/lib/inline-overlay.ts`, registered on `globalThis` from `extensions/inline-work.ts` at session start and removed at shutdown. Tasks = live carrier plus this session's history records, deduped by unit number and minus the ids the store already has; thread = the history record's, or the live one from a sidecar `<state>/loon-inline/<sessionId>.thread.json` rewritten as the unit works. Every read is wrapped: a broken file is absent, never an error card. |
 | T19 | S10-S12 | inline | 302c445 | `scripts/apply-inline-carrier-patch.mjs` becomes a two-file patch: `extensions/gentle-agents.ts` (the card list) and `lib/agents-view.ts` (the panel list and its detail). Each anchor exact-once, each failure naming its anchor; `check` reports both files; same backup, same manifest, same digest-verified revert. |
 | T20 | S10-S13 | inline | 302c445 | Tests first: a copy of the installed `lib/` gets the patch, is imported with jiti and rendered, so the assertions are about what the panel draws — one card while the unit runs, one after it closes, none duplicated once the store restored it, a non-inline task unchanged, a malformed record absent, and an anchor mismatch refused before any write. |
+| T22 | S14, S15, S17 | inline | 608f065 | The card is the job: `jobId(sessionId)` as the record id, one file rewritten at every close, the thread accumulating with a `note` divider where a new request began, totals summed and the status taken from the newest description of the job. |
+| T23 | S16 | inline | 608f065 | `consolidateLegacyHistory`: at session start, the numbered records the previous design wrote are merged into the job record and removed, so a resume brings one card. |
+| T24 | S14-S17 | inline | 608f065 | Tests and docs: two requests in one session are one card with both transcripts in order; a restore of that session brings one card; a finished stretch beside a running one says running; the totals add up; a malformed record is still absent; the README explains the job, the divider and the merge. |
 | T21 | S10-S13 | inline | 302c445 | README and this file: the panel now shows a running unit and flips it, the two patched files, the two anchors, and what a version mismatch does. |
 | T11 | S5 | dropped | The panel entry still has no detail thread: `agents-view.threadWindow` reads `store.thread(id)` and the carrier never enters the store, so a carrier's thread is always empty. Giving it one needs either a thread field the view reads for non-store ids or a second patch site, so it is its own slice and the collapsed detail stays in the session log until then. |
 | T6 | S6 | inline | pending | Measure the actual inline/delegated split of recent sessions and report before changing any policy. |
@@ -335,3 +361,46 @@ record.
 The live install was patched with this script (both files verified, backup
 `loon-inline-carrier-patch-20261030124038`). A gentle-pi whose anchors moved is refused with
 the file and the anchor named, and neither file is written.
+
+L20. Work order for T16 and T17, verbatim where it decides behaviour. T16: "He rejects one card
+per unit: 'one card per job, not one per message the model launches'. Today every turn is a unit,
+so a long session piles up cards for what a human reads as one piece of work." With it: the card
+stays open and accumulates with a divider; totals aggregate; "Status: running while any unit is
+open, completed when none is. Do not let a closing unit mark the job completed while another is
+running"; persistence keeps working and "a restore must not resurrect one per unit"; "Dedupe
+stays keyed by job".
+T17 is a diagnosis, not a fix: "Establish where those lines can come from: our provider writing
+into the transcript, the patched `visibleTasks()` card being echoed, the overlay leaving its
+content in scrollback on close, or a repaint artifact of the view. Do not patch anything to hide
+it until you can name the source."
+What the read establishes, so far: (1) no LOON code writes to the transcript - the extension
+writes files, the patched `visibleTasks()` returns a list, and the patched `agents-view.ts`
+returns strings from `Component.render()`; the collapsed renderer can only remove rows, never
+add them. (2) The panel is a pi overlay (`ctx.ui.custom(..., { overlay: true, overlayOptions:
+{ width: '100%', maxHeight: '100%', margin: 0 } })`) and pi-tui composites it into the last
+`termHeight` rows of the frame (`pi-tui/dist/tui.js`, `renderFrame`): `workingHeight =
+Math.max(result.length, termHeight, minLinesNeeded)`, `viewportStart = workingHeight -
+termHeight`, overlay lines written at `viewportStart + row + i`. That function carries a comment
+about a past bug where frame inflation "pushed content into scrollback on terminal widen", which
+is the same class of leak and the same file. (3) In regular (scrollback) TUI mode, a frame taller
+than the terminal is committed, so anything that inflates the frame while the overlay is open is
+a candidate: an overlay that fills the screen (`maxHeight: 100%`, `margin: 0`), a resize, and
+content that changes under it - our provider changes on every step, and the panel repaints every
+second.
+Not yet decided, and not patchable until it is: whether the leak comes from the compositor's
+inflation path or from a repaint after `hide()`. The two facts that decide it need pixels: the
+TUI mode (regular vs fullscreen) and whether the rows appear while the panel is open or only
+after closing it.
+
+L21. Verification for T22-T24. Box `port` (Node v22.23.3, `npm ci` exit 0): targeted
+`inline-history`, `inline-overlay`, `inline-overlay-view` and `inline-carrier-patch` exit 0
+with 29 pass and 9 skipped (the ones that need the installed gentle-pi); `npm run typecheck`
+exit 2 with only the box's pre-existing `theme-file` TS2307, and 0 errors on this machine;
+`npm test` 244 tests / 229 pass / 2 fail / 13 skipped, the two failures the `probe-frame`
+tmux pair identical at base. On this machine all 244 pass.
+One consequence worth writing down rather than discovering: when a resume has already put the
+job record in gentle-pi's store, the provider defers to it, because adding ours would be the
+same job twice. The card then shows the restored status until the process restarts, while its
+detail keeps updating live. It is the price of never showing two cards and it is the one place
+where "running while any unit is open" does not hold; a session that never disappears from the
+store is not affected.
