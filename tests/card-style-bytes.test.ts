@@ -27,6 +27,44 @@ function bareBackground(rows: readonly string[]): string[] {
 	return offenders;
 }
 
+/**
+ * A theme whose styling callbacks record every SGR parameter they write into an allowed set.
+ * Cards must only paint colors and weights produced by the active theme, never hand-written
+ * escapes injected directly by the renderer.
+ */
+function createRecordingTheme() {
+	const allowed = new Set<string>();
+	const record = (open: string, text: string, close: string) => {
+		allowed.add(open);
+		allowed.add(close);
+		return `\u001b[${open}m${text}\u001b[${close}m`;
+	};
+	const theme = {
+		fg: (_role: string, text: string) => record('38;2;172;168;154', text, '39'),
+		bg: (_role: string, text: string) => record('48;2;61;56;35', text, '49'),
+		bold: (text: string) => record('1', text, '22'),
+	};
+	return { theme, allowed };
+}
+
+/**
+ * Closed-set guardian: every `\u001b[...m` escape sequence in a row must belong to the closed set
+ * of parameters the theme emitted (plus plain resets `''` and `'0'`). If any unexpected escape
+ * appears (such as a hardcoded `\u001b[31m` or an unrecorded background/weight), it is reported
+ * with the offending sequence and a prefix of the containing row.
+ */
+function strayEscapes(rows: readonly string[], allowed: ReadonlySet<string>): string[] {
+	const offenders: string[] = [];
+	for (const row of rows) {
+		for (const match of row.matchAll(/\u001b\[([0-9;]*)m/g)) {
+			const param = match[1] ?? '';
+			if (param === '' || param === '0' || allowed.has(param)) continue;
+			offenders.push(`${match[0]} in ${row.slice(0, 40)}`);
+		}
+	}
+	return offenders;
+}
+
 test('no painted row starts with an escape, in any card style', { skip: !available && 'gentle-pi is not installed here' }, async () => {
 	const { createJiti } = (await import(join(PI_ROOT, 'node_modules', 'jiti', 'lib', 'jiti-static.mjs'))) as {
 		createJiti: (url: string, options: Record<string, unknown>) => { import: (path: string) => Promise<unknown> };
@@ -47,11 +85,7 @@ test('no painted row starts with an escape, in any card style', { skip: !availab
 		renderCard: (card: unknown, theme: unknown, width: number, options: unknown) => string[];
 		CARD_TONE: Record<string, string>;
 	};
-	const theme = {
-		fg: (_role: string, text: string) => `\u001b[38;2;172;168;154m${text}\u001b[39m`,
-		bg: (_role: string, text: string) => `\u001b[48;2;61;56;35m${text}\u001b[49m`,
-		bold: (text: string) => `\u001b[1m${text}\u001b[22m`,
-	};
+	const { theme, allowed } = createRecordingTheme();
 	// The geometry is the invariant behind the byte rule: a style with no left margin puts
 	// the surface in the first cell, and that is the bug this file exists to catch.
 	const geometry = (card as unknown as { CARD_GEOMETRY?: Record<string, { padLeft: number; padRight: number }> }).CARD_GEOMETRY;
@@ -93,6 +127,7 @@ test('no painted row starts with an escape, in any card style', { skip: !availab
 		for (const width of [100, 120, 160]) {
 			const rows = card.renderCard(subject, theme, width, { expanded: true, previewRows: 3, panel: true });
 			assert.deepEqual(bareBackground(rows), [], `${style} at ${width} columns rendered a bare background escape`);
+			assert.deepEqual(strayEscapes(rows, allowed), [], `${style} at ${width} columns rendered an unexpected escape sequence`);
 			const painted = rows.join('\n');
 			// The same rule stated as the agent asked: every background parameter counted is a
 			// background parameter preceded by ESC.
@@ -196,4 +231,47 @@ test('the loon band surface ends where the bar surface ends', { skip: !available
 		assert.equal(bandCells[0], ' ', 'the row starts with its margin, never with an escape or the glyph');
 		assert.equal(bandCells[1], '▎', 'the rule glyph sits in column 1, inside the surface');
 	}
+});
+
+// The defect pinned as a test: bareBackground only checks for stripped ESC before [48;2;
+// so a raw escape like \u001b[31m passes through silently. The closed set catches it.
+test('the guardian catches raw escapes that bareBackground misses', { skip: !available && 'gentle-pi is not installed here' }, async () => {
+	const { createJiti } = (await import(join(PI_ROOT, 'node_modules', 'jiti', 'lib', 'jiti-static.mjs'))) as {
+		createJiti: (url: string, options: Record<string, unknown>) => { import: (path: string) => Promise<unknown> };
+	};
+	const jiti = createJiti(import.meta.url, {
+		moduleCache: false,
+		interopDefault: true,
+		fsCache: false,
+		alias: {
+			'@earendil-works/pi-tui': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-tui', 'dist', 'index.js'),
+			'@earendil-works/pi-agent-core': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-agent-core', 'dist', 'index.js'),
+			'@earendil-works/pi-ai': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-ai', 'dist', 'compat.js'),
+		},
+	});
+	const card = (await jiti.import(join(GENTLE, 'lib', 'shell-card.ts'))) as {
+		setCardStyle: (style: string) => void;
+		renderCard: (card: unknown, theme: unknown, width: number, options: unknown) => string[];
+	};
+	const { theme, allowed } = createRecordingTheme();
+	const subject = {
+		title: 'read',
+		subtitle: 'a.ts',
+		body: ['one line', 'two lines'],
+		tone: 'info',
+		glyph: '✿',
+	};
+
+	card.setCardStyle('loon');
+	const rows = card.renderCard(subject, theme, 120, { expanded: true, previewRows: 3, panel: true });
+	const original = rows.find((row) => row.includes('[48;2;')) ?? rows[0]!;
+	const tampered = `${original}\u001b[31m`;
+
+	// bareBackground only looks for [48;2;... escapes whose ESC was stripped, missing \u001b[31m entirely:
+	assert.deepEqual(bareBackground([tampered]), [], 'bareBackground misses the raw escape');
+
+	// The closed set checks all escapes against what the theme emitted, reporting the stray escape:
+	const offenders = strayEscapes([tampered], allowed);
+	assert.equal(offenders.length, 1, 'strayEscapes must report the injected escape');
+	assert.ok(offenders[0]!.includes('\u001b[31m'), 'offender must identify the offending escape');
 });
