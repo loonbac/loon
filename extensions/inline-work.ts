@@ -41,10 +41,11 @@ import {
 	addToolEnd,
 	addToolStart,
 	boundedArgs,
+	addDivider,
+	consolidateLegacyHistory,
 	emptyUnitThread,
-	nextUnitNumber,
+	jobId,
 	toolSummary,
-	unitId,
 	writeUnitHistory,
 	type UnitThread,
 } from './lib/inline-history.ts';
@@ -191,17 +192,21 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		let historyWritten = false;
 
 		/**
-		 * The unit number and its thread belong to one stretch of work between two
-		 * closing turns. The first tool call after a close starts the next unit, so
-		 * a second unit gets its own id and never overwrites the first.
+		 * A unit is one stretch of work between two closing turns, and the job is the
+		 * session: the first tool call after a close starts the next unit inside the
+		 * same card, appending its work to the same transcript behind a divider. The
+		 * card never changes identity between units, so a long session reads as one
+		 * piece of work instead of one card per request.
 		 */
 		const startUnit = (): void => {
-			if (sessionId === undefined || (unit > 0 && !historyWritten && status === INLINE_STATUS.RUNNING)) return;
-			unit = nextUnitNumber(agentHome, sessionId, unit);
-			thread = emptyUnitThread();
+			if (sessionId === undefined) return;
+			// A second call inside the same unit is the same unit.
+			if (unit > 0 && !historyWritten && status === INLINE_STATUS.RUNNING) return;
+			if (unit > 0) thread = addDivider(thread);
+			unit += 1;
 			historyWritten = false;
 		};
-		const currentId = (): string | undefined => (sessionId === undefined || unit === 0 ? undefined : unitId(sessionId, unit));
+		const currentId = (): string | undefined => (sessionId === undefined || unit === 0 ? undefined : jobId(sessionId));
 
 		const snapshot = (): InlineCarrierRecord | undefined => {
 			if (sessionId === undefined) return undefined;
@@ -320,6 +325,10 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			// what makes a unit appear while it runs, without a restart; withdrawing
 			// it at shutdown leaves the panel exactly as gentle-pi ships it.
 			installOverlayPanel({ agentHome });
+			// A session that ran the previous design has one record per unit; merge
+			// them now, before gentle-pi restores anything, so it comes back as the
+			// one card it is.
+			if (sessionId !== undefined) consolidateLegacyHistory(agentHome, sessionId);
 		}));
 
 		pi.on('tool_call', safeHandler((event: ToolCallEvent, ctx: ExtensionContext): void => {

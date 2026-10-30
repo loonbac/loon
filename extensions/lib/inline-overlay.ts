@@ -53,25 +53,25 @@ export interface OverlayThread {
 	limits: { maxItems: number; maxOutputChars: number };
 }
 
+/** The id of a session's job. One session is one job, so one card. */
+export function jobCardId(sessionId: string): string {
+	return 'loon-inline-' + sessionId;
+}
+
 /**
- * The unit an id names, whatever source it came from: two records of the same
- * unit share a key, and a numberless id from before units existed is its own
- * legacy key so it can be recognised and dropped.
- *
- * The session id has to be given: it can end in digits itself, so splitting the
- * id on its last dash would read a session as a unit.
+ * The job an id belongs to. Every inline id of a session is that session's job,
+ * including the numbered ids an older LOON wrote one per unit, so a session that
+ * ran the previous design still resolves to a single card.
  * @param {string} id
  * @param {string} [sessionId]
  * @returns {string}
  */
-export function unitKey(id: string, sessionId?: string): string {
+export function jobKey(id: string, sessionId?: string): string {
 	if (sessionId !== undefined && sessionId.length > 0) {
-		const prefix = 'loon-inline-' + sessionId;
-		if (id === prefix) return prefix + '#legacy';
-		if (id.startsWith(prefix + '-')) return prefix + '#' + id.slice(prefix.length + 1);
+		const job = jobCardId(sessionId);
+		if (id === job || id.startsWith(job + '-')) return job;
 	}
-	const match = /^(.*)-(\d+)$/.exec(id);
-	return match === null ? id + '#legacy' : match[1] + '#' + match[2];
+	return id;
 }
 
 function readJson(path: string): unknown {
@@ -110,6 +110,11 @@ function asThread(value: unknown): OverlayThread | undefined {
 			? { maxItems: Number(value.limits.maxItems) || 0, maxOutputChars: Number(value.limits.maxOutputChars) || 0 }
 			: { maxItems: 0, maxOutputChars: 0 },
 	};
+}
+
+/** When a record last said something happened, for picking the truest one. */
+function activity(task: OverlayTask): number {
+	return typeof task.lastActivityAt === 'number' ? task.lastActivityAt : 0;
 }
 
 function fresh(task: OverlayTask, now: number): boolean {
@@ -162,26 +167,21 @@ function liveCarrier(agentHome: string, sessionId: string, now: number): Overlay
 export function overlayTasks(agentHome: string, sessionId: string, known: string[] = [], now: number = Date.now()): OverlayTask[] {
 	try {
 		if (sessionId.length === 0) return [];
-		const knownIds = new Set(known);
-		const byUnit = new Map<string, OverlayTask>();
-		for (const task of historyRecords(agentHome, sessionId)) {
-			if (knownIds.has(task.id)) continue;
-			const key = unitKey(task.id, sessionId);
-			if (!byUnit.has(key)) byUnit.set(key, task);
-		}
+		const job = jobCardId(sessionId);
+		// The store already serves this job: that card is the card. Adding ours on
+		// top of it would be the same work twice.
+		if (known.some((id) => jobKey(id, sessionId) === job)) return [];
+		// Everything that describes this job - the persisted records (one per unit
+		// in the previous design, one for the job now) and the live carrier - is one
+		// card, and the newest description of it is the true one: the carrier while
+		// a unit runs, the closed record when the turn ended.
+		const candidates = historyRecords(agentHome, sessionId);
 		const live = liveCarrier(agentHome, sessionId, now);
-		if (live !== undefined && !knownIds.has(live.id)) {
-			const key = unitKey(live.id, sessionId);
-			if (!byUnit.has(key)) byUnit.set(key, live);
-		}
-		// A numberless carrier is a record from before units had numbers. Once the
-		// session has any numbered record, that numberless one is the same unit as
-		// the first: keeping both prints the same work twice.
-		const numbered = new Set([...byUnit.keys()].filter((key) => !key.endsWith('#legacy')).map((key) => key.slice(0, key.lastIndexOf('#'))));
-		for (const key of [...byUnit.keys()]) {
-			if (key.endsWith('#legacy') && numbered.has(key.slice(0, key.length - '#legacy'.length))) byUnit.delete(key);
-		}
-		return [...byUnit.values()].sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+		if (live !== undefined) candidates.push(live);
+		if (candidates.length === 0) return [];
+		let newest = candidates[0] as OverlayTask;
+		for (const task of candidates) if (activity(task) > activity(newest)) newest = task;
+		return [{ ...newest, id: job }];
 	} catch {
 		return [];
 	}
@@ -197,18 +197,21 @@ export function overlayTasks(agentHome: string, sessionId: string, known: string
  */
 export function overlayThread(agentHome: string, id: string): OverlayThread | undefined {
 	try {
+		// The live sidecar first: it is rewritten on every step, so it is the only
+		// source that has the work a unit is doing right now.
+		const liveDir = join(agentHome, 'state', 'loon-inline');
+		if (existsSync(liveDir)) {
+			for (const name of readdirSync(liveDir)) {
+				if (!name.endsWith('.thread.json')) continue;
+				const live = readJson(join(liveDir, name));
+				if (!isObject(live) || live.id !== id) continue;
+				const thread = asThread(live.thread);
+				if (thread !== undefined) return thread;
+			}
+		}
 		const history = readJson(join(agentHome, 'gentle-agents', 'tasks', id + '.json'));
 		if (isObject(history)) {
 			const thread = asThread(history.thread);
-			if (thread !== undefined) return thread;
-		}
-		const liveDir = join(agentHome, 'state', 'loon-inline');
-		if (!existsSync(liveDir)) return undefined;
-		for (const name of readdirSync(liveDir)) {
-			if (!name.endsWith('.thread.json')) continue;
-			const live = readJson(join(liveDir, name));
-			if (!isObject(live) || live.id !== id) continue;
-			const thread = asThread(live.thread);
 			if (thread !== undefined) return thread;
 		}
 		return undefined;
