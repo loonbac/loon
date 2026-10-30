@@ -249,7 +249,7 @@ export function collectPiCommandNames(sessionCommands: readonly { name: string }
 
 /**
  * Pick the tip lines: always the `fixed` commands, then `count` samples from
- * the pool. Returns slash-prefixed names, e.g. `[/use-default-tui, /model]`.
+ * the pool. Returns slash-prefixed names, e.g. `[/model, /theme]`.
  */
 export function pickSlashCommandTips(
 	availableNames: readonly string[],

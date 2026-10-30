@@ -469,9 +469,9 @@ export type PatchResult = { ok: true; text: string; changed: boolean } | { ok: f
 
 /** Apply every edit of one target to its text. Idempotent and anchor-checked. */
 /**
- * The promise the patch makes, checked on its own output: the marker is there and every
- * replacement landed exactly once. An anchor that resolves is not enough if the result
- * does not contain what it was supposed to write.
+ * The promise the patch makes, checked on its own output: every replacement landed
+ * exactly once. An anchor that resolves is not enough if the result does not contain what
+ * it was supposed to write.
  */
 export function verifyPatched(text: string, spec: TargetSpec): string | undefined {
 	// No marker check: not every target's replacement carries it, and the promise that
