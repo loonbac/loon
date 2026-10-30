@@ -334,20 +334,72 @@ test('every anchor of every target reports where it lives', () => {
 
 /* The band's row count is what pi's mouse model reads. The patch that leaves the label
  * slot without a surface keeps the native count for loon - so loon needs no row shift -
- * while float still opens with a padding row and does. The two edits travel together: the
- * day the label goes back inside the surface, the shift has to go back with it. */
-test('the label slot stays outside the surface and the mouse shift stays chrome-aware', () => {
+ * while float still opens with a padding row and does.
+ *
+ * The limit, stated: there is no behavioural proof of the mouse mapping, and there cannot
+ * be one here - it would need pi's editor, which these tests replace with a double. What
+ * can desynchronise is the label row and the shift, so that pair is what is asserted, with
+ * the row numbers spelled out. */
+test('the label slot and the mouse shift stay in step', () => {
 	const shell = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
 	const prompt = TARGETS.find((target) => target.file === 'lib/shell-prompt.ts')!;
-	const labelOutside = prompt.edits.some((edit) => edit.replacement.includes('layout.chrome === "loon" ? label : floatPromptRow(""'));
-	const chromeAwareShift = shell.edits.some((edit) => edit.replacement.includes('const shift = layout.chrome === "loon" ? 0 : 1;'));
-	assert.equal(
-		chromeAwareShift,
-		labelOutside,
+	const labelOutside = prompt.edits.some((edit) => edit.replacement.includes('layout.chrome === "loon" ? label'));
+	const mouseSource = shell.edits.map((edit) => edit.replacement).join('\n');
+	const shift = /layout\.chrome === "loon" \? (\d) : (\d)/.exec(mouseSource);
+	const loonShift = shift ? Number(shift[1]) : 1;
+	const floatShift = shift ? Number(shift[2]) : 1;
+	const expected = labelOutside ? { loonShift: 0, floatShift: 1 } : { loonShift: 1, floatShift: 1 };
+	assert.deepEqual(
+		{ loonShift, floatShift },
+		expected,
 		labelOutside
-			? 'the label is painted outside the surface but the mouse rows are shifted unconditionally'
-			: 'the mouse rows are chrome-aware although the label still opens the surface',
+			? 'the label is painted outside the surface, so loon must not shift its mouse rows and float must shift exactly one'
+			: 'the label opens the surface, so both chromes must shift exactly one mouse row',
 	);
+});
+
+/* A digest nobody checks is a digest that drifts. These fixtures are the pristine 4.5.1
+ * sources of the seven targets, committed so the test reads neither git history nor the
+ * user's install: every anchor occurs once and the edits must produce the pinned digest. */
+const PRISTINE = join(dirname(new URL(import.meta.url).pathname), 'fixtures', 'gentle-pi-4.5.1');
+
+test('every pinned digest is what the patch produces from the pristine file', () => {
+	for (const target of TARGETS) {
+		const pristine = readFileSync(join(PRISTINE, target.file), 'utf8');
+		assert.equal(md5(pristine), target.md5, target.file + ': the fixture is not the pinned pristine build');
+		const patched = patchText(pristine, target);
+		assert.ok(patched.ok, target.file + ': the patch no longer applies to the pristine fixture');
+		if (!patched.ok) continue;
+		assert.equal(
+			md5(patched.text),
+			target.md5Patched,
+			target.file + ': the pinned patched digest is not what the edits produce; recompute md5Patched or fix the edits',
+		);
+	}
+});
+
+/* The other direction, and the reason the lists exist: a digest that already shipped has to
+ * keep answering 'patched-v1', or whoever has that build installed is refused instead of
+ * upgraded. The record is a fixture; the lists may only grow. */
+test('every digest that shipped is still accepted', () => {
+	const recorded = JSON.parse(readFileSync(join(PRISTINE, '..', 'patch-digests.json'), 'utf8')) as Record<
+		string,
+		{ md5Patched: string; md5PatchedV1: string[] }
+	>;
+	for (const target of TARGETS) {
+		const past = recorded[target.file];
+		assert.ok(past, target.file + ' is missing from the digest record');
+		const accepted = new Set<string>([target.md5Patched ?? '', ...(target.md5PatchedV1 ?? [])]);
+		for (const digest of [past.md5Patched, ...past.md5PatchedV1]) {
+			assert.ok(
+				accepted.has(digest),
+				target.file + ': ' + digest + ' shipped and is no longer accepted; an install at that build would be refused',
+			);
+		}
+		const legacy = target.md5PatchedV1 ?? [];
+		assert.equal(new Set(legacy).size, legacy.length, target.file + ': md5PatchedV1 repeats a digest');
+		assert.ok(!legacy.includes(target.md5Patched ?? 'x'), target.file + ': the current digest is also listed as legacy');
+	}
 });
 
 test('check shows the installed version beside the pinned one', async () => {

@@ -275,7 +275,9 @@ test("the band's first row is the label, painted without surface", { skip: !avai
 		assert.equal(paintedColumns(rows[1]!)[0], 1, 'the band starts in column 1 at ' + width);
 		for (const [index, row] of rows.entries()) {
 			if (index === 0) continue;
-			const right = Math.max(...paintedColumns(row));
+			const columns = paintedColumns(row);
+			assert.ok(columns.length > 0, 'band row ' + index + ' at ' + width + ' painted no column at all');
+			const right = Math.max(...columns);
 			assert.equal(right, width - 1, 'band row ' + index + ' at ' + width + ' closes its surface at column ' + right);
 		}
 		// The label row is as wide as the band, so the two blocks end on the same column.

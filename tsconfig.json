@@ -19,5 +19,8 @@
   "include": [
     "extensions/**/*.ts",
     "tests/**/*.ts"
+  ],
+  "exclude": [
+    "tests/fixtures/**"
   ]
 }
