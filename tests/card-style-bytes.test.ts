@@ -17,6 +17,11 @@ const PI_ROOT = join(homedir(), '.local', 'share', 'loon-pi', 'npm-prefix', 'lib
 
 const available = existsSync(join(GENTLE, 'lib', 'shell-card.ts')) && existsSync(join(PI_ROOT, 'package.json'));
 
+/** The width pi itself measures with, so a test never re-invents it from string length. */
+const { visibleWidth } = (await import(join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-tui', 'dist', 'index.js'))) as {
+	visibleWidth: (text: string) => number;
+};
+
 /** The visible columns that carry the surface, decoded from the row's own escapes. */
 function paintedColumns(row: string): number[] {
 	const columns: number[] = [];
@@ -281,7 +286,15 @@ test("the band's first row is the label, painted without surface", { skip: !avai
 			assert.equal(right, width - 1, 'band row ' + index + ' at ' + width + ' closes its surface at column ' + right);
 		}
 		// The label row is as wide as the band, so the two blocks end on the same column.
-		assert.equal(cells[0]!.length, cells[1]!.length, 'the label row is ' + cells[0]!.length + ' cells and the band ' + cells[1]!.length + ' at ' + width);
+		// Columns, not string length: a wide glyph is one character and two cells, and this
+		// is the rule that already cost this project a defect.
+		const labelWidth = visibleWidth(cells[0]!);
+		const bandWidth = visibleWidth(cells[1]!);
+		assert.equal(
+			labelWidth,
+			bandWidth,
+			'the label row is ' + labelWidth + ' columns and the band ' + bandWidth + ' at ' + width,
+		);
 	}
 });
 
