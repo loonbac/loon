@@ -210,11 +210,11 @@ const SHELL_BAR_CALLSITE_REPLACEMENT =
 const SHELL_CARD_1_ANCHOR = 'export const CARD_STYLE = {\n\tNEON: "neon",\n\tFLOAT: "float",\n} as const;';
 const SHELL_CARD_1_REPLACEMENT = 'export const CARD_STYLE = {\n\tNEON: "neon",\n\tFLOAT: "float",\n\tLOON: "loon",\n} as const;';
 const SHELL_CARD_2_ANCHOR = 'export function cardStyle(): CardStyle {\n\treturn styleState[CARD_STYLE_SLOT] === CARD_STYLE.NEON ? CARD_STYLE.NEON : CARD_STYLE.FLOAT;\n}';
-const SHELL_CARD_2_REPLACEMENT = '// Every style is one geometry: how far the panel is inset on each side, and whether it\n// paints a tone background at all. float and neon keep the numbers they always had; loon\n// puts the border in column 0 and the text in column 2, with two columns of air on the\n// right, so the chrome and the conversation share one content box.\ninterface CardGeometry {\n\tbackground: boolean;\n\tpadLeft: number;\n\tpadRight: number;\n}\n\nconst CARD_GEOMETRY: Record<CardStyle, CardGeometry> = {\n\tneon: { background: false, padLeft: 0, padRight: 0 },\n\tfloat: { background: true, padLeft: 1, padRight: 1 },\n\tloon: { background: true, padLeft: 0, padRight: 2 },\n};\n\nfunction cardGeometry(): CardGeometry {\n\treturn CARD_GEOMETRY[cardStyle()] ?? CARD_GEOMETRY.float;\n}\n\nexport function cardStyle(): CardStyle {\n\tconst stored = styleState[CARD_STYLE_SLOT];\n\treturn stored === CARD_STYLE.NEON || stored === CARD_STYLE.LOON ? stored : CARD_STYLE.FLOAT;\n}';
+const SHELL_CARD_2_REPLACEMENT = '// Every style is one geometry: how far the panel is inset on each side, and whether it\n// paints a tone background at all. float and neon keep the numbers they always had; loon\n// puts the border in column 0 and the text in column 2, with two columns of air on the\n// right, so the chrome and the conversation share one content box.\ninterface CardGeometry {\n\tbackground: boolean;\n\tpadLeft: number;\n\tpadRight: number;\n}\n\nconst CARD_GEOMETRY: Record<CardStyle, CardGeometry> = {\n\tneon: { background: false, padLeft: 0, padRight: 0 },\n\tfloat: { background: true, padLeft: 1, padRight: 1 },\n\tloon: { background: true, padLeft: 1, padRight: 1 },\n};\n\nfunction cardGeometry(): CardGeometry {\n\treturn CARD_GEOMETRY[cardStyle()] ?? CARD_GEOMETRY.float;\n}\n\nexport function cardStyle(): CardStyle {\n\tconst stored = styleState[CARD_STYLE_SLOT];\n\treturn stored === CARD_STYLE.NEON || stored === CARD_STYLE.LOON ? stored : CARD_STYLE.FLOAT;\n}';
 const SHELL_CARD_3_ANCHOR = '\treturn cardStyle() === CARD_STYLE.FLOAT && Math.floor(width) >= FLOAT_MIN_WIDTH ? panelOpener(theme, tone) : "";';
 const SHELL_CARD_3_REPLACEMENT = '\treturn cardGeometry().background && Math.floor(width) >= FLOAT_MIN_WIDTH ? panelOpener(theme, tone) : "";';
 const SHELL_CARD_4_ANCHOR = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst margin = " ".repeat(FLOAT_MARGIN);\n\treturn rows.map((row) => `${margin}${open}${row.replace(BG_CLEARING, (reset) => reset + open)}${BG_RESET}${margin}`);\n}';
-const SHELL_CARD_4_REPLACEMENT = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst geometry = cardGeometry();\n\tconst left = " ".repeat(geometry.padLeft);\n\tconst right = " ".repeat(geometry.padRight);\n\treturn rows.map((row) => `${left}${open}${row.replace(BG_CLEARING, (reset) => reset + open)}${BG_RESET}${right}`);\n}';
+const SHELL_CARD_4_REPLACEMENT = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst geometry = cardGeometry();\n\tconst left = " ".repeat(geometry.padLeft);\n\tconst right = " ".repeat(geometry.padRight);\n\t// A painted row may not begin with an escape: the first cell has to be printable, or a\n\t// consumer that trims that cell takes the ESC with it and the terminal prints the\n\t// parameter. Every painted geometry therefore keeps padLeft >= 1, and the test asserts\n\t// it from the rendered bytes rather than from this comment.\n\treturn rows.map((row) => `${left}${open}${row.replace(BG_CLEARING, (reset) => reset + open)}${BG_RESET}${right}`);\n}\n';
 const SHELL_CARD_5_ANCHOR = '\tconst inner = target - FLOAT_MARGIN * 2;';
 const SHELL_CARD_5_REPLACEMENT = '\tconst inner = target - cardGeometry().padLeft - cardGeometry().padRight;';
 const SHELL_CARD_6_ANCHOR = '\treturn floatOpener(theme, tone, width) ? cardInnerWidth(Math.floor(width) - FLOAT_MARGIN * 2) : cardInnerWidth(width);';
@@ -232,7 +232,7 @@ const SHELL_PROMPT_2_REPLACEMENT = '\t// float spends one column on a margin and
 const SHELL_PROMPT_3_ANCHOR = 'export interface PromptLayout {\n\twidth: number;\n\tnativeWidth: number;\n\tprefixWidth: number;\n\tbackground: string;\n}';
 const SHELL_PROMPT_3_REPLACEMENT = 'export interface PromptLayout {\n\twidth: number;\n\tnativeWidth: number;\n\tprefixWidth: number;\n\tbackground: string;\n\t/** Which painted chrome drew this row: float\'s margin, or loon\'s flush rule. */\n\tchrome?: "float" | "loon";\n}';
 const SHELL_PROMPT_4_ANCHOR = '\tconst clipped = truncateToWidth(line, layout.nativeWidth, "");\n\tconst content = borderColor("▎") + " " + clipped + " ".repeat(Math.max(0, layout.nativeWidth - visibleWidth(clipped))) + " ";\n\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m ";';
-const SHELL_PROMPT_4_REPLACEMENT = '\tconst clipped = truncateToWidth(line, layout.nativeWidth, "");\n\tconst padding = " ".repeat(Math.max(0, layout.nativeWidth - visibleWidth(clipped)));\n\tif (layout.chrome === "loon") {\n\t\t// Rule in column 0, text in column 2, two columns of air on the right.\n\t\tconst content = borderColor("▎") + " " + clipped + padding;\n\t\treturn layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m  ";\n\t}\n\tconst content = borderColor("▎") + " " + clipped + padding + " ";\n\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m ";';
+const SHELL_PROMPT_4_REPLACEMENT = '\tconst clipped = truncateToWidth(line, layout.nativeWidth, "");\n\tconst padding = " ".repeat(Math.max(0, layout.nativeWidth - visibleWidth(clipped)));\n\tif (layout.chrome === "loon") {\n\t\t// Rule in column 0, text in column 2, two columns of air on the right. The first\n\t\t// byte is the rule glyph itself, with no escape before it, for the same reason the\n\t\t// float row starts with a bare space: a row whose first cell is an escape loses its\n\t\t// ESC when the prompt editor trims that cell, and the terminal prints the parameter.\n\t\t// The rule therefore takes the terminal\'s default colour, and the accent surface is\n\t\t// armed from column 1.\n\t\tconst content = " " + clipped + padding;\n\t\treturn "▎" + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m  ";\n\t}\n\tconst content = borderColor("▎") + " " + clipped + padding + " ";\n\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m ";';
 
 // The third Card style row needs its own preview line, or the menu prints an
 // undefined sample for it.
@@ -323,7 +323,7 @@ export const TARGETS: TargetSpec[] = [
 		// Card style loon: lib/shell-card.ts
 		file: 'lib/shell-card.ts',
 		md5: 'd189f85262f41f5a5e8f590a0c57ed2d',
-		md5Patched: '8dbecc2f2ac057b87ce5c344d7ba5241',
+		md5Patched: '8f3460ef6d3a5222d7a26662bb46b642',
 		edits: [
 			{ anchor: SHELL_CARD_1_ANCHOR, replacement: SHELL_CARD_1_REPLACEMENT },
 			{ anchor: SHELL_CARD_2_ANCHOR, replacement: SHELL_CARD_2_REPLACEMENT },
@@ -347,7 +347,7 @@ export const TARGETS: TargetSpec[] = [
 		// Card style loon: lib/shell-prompt.ts
 		file: 'lib/shell-prompt.ts',
 		md5: '6dccc1c4bf36e217d308a67c5e690c14',
-		md5Patched: '0d07a750ae6162d2c8bbfbda7760e55f',
+		md5Patched: '5bd10c1347200edb2f181e7631e67b52',
 		edits: [
 			{ anchor: SHELL_PROMPT_1_ANCHOR, replacement: SHELL_PROMPT_1_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_2_ANCHOR, replacement: SHELL_PROMPT_2_REPLACEMENT },
