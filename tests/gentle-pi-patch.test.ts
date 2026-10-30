@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import {
 	ANCHORS,
 	GENTLE_PI_VERSION,
@@ -387,14 +388,102 @@ test('every pinned digest is what the patch produces from the pristine file', ()
 	}
 });
 
+/* The rule this one carries: an accepted digest that no commit produces is not accepted. A
+ * legacy entry answers 'patched-v1', so accepting one that never existed would mean telling
+ * an install it is a build we shipped when it is not. The producers were measured from the
+ * objects of the full history (git log --all --full-history), each digest recomputed with the
+ * engine of the commit that produced it, against the pristine fixture:
+ *
+*   24763fed  extensions/gentle-shell.ts   9ed24b0
+ *   7da141c8  extensions/gentle-shell.ts   cd944eb
+ *   8ae96c97  extensions/gentle-shell.ts   dc04964
+ *   945363c3  extensions/gentle-shell.ts   a681ea2
+ *   b1291948  extensions/gentle-shell.ts   fe8e6b0
+ *   b808107a  extensions/gentle-shell.ts   ba881b4
+ *   ec035980  extensions/gentle-shell.ts   bcbb260
+ *   f389ce97  extensions/gentle-shell.ts   c163cb7
+ *   79167d2c  extensions/startup-banner.ts cd944eb
+ *   874f4ca1  lib/card-style-policy.ts     cd944eb
+ *   36afe7b3  lib/shell-bar.ts             9d18d0b
+ *   5b43e312  lib/shell-bar.ts             cd944eb
+ *   c4392741  lib/shell-bar.ts             5c9b999
+ *   8dbecc2f  lib/shell-card.ts            709134f
+ *   8f3460ef  lib/shell-card.ts            cd944eb
+ *   040c2b8c  lib/shell-prompt.ts          3140819
+ *   06182983  lib/shell-prompt.ts          fe8e6b0
+ *   0d07a750  lib/shell-prompt.ts          3ba4f27
+ *   2174a62f  lib/shell-prompt.ts          259fef0
+ *   5bd10c13  lib/shell-prompt.ts          6d1e10c
+ *   6ed83675  lib/shell-prompt.ts          a00f9a4
+ *   993a7f22  lib/shell-prompt.ts          cd944eb
+ *   ddb8bd74  lib/shell-prompt.ts          4af745c
+ *   fa3cc525  lib/shell-prompt.ts          bcbb260
+ *   23bb9997  lib/visual-customize-view.ts cd944eb
+ *
+ * Recomputing needs those objects, so that half skips - loudly - where they are not: a
+ * tarball has no history. What never skips is the first half, which needs no git: every
+ * accepted digest must have a producer, and every producer must still be accepted. */
+test('every accepted digest is produced by the commit that claims it', async (t) => {
+	const record = JSON.parse(readFileSync(join(PRISTINE, '..', 'patch-digests.json'), 'utf8')) as {
+		producers: Record<string, { file: string; commit: string }>;
+	};
+	const accepted: Array<{ file: string; digest: string }> = [];
+	for (const target of TARGETS) {
+		accepted.push({ file: target.file, digest: target.md5Patched ?? '' });
+		for (const digest of target.md5PatchedV1 ?? []) accepted.push({ file: target.file, digest });
+	}
+	const unproduced = accepted.filter((item) => record.producers[item.digest] === undefined);
+	assert.deepEqual(
+		unproduced,
+		[],
+		'accepted digests with no producer in the record: ' + unproduced.map((item) => item.file + ' ' + item.digest.slice(0, 8)).join(', '),
+	);
+	const stale = Object.keys(record.producers).filter((digest) => !accepted.some((item) => item.digest === digest));
+	assert.deepEqual(stale, [], 'recorded producers for digests that are no longer accepted: ' + stale.map((digest) => digest.slice(0, 8)).join(', '));
+
+	// Each digest, recomputed by the engine of the commit that produced it.
+	const work = mkdtempSync(join(tmpdir(), 'loon-lineage-'));
+	const pathFor = (commit: string) => join(work, commit + '.mts');
+	let gitAvailable = true;
+	for (const commit of new Set(Object.values(record.producers).map((entry) => entry.commit))) {
+		try {
+			const source = execFileSync('git', ['show', commit + ':scripts/gentle-pi-patch.ts'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+			writeFileSync(pathFor(commit), source);
+		} catch {
+			gitAvailable = false;
+			break;
+		}
+	}
+	if (!gitAvailable) {
+		t.skip('the history is not in this checkout, so the engines cannot be read; the producers are still checked');
+		return;
+	}
+	for (const item of accepted) {
+		const entry = record.producers[item.digest]!;
+		const engine = (await import(pathToFileURL(pathFor(entry.commit)).href)) as {
+			TARGETS: Array<{ file: string; edits: Array<{ anchor: string; replacement: string }> }>;
+			patchText: (text: string, spec: unknown) => { ok: true; text: string } | { ok: false; reason: string };
+			md5: (text: string) => string;
+		};
+		const historical = engine.TARGETS.find((target) => target.file === item.file);
+		assert.ok(historical, entry.commit + ' has no target for ' + item.file);
+		const pristine = readFileSync(join(PRISTINE, item.file), 'utf8');
+		const patched = engine.patchText(pristine, historical);
+		assert.ok(patched.ok, entry.commit + ' cannot patch ' + item.file + ' any more');
+		assert.equal(
+			patched.ok ? engine.md5(patched.text) : '',
+			item.digest,
+			item.file + ' ' + item.digest.slice(0, 8) + ': commit ' + entry.commit + ' no longer produces it',
+		);
+	}
+});
+
 /* The other direction, and the reason the lists exist: a digest that already shipped has to
  * keep answering 'patched-v1', or whoever has that build installed is refused instead of
  * upgraded. The record is a fixture; the lists may only grow.
  *
- * The limit, declared: the recalculation above proves that the patch produces the digest it
- * declares. The lineage of each LEGACY digest cannot be proven here - it would mean vendoring
- * the patched output of every historical version - and that is not worth the weight, so a
- * legacy entry is trusted to the record, not recomputed. */
+ * The rule now: an accepted digest that no commit produces is not accepted. The record names
+ * the commit that produced each one, and the next test recomputes it there. */
 test('every digest that shipped is still accepted', () => {
 	const recorded = JSON.parse(readFileSync(join(PRISTINE, '..', 'patch-digests.json'), 'utf8')) as {
 		version: string;
