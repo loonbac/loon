@@ -331,11 +331,23 @@ escribió: el manifiesto guarda ese `patchedMd5`, y cuando el respaldo es más v
 trae, se recompone desde los bytes respaldados. Si gentle-pi se actualizó, o alguien tocó
 el archivo después, se niega en vez de pisar una versión más nueva y decir que salió bien.
 
-Tres límites que conviene conocer. El panel completo de `/gentle:agents` lee el store de
+La tercera pieza no necesita parche. Mientras la sesión tiene registro, `extensions/inline-work.ts`
+registra un renderer con `pi.registerToolRenderer` que no dibuja ninguna fila para
+`read`, `bash`, `grep`, `find`, `ls`, `edit` y `write`: pi dibuja un componente vacío de
+una herramienta con `renderShell: "self"` como cero líneas, así que el transcript se queda
+con la prosa del asistente y su resumen de cierre. Todo lo demás conserva su dibujo: los
+subagentes reales, las preguntas que esperan tu respuesta, `todo`, `codemode` y cualquier
+otra herramienta. Una llamada que falla delega en el renderer que tenía antes, para que el
+error nunca se esconda, y sin registro —sesión ociosa, o `LOON_INLINE_WORK=0`— no se
+registra renderer alguno y todo se dibuja exactamente como antes.
+
+Cuatro límites que conviene conocer. El panel completo de `/gentle:agents` lee el store de
 gentle-pi directamente y no verá el registro (la tarjeta lateral sí lo hace). Una fila
 terminada desaparece de la tarjeta a los 60 segundos, exactamente como la de un subagente
-real. Y colapsar el render no reduce el contexto: para eso hay que delegar o partir el
-trabajo, que es otra decisión. Apagar todo esto es `LOON_INLINE_WORK=0`.
+real. La tarjeta del panel todavía no tiene hilo de detalle, así que el detalle que el
+transcript deja de dibujar se lee en el log de la sesión; darle uno es la tarea
+siguiente. Y colapsar el render no reduce el contexto: para eso hay que delegar o partir
+el trabajo, que es otra decisión. Apagar todo esto es `LOON_INLINE_WORK=0`.
 
 ### Medir un frame
 
