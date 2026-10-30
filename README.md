@@ -378,6 +378,10 @@ sobrescrituras, ni la cabecera de hoy.
 
 ## Cuando gentle-pi cambia
 
+Después de actualizar `pi` o gentle-pi, correr `check` antes que `apply`: si el resultado es
+`different-version`, el problema se arregla ahí, no abriendo `pi` y descubriendo que el banner
+no está.
+
 El menú es texto insertado en un paquete ajeno, así que la pregunta es qué pasa cuando
 gentle-pi se actualiza. La respuesta son dos reglas, y la primera es la que importa:
 
