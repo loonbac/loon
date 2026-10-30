@@ -87,6 +87,17 @@ export const DEFAULT_HEARTBEAT_MS = 20_000;
  */
 export const IDLE_CLOSE_MS = 10 * 60 * 1000;
 
+/**
+ * How many tool calls make a turn "heavy work" and turn the prose collapse on.
+ *
+ * Below this the turn is a conversation - a status check, a question answered
+ * with two commands - and its narration is what the person is reading, so it is
+ * drawn as written. From the third call on, the narration that follows is work
+ * and goes to the panel. The count is per turn: a long job made of light turns
+ * never inherits the weight of the turn before.
+ */
+export const INLINE_HEAVY_CALLS = 3;
+
 /** Test seams: nothing here changes behaviour in a real session. */
 export interface InlineWorkDeps {
 	/** Where the carrier files live. Defaults to pi's agent home. */
@@ -256,6 +267,9 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		let lastActivityAt = 0;
 		let turns = 0;
 		let toolCalls = 0;
+		// Calls in this turn only: the weight that decides whether its prose is
+		// narration or work. Reset when a turn opens and when one ends.
+		let toolCallsInTurn = 0;
 		let tokens = 0;
 		let cost = 0;
 		// No card exists until the session actually works: an idle session must not
@@ -292,6 +306,7 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			// that call: gating on the card would keep half of every turn in the
 			// transcript forever, because a decision is sticky.
 			isLive: () => sessionId !== undefined && !closed && !historyUnread,
+			isHeavy: () => toolCallsInTurn >= INLINE_HEAVY_CALLS,
 			closingText: () => closingFull,
 			onThinking: (text: string, streaming: boolean): void => {
 				// Collapsing is not losing: the transcript keeps one line, and the panel
@@ -509,6 +524,7 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			lastActivityAt = 0;
 			turns = 0;
 			toolCalls = 0;
+			toolCallsInTurn = 0;
 			tokens = 0;
 			cost = 0;
 			written = false;
@@ -551,6 +567,7 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			openJob(!turnOpen);
 			turnOpen = true;
 			toolCalls += 1;
+			toolCallsInTurn += 1;
 			// The thread is the transcription the owner opens in the panel: one item
 			// per top-level call, with the arguments that name it.
 			thread = addToolStart(thread, {
@@ -611,6 +628,8 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		}));
 
 		pi.on('agent_end', safeHandler((event: AgentEndEvent, ctx: ExtensionContext): void => {
+			// The turn is over whatever we do next: the next one starts at zero calls.
+			toolCallsInTurn = 0;
 			if (closed || !jobOpen) return;
 			const at = now();
 			turnOpen = false;

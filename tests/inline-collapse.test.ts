@@ -19,7 +19,7 @@ import type {
 	ToolRendererResolver,
 	ToolRenderers,
 } from '@earendil-works/pi-coding-agent';
-import { createInlineWork } from '../extensions/inline-work.ts';
+import { INLINE_HEAVY_CALLS, createInlineWork } from '../extensions/inline-work.ts';
 import { COLLAPSED_TOOL_NAMES } from '../extensions/lib/inline-collapse.ts';
 import { carrierPath, type InlineCarrierRecord } from '../extensions/lib/inline-carrier.ts';
 import { liveThreadPath } from '../extensions/lib/inline-overlay.ts';
@@ -215,6 +215,13 @@ function runningUnit(agentHome: string, env: Record<string, string> = {}): FakeP
 	pi.fire('session_start', { type: 'session_start' }, sessionContext());
 	pi.fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path: 'README.md' } }, sessionContext());
 	return pi;
+}
+
+/** A turn heavy enough to collapse the prose that comes after its third call. */
+function heavyTurn(pi: FakePi, calls: number = INLINE_HEAVY_CALLS): void {
+	for (let index = 0; index < calls; index += 1) {
+		pi.fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path: 'file-' + index } }, sessionContext());
+	}
 }
 
 function readCarrier(agentHome: string): InlineCarrierRecord {
@@ -476,10 +483,11 @@ test('a call right after a unit closed still collapses', () => {
 	}
 });
 
-test('the prose of a live turn collapses to one line, and the answer does not', () => {
+test('the prose of a heavy turn collapses to one line, and the answer does not', () => {
 	const agentHome = scratch();
 	try {
 		const pi = runningUnit(agentHome);
+		heavyTurn(pi);
 		const prose = 'Voy a leer el repositorio y después escribir el slice.\n\nCon dos párrafos.';
 		const collapsed = pi.transform(prose);
 		assert.notEqual(collapsed, prose, 'the prose must not reach the transcript whole');
@@ -536,16 +544,74 @@ test('a thinking block collapses to one line and its text reaches the panel', ()
 	}
 });
 
-test('the first prose and the first reasoning of a turn collapse before any tool call opened the card', () => {
+test('the first reasoning of a turn collapses before any tool call opened the card, and its prose does not', () => {
 	const agentHome = scratch();
 	try {
 		const pi = idleSession(agentHome);
 		const prose = 'Primera prosa del turno, antes de cualquier herramienta.\n\nCon dos líneas.';
-		assert.equal(pi.transform(prose).split('\n').length, 1, 'the carrier does not exist yet, and the session does');
+		assert.equal(pi.transform(prose), prose, 'a turn that has not worked yet is a conversation, not work');
 		const reasoning = 'Primer bloque de razonamiento del turno, antes de la herramienta.';
 		const collapsed = pi.transform(reasoning, { messageType: 'assistant-thinking' });
-		assert.equal(collapsed.split('\n').length, 1);
+		assert.equal(collapsed.split('\n').length, 1, 'the reasoning keeps its one line, heavy turn or not');
 		assert.ok(collapsed.includes(THINKING_SUFFIX), collapsed);
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a turn with two tool calls draws all of its prose', () => {
+	const agentHome = scratch();
+	try {
+		const pi = idleSession(agentHome);
+		heavyTurn(pi, INLINE_HEAVY_CALLS - 1);
+		const prose = 'Dos comandos y una respuesta: esto se lee entero.\n\nCon su segunda línea.';
+		assert.equal(pi.transform(prose), prose, 'below the threshold nothing is hidden');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('the third call collapses what comes next, and never what was already drawn', () => {
+	const agentHome = scratch();
+	try {
+		const pi = idleSession(agentHome);
+		heavyTurn(pi, INLINE_HEAVY_CALLS - 1);
+		const before = 'La narración de las dos primeras llamadas.\n\nEntera.';
+		assert.equal(pi.transform(before), before);
+		heavyTurn(pi, 1);
+		const after = 'La narración que ya es trabajo pesado.\n\nCon más.';
+		assert.equal(pi.transform(after).split('\n').length, 1, 'from the third call on, the narration is work');
+		assert.equal(pi.transform(before), before, 'and the decision taken earlier is not revisited');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a conversational turn, with no tools at all, never collapses its prose', () => {
+	const agentHome = scratch();
+	try {
+		const pi = idleSession(agentHome);
+		const first = 'Una respuesta conversacional, sin herramientas.\n\nCon dos párrafos.';
+		assert.equal(pi.transform(first), first);
+		const second = 'Y una segunda respuesta del mismo turno.\n\nTambién entera.';
+		assert.equal(pi.transform(second), second);
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('the counter is per turn: a light turn after a heavy one starts from zero', () => {
+	const agentHome = scratch();
+	try {
+		const pi = idleSession(agentHome);
+		heavyTurn(pi);
+		const heavy = 'Prosa de un turno pesado.\n\nCon dos líneas.';
+		assert.equal(pi.transform(heavy).split('\n').length, 1);
+		// The turn ends, and the next one asks a question with one command.
+		pi.fire('agent_end', { type: 'agent_end', messages: [] }, sessionContext());
+		heavyTurn(pi, 1);
+		const light = 'Un comando y una respuesta.\n\nSe lee entera.';
+		assert.equal(pi.transform(light), light, 'the previous turn weight does not follow the next turn');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
@@ -579,6 +645,7 @@ test('every turn end keeps its own answer legible, and a work message still coll
 	const agentHome = scratch();
 	try {
 		const pi = runningUnit(agentHome);
+		heavyTurn(pi, INLINE_HEAVY_CALLS - 1);
 		const answer = 'Primera respuesta del turno, con dos líneas.\n\nY la segunda.';
 		// The real order: the answer is drawn while it streams, and only then does the
 		// message end. The frame drawn during the turn is collapsed, which is why the
@@ -594,6 +661,7 @@ test('every turn end keeps its own answer legible, and a work message still coll
 		pi.fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path: 'README.md' } }, sessionContext());
 		assert.equal(pi.transform(answer), answer, 'and the next turn does not take it back');
 		// A message that ends with a tool call is work, not an answer.
+		heavyTurn(pi);
 		const work = 'Voy a leer el registro y después el README.';
 		pi.fire(
 			'message_end',
@@ -672,6 +740,10 @@ test('when pi cannot hand over the restored conversation, nothing is decided unt
 			{ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Respuesta de ahora.' }] } },
 			unreadableContext(),
 		);
+		// The turn keeps working: from the threshold on, its own prose is work again.
+		for (let index = 0; index < INLINE_HEAVY_CALLS; index += 1) {
+			pi.fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path: 'f-' + index } }, unreadableContext());
+		}
 		const work = 'Prosa de trabajo de ahora.\n\nCon dos líneas.';
 		assert.equal(pi.transform(work).split('\n').length, 1, 'and the collapse is back for our own work');
 	} finally {

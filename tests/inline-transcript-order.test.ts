@@ -80,7 +80,11 @@ function work(agentHome: string) {
 		for (const handler of handlers.get(event) ?? []) handler(payload, sessionContext());
 	};
 	fire('session_start', { type: 'session_start' });
-	fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path: 'README.md' } });
+	// A heavy turn: below the threshold the prose is never collapsed at all, and
+	// this test is about the order in which a collapsed message changes.
+	for (const path of ['README.md', 'package.json', 'tsconfig.json']) {
+		fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path } });
+	}
 	return { fire, transformers };
 }
 
