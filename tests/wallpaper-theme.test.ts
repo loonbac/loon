@@ -196,9 +196,17 @@ test('border clears its floor on the card surfaces, for every accent', () => {
 	}
 });
 
-test('the derivation carries no var that no role reads', () => {
-	const theme = deriveWallpaperTheme([158, 159, 161]);
-	assert.ok(!('accentDim' in theme.vars), 'accentDim is still derived although no role of colors binds it');
+/* A var that no role of `colors` reads and no `export` token names is a colour that never
+ * gets painted: `accentDim` was one and `bgSubtle` was another. Naming them one at a time
+ * only catches the dead var somebody already noticed, so the rule is what gets asserted -
+ * and `bg`/`bgPanel` stay legal through `export` (`pageBg`, `infoBg`). */
+test('every derived var is read by a role or named by an export token', () => {
+	for (const accent of [[158, 159, 161], [155, 72, 74], [30, 144, 255]] as [number, number, number][]) {
+		const theme = deriveWallpaperTheme(accent);
+		const read = new Set([...Object.values(theme.colors), ...Object.values(theme.export)]);
+		const unread = Object.keys(theme.vars).filter((name) => !read.has(name));
+		assert.deepEqual(unread, [], 'vars nobody reads: ' + unread.join(', ') + ' for accent ' + accent.join(','));
+	}
 });
 
 /* A card surface is not a status: gentle-pi paints INFO/SUCCESS/PENDING/ERROR card

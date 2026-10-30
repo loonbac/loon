@@ -331,7 +331,6 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 		bg: paint(0.16, low, H),
 		bgPanel: paint(0.205, low + 0.005, H),
 		bgElement: paint(0.235, low + 0.008, H),
-		bgSubtle: paint(0.19, low, H),
 		userMessageBg: paint(0.27, mid, H),
 		// A surface is not a success: these two are the accent's own hue, tinted enough to
 		// read as the colour the wallpaper asked for.
