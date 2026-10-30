@@ -245,13 +245,11 @@ class LoonHeader implements Component {
 		const bannerRgb = gentle.accentColor === undefined ? undefined : ACCENT_RGB[gentle.accentColor];
 		const theme = this.deps.theme();
 		const wallpaperRgb = this.deps.wallpaper();
-		// With the generated theme active, the banner follows the wallpaper too, so the
-		// box and the interface cannot disagree about the colour. Derived here, at paint
-		// time; the setting file is never rewritten for it.
-		const accentRgb =
-			theme.name === WALLPAPER_THEME_NAME && wallpaperRgb !== undefined
-				? wallpaperRgb
-				: resolveAccentRgb(this.deps.accent(), bannerRgb, wallpaperRgb);
+		// The setting alone decides, whatever theme is active: a shortcut that made the
+		// generated theme follow the wallpaper left `accent: theme` with no effect at all,
+		// and it went stale the moment the generated theme lifted its accent for contrast.
+		// Derived at paint time; the setting file is never rewritten for it.
+		const accentRgb = resolveAccentRgb(this.deps.accent(), bannerRgb, wallpaperRgb);
 		return renderBanner({
 			width,
 			version: snapshot.version,

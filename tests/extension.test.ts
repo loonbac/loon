@@ -13,7 +13,8 @@ import {
 } from '../extensions/loon-startup.ts';
 import { DEFAULT_GENTLE_SETTINGS } from '../extensions/lib/gentle-config.ts';
 import { DEFAULT_LOON_SETTINGS, type LoonSettings } from '../extensions/lib/loon-config.ts';
-import { plainTheme, strictTheme } from './support/themes.ts';
+import { ansiTheme, plainTheme, strictTheme } from './support/themes.ts';
+import { WALLPAPER_THEME_NAME } from '../extensions/lib/wallpaper-theme.ts';
 
 type Handler = (event: unknown, ctx: FakeContext) => unknown;
 
@@ -193,6 +194,13 @@ function renderHeaderWith(ctx: FakeContext, themeName: string | undefined, width
 	const factory = headerFactories(ctx).at(-1) as Factory;
 	ctx.ui.theme = { ...plainTheme(), name: themeName };
 	return factory({ requestRender: () => {} }, ctx.ui.theme).render(width);
+}
+
+/** Render with an explicit active theme, as pi would hand one after a theme change. */
+function renderForTheme(ctx: FakeContext, theme: unknown, width = 80): string[] {
+	const factory = headerFactories(ctx).at(-1) as Factory;
+	ctx.ui.theme = theme;
+	return factory({ requestRender: () => {} }, theme).render(width);
 }
 
 function renderWidget(ctx: FakeContext, width = 80): string[] {
@@ -448,6 +456,59 @@ test('the wallpaper accent paints the box and keeps the text roles themed', asyn
 	assert.ok(!rendered.includes('\x1b[38;2;255;118;195m'), 'gentle-pi\'s pink leaked into the wallpaper accent');
 });
 
+/* The accent setting decides on its own: no theme name may override it. */
+
+const LOON_ACCENT_ROLE = '\x1b[38;5;109m';
+const WALLPAPER_RAW = '\x1b[38;2;155;72;74m';
+
+test('the theme accent wins over the wallpaper while the generated theme is active', async () => {
+	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, accent: 'theme' } });
+	config.wallpaperRgb = [155, 72, 74];
+	startSession(pi, ctx);
+	await wait(50);
+
+	const rendered = renderForTheme(ctx, { ...ansiTheme(), name: WALLPAPER_THEME_NAME }).join('\n');
+	assert.ok(rendered.includes(LOON_ACCENT_ROLE), 'the theme accent was not painted');
+	assert.ok(!rendered.includes(WALLPAPER_RAW), 'the wallpaper colour overrode the theme accent');
+});
+
+test('the wallpaper setting paints the wallpaper colour while the generated theme is active', async () => {
+	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, accent: 'wallpaper' } });
+	config.wallpaperRgb = [155, 72, 74];
+	startSession(pi, ctx);
+	await wait(50);
+
+	const rendered = renderForTheme(ctx, { ...ansiTheme(), name: WALLPAPER_THEME_NAME }).join('\n');
+	assert.ok(rendered.includes(WALLPAPER_RAW), 'the wallpaper colour was not painted');
+	assert.ok(!rendered.includes(LOON_ACCENT_ROLE), 'the theme accent leaked into the wallpaper setting');
+});
+
+test('a foreign theme keeps its own accent under accent: theme', async () => {
+	const { pi, ctx, config } = boot({
+		loon: { ...DEFAULT_LOON_SETTINGS, accent: 'theme' },
+		gentle: { ...DEFAULT_GENTLE_SETTINGS, accentColor: 'cyan' },
+	});
+	config.wallpaperRgb = [155, 72, 74];
+	startSession(pi, ctx);
+	await wait(50);
+
+	const rendered = renderForTheme(ctx, { ...ansiTheme({ accent: 25 }), name: 'Gentle' }).join('\n');
+	assert.ok(rendered.includes('\x1b[38;5;25m'), 'the foreign theme accent was not painted');
+	assert.ok(!rendered.includes(WALLPAPER_RAW), 'the wallpaper colour replaced a foreign theme accent');
+});
+
+test('accent: banner still paints gentle-pi’s colour while the generated theme is active', async () => {
+	const { pi, ctx, config } = boot({
+		loon: { ...DEFAULT_LOON_SETTINGS, accent: 'banner' },
+		gentle: { ...DEFAULT_GENTLE_SETTINGS, accentColor: 'cyan' },
+	});
+	config.wallpaperRgb = [155, 72, 74];
+	startSession(pi, ctx);
+	await wait(50);
+
+	const rendered = renderForTheme(ctx, { ...ansiTheme(), name: WALLPAPER_THEME_NAME }).join('\n');
+	assert.ok(rendered.includes('\x1b[38;2;95;210;255m'), 'the gentle-pi colour was not painted');
+});
 test('an unreadable wallpaper accent falls back to the theme and says so', async () => {
 	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, accent: 'wallpaper' } });
 	config.wallpaperRgb = undefined;
@@ -497,25 +558,6 @@ test('the theme is generated on session start and again when the wallpaper chang
 	config.wallpaperRgb = [30, 144, 255];
 	config.emit();
 	assert.deepEqual(config.themeCalls, [[213, 169, 240], [30, 144, 255]], 'a wallpaper change did not regenerate the theme');
-});
-
-test('with the generated theme active the banner follows the wallpaper, whatever the accent setting', async () => {
-	const { pi, ctx, config } = boot({
-		loon: { ...DEFAULT_LOON_SETTINGS, accent: 'banner' },
-		gentle: { ...DEFAULT_GENTLE_SETTINGS, accentColor: 'pink' },
-	});
-	config.wallpaperRgb = [213, 169, 240];
-	ctx.ui.theme = { ...plainTheme(), name: 'Wallpaper (LOON)' };
-	startSession(pi, ctx);
-	await wait(50);
-
-	const rendered = renderHeaderWith(ctx, 'Wallpaper (LOON)').join('\n');
-	assert.ok(rendered.includes('\x1b[38;2;213;169;240m'), 'the banner did not follow the wallpaper');
-	assert.ok(!rendered.includes('\x1b[38;2;255;118;195m'), 'gentle-pi\'s pink won over the active theme');
-
-	// Any other theme leaves the setting in charge.
-	const other = renderHeaderWith(ctx, 'Gentle').join('\n');
-	assert.ok(other.includes('\x1b[38;2;255;118;195m'), 'the accent setting was ignored for a foreign theme');
 });
 
 test('status reports the theme file and whether it is active', async () => {
