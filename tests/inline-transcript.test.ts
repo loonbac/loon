@@ -130,6 +130,33 @@ test('off leaves only the thinking marker, and full leaves the block alone', () 
 	assert.equal(full.transformer(PARAGRAPHS, thinking()), PARAGRAPHS);
 });
 
+test('an absence of liveness is not a decision, so the same message collapses once the session works', () => {
+	const t = transformer({ live: false });
+	assert.equal(t.transformer(PARAGRAPHS, assistant()), PARAGRAPHS, 'nothing is decided while there is no session to decide for');
+	assert.equal(t.transformer('Un bloque de razonamiento.', thinking()), 'Un bloque de razonamiento.');
+	t.setLive(true);
+	assert.notEqual(t.transformer(PARAGRAPHS, assistant()), PARAGRAPHS, 'and the absence was not remembered as kept');
+	assert.notEqual(t.transformer('Un bloque de razonamiento.', thinking()), 'Un bloque de razonamiento.');
+});
+
+test('a reasoning block is handed over from its first frame, so no later render is needed', () => {
+	const seen: { text: string; streaming: boolean }[] = [];
+	const t = transformer({ onThinking: (text, streaming) => seen.push({ text, streaming }) });
+	const first = t.transformer('Pienso una cosa', thinking(true));
+	assert.equal(first, t.transformer('Pienso una cosa', thinking(true)), 'every frame is answered, not only the last');
+	assert.deepEqual(
+		seen.map((entry) => entry.streaming),
+		[true, true],
+		'the frames reach the sink too: a block may never be rendered again after it stops streaming',
+	);
+	t.transformer('Pienso una cosa, y algo más', thinking(false));
+	assert.deepEqual(
+		seen.map((entry) => entry.streaming),
+		[true, true, false],
+		'and the finished block is the last word on it',
+	);
+});
+
 test('a collapsed thinking block stays collapsed, and a kept one stays kept', () => {
 	const t = transformer({ live: true });
 	const first = t.transformer(PARAGRAPHS, thinking());
@@ -143,13 +170,20 @@ test('a collapsed thinking block stays collapsed, and a kept one stays kept', ()
 	assert.equal(mirror.transformer(PARAGRAPHS, thinking()), PARAGRAPHS, 'and a later summary must not shrink it');
 });
 
-test('the thinking text reaches the sink when it stops streaming, never while it streams', () => {
+test('every frame of a reasoning block reaches the sink, in order, and a blank one does not', () => {
 	const seen: Array<{ text: string; streaming: boolean }> = [];
 	const t = transformer({ live: true, onThinking: (text, streaming) => seen.push({ text, streaming }) });
+	t.transformer('Voy pensando', thinking(true));
 	t.transformer('Voy pensando en el siguiente paso', thinking(true));
-	assert.equal(seen.length, 0, 'a streaming frame is not a block: capturing it would fill the panel with prefixes');
 	t.transformer(PARAGRAPHS, thinking(false));
-	assert.deepEqual(seen, [{ text: PARAGRAPHS, streaming: false }], 'the whole block, once, for the panel');
+	assert.deepEqual(
+		seen.map((entry) => entry.streaming),
+		[true, true, false],
+		'every frame, so a block that is never rendered again is still not lost',
+	);
+	assert.deepEqual(seen.map((entry) => entry.text), ['Voy pensando', 'Voy pensando en el siguiente paso', PARAGRAPHS]);
+	t.transformer('   ', thinking(false));
+	assert.equal(seen.length, 3, 'a blank block is not a block');
 });
 
 test('the closing exemption is about the answer, and never about thinking', () => {
@@ -159,12 +193,8 @@ test('the closing exemption is about the answer, and never about thinking', () =
 	assert.ok(asThinking.includes(THINKING_SUFFIX), 'the same text as reasoning is collapsed: ' + asThinking);
 });
 
-test('with no carrier, nothing is transformed - and it stays that way', () => {
+test('without a live session nothing is transformed', () => {
 	const t = transformer({ live: false });
-	assert.equal(t.transformer(PARAGRAPHS, assistant()), PARAGRAPHS);
-	// A message first rendered while no unit was running is history: a later
-	// repaint during work must not shrink it.
-	t.setLive(true);
 	assert.equal(t.transformer(PARAGRAPHS, assistant()), PARAGRAPHS);
 });
 
@@ -190,6 +220,17 @@ test('an empty or blank message is left alone', () => {
 	const t = transformer({ live: true });
 	assert.equal(t.transformer('', assistant()), '');
 	assert.equal(t.transformer('   \n\n ', assistant()), '   \n\n ');
+});
+
+test('the cap never forgets an exempt answer while there is another decision to forget', () => {
+	const memory = createTranscriptMemory(3);
+	memory.set('una respuesta', 'exempt');
+	memory.set('una prosa', 'collapsed');
+	memory.set('otra prosa', 'collapsed');
+	memory.set('tercera prosa', 'collapsed');
+	memory.set('cuarta prosa', 'collapsed');
+	assert.equal(memory.get('una respuesta'), 'exempt', 'the answer survives the cap');
+	assert.equal(memory.size(), 3, 'and the cap still holds');
 });
 
 test('the remembered set is bounded, and the oldest forgets first', () => {

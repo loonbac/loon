@@ -148,10 +148,20 @@ export function createTranscriptMemory(limit: number = TRANSCRIPT_MEMORY): Trans
 			const key = digest(text);
 			decisions.delete(key);
 			decisions.set(key, decision);
+			// An answer that was exempt is exempt for good, so the cap takes the oldest
+			// decision that is not one. Only a session made entirely of answers forgets
+			// an exemption, and there the oldest one is the only candidate left.
 			while (decisions.size > cap) {
-				const oldest = decisions.keys().next().value;
-				if (oldest === undefined) break;
-				decisions.delete(oldest);
+				let victim: string | undefined;
+				for (const [candidate, decided] of decisions) {
+					if (decided !== 'exempt') {
+						victim = candidate;
+						break;
+					}
+				}
+				if (victim === undefined) victim = decisions.keys().next().value;
+				if (victim === undefined) break;
+				decisions.delete(victim);
 			}
 		},
 		size() {
@@ -198,13 +208,18 @@ export function createTranscriptTransformer(options: {
 	const reasoning = (markdown: string, context: MarkdownTransformContext): string => {
 		const streaming = context?.isStreaming === true;
 		if (markdown.trim().length === 0) return markdown;
-		// A streaming frame is a growing prefix of the block, not a block: recording
-		// it would fill the panel with every intermediate state of one thought.
-		if (!streaming) options.onThinking?.(markdown, false);
+		// Every frame is handed over, not only the last one: pi may finish a block
+		// without drawing it again, and a block that was read must not be lost.
+		// Whoever keeps the panel decides whether a frame grows its item or starts one.
+		options.onThinking?.(markdown, streaming);
 		const decided = thinkingMemory.get(markdown);
 		if (decided === 'kept' || decided === 'exempt') return markdown;
 		if (decided === 'collapsed') return collapseMarker(markdown, modeOf(), THINKING_SUFFIX);
-		if (modeOf() === 'full' || !options.isLive()) {
+		// No liveness is not a decision: without a live session there is nobody to
+		// decide for, and remembering "kept" here would freeze the block that the
+		// session had not started writing yet.
+		if (!options.isLive()) return markdown;
+		if (modeOf() === 'full') {
 			if (!streaming) thinkingMemory.set(markdown, 'kept');
 			return markdown;
 		}
@@ -219,18 +234,19 @@ export function createTranscriptTransformer(options: {
 		transformer(markdown: string, context: MarkdownTransformContext): string {
 			try {
 				if (context?.messageType === 'assistant-thinking') return reasoning(markdown, context);
-				if (modeOf() === 'full') return markdown;
 				if (context?.messageType !== 'assistant') return markdown;
 				if (markdown.trim().length === 0) return markdown;
 				const decided = memory.get(markdown);
-				if (decided === 'exempt') return markdown;
+				if (decided === 'exempt' || decided === 'kept') return markdown;
 				if (decided === 'collapsed') return collapseMarker(markdown, modeOf());
-				if (decided === 'kept') return markdown;
 				if (isClosingMessage(markdown, options.closingText())) {
 					memory.set(markdown, 'exempt');
 					return markdown;
 				}
-				if (!options.isLive()) {
+				// No liveness is not a decision, for the same reason as the reasoning:
+				// the turn's own prose may be drawn before the card exists.
+				if (!options.isLive()) return markdown;
+				if (modeOf() === 'full') {
 					memory.set(markdown, 'kept');
 					return markdown;
 				}
