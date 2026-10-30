@@ -17,11 +17,6 @@ const PI_ROOT = join(homedir(), '.local', 'share', 'loon-pi', 'npm-prefix', 'lib
 
 const available = existsSync(join(GENTLE, 'lib', 'shell-card.ts')) && existsSync(join(PI_ROOT, 'package.json'));
 
-/** The width pi itself measures with, so a test never re-invents it from string length. */
-const { visibleWidth } = (await import(join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-tui', 'dist', 'index.js'))) as {
-	visibleWidth: (text: string) => number;
-};
-
 /** The visible columns that carry the surface, decoded from the row's own escapes. */
 function paintedColumns(row: string): number[] {
 	const columns: number[] = [];
@@ -260,6 +255,11 @@ test('the band opens with an empty surface row and the hint is not the first row
 	const prompt = (await jiti.import(join(GENTLE, 'lib', 'shell-prompt.ts'))) as {
 		resolvePromptLayout: (width: number, style: string, bg: unknown) => unknown;
 		framePromptLines: (lines: string[], width: number, options: unknown, layout: unknown) => string[];
+	};
+	// Loaded here, under the same guard as everything else that needs gentle-pi: a top-level
+	// import would fail the whole file on a machine without the package.
+	const { visibleWidth } = (await import(join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-tui', 'dist', 'index.js'))) as {
+		visibleWidth: (text: string) => number;
 	};
 	const theme = {
 		fg: (_role: string, text: string) => text,
