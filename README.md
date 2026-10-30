@@ -10,7 +10,7 @@ más: la caja de pi-claude-code-tui, pintada por completo con el tema que ya usa
 │          █████████              │ Ask Pi to build it                         │
 │          ███   ███              │ ────────────────────────────────────────── │
 │          ██████   ███           │ Commands                                   │
-│          ███      ███           │ /use-default-tui                           │
+│          ███      ███           │ /help                                      │
 │                                 │ /model                                     │
 │  Let's build something great    │ /theme                                     │
 │  openai/gpt-5.5 · high effort   │ /compact                                   │
@@ -70,11 +70,10 @@ más: la caja de pi-claude-code-tui, pintada por completo con el tema que ya usa
 
 ## Comandos
 
-| Comando | Efecto |
-| --- | --- |
-| `/use-loon-tui` | Enciende el banner y lo vuelve a aplicar (refresca modelo, esfuerzo, cwd y sugerencias). |
-| `/use-default-tui` | Apaga el banner y restaura la cabecera, el pie y el spinner propios de pi. |
-| `/loon:tui` | Banner encendido/apagado y origen del acento; ver más abajo. |
+Ninguno. LOON no registra comandos propios: encendido y apagado, origen del acento y
+marca se cambian desde `/gentle:customize` de gentle-pi, con el parche de más abajo
+aplicado. Sin ese parche no hay interfaz, y la configuración se edita en su archivo
+(«Ajustes que añade LOON»).
 
 ## Instalación
 
@@ -146,8 +145,8 @@ encabezados y marca— usen el `#RRGGBB` de `~/.config/mpvpaper/accent.txt`; `te
   `~/.config/mpvpaper`, nunca el archivo, y un cambio de fondo recolorea una sesión en
   marcha sin reiniciar pi.
 - Un archivo ausente, ilegible o malformado cae al acento del tema —nunca negro, nunca
-  una caída— y `/loon:tui status` dice
-  `accent wallpaper (unavailable, theme fallback)` en lugar de un color que no tiene.
+  una caída— y la vista previa de su fila lo dice:
+  `Wallpaper accent · unavailable (static)`.
 - Con el menú de gentle-pi parcheado, la elección es una quinta fila,
   `Banner color: wallpaper`, cuya vista previa dice
   `Wallpaper accent · #9B484A (static)`. Elegir cualquiera de los cuatro colores
@@ -157,10 +156,10 @@ encabezados y marca— usen el `#RRGGBB` de `~/.config/mpvpaper/accent.txt`; `te
   cuatro valores. En modo `source: "rose"` el banner de gentle-pi lee `banner.json`, así
   que este acento no le afecta, por diseño.
 
+La elección es una fila del menú, no un comando:
+
 ```sh
-/loon:tui accent wallpaper   # sigue el fondo de pantalla
-/loon:tui accent banner      # vuelve al color de gentle-pi
-/loon:tui accent theme       # vuelve al tema
+/gentle:customize   # Banner color: theme | <color> | wallpaper (LOON)
 ```
 
 
@@ -209,8 +208,7 @@ dos de ellas colapsaron una vez en un solo hex y gentle-pi pintó las tarjetas I
 PENDING y ERROR de un único color plano.
 - El archivo se escribe de forma atómica y solo cuando falta, es ilegible o es más viejo
   que `accent.txt`; un archivo con ese nombre cuyo `name` propio no es el nuestro se deja
-  intacto y se informa como `skipped-foreign`.
-- `/loon:tui status` dice qué tema se generó, qué pasó con el archivo y si es el activo.
+  intacto y LOON trabaja con el tema que haya, sin tocarlo.
 - Con `Wallpaper (LOON)` activo, el acento del tema ya no coincide con el crudo del
   fondo de pantalla: el tema eleva su rol `accent` para que las tarjetas INFO lean su
   título. Qué pinta el banner lo decide el ajuste `accent` y nada más; un atajo anterior
@@ -244,8 +242,9 @@ Qué cambia, solo en gentle-pi 4.5.1: cuatro archivos, cada uno por una razón:
   `Banner rose:` y `Banner text logo:` desaparecen; la fila del logotipo de texto sigue
   alcanzable dentro de `rose`, donde todavía significa algo, y `Banner color:` sigue
   funcionando en todos los estados (colorea su ilustración en `rose` y el acento de esta
-  cabecera en `loon`). La fila del fondo de pantalla dice
-  `Banner color: wallpaper (LOON)`.
+  cabecera en `loon`). Las filas del acento son `Banner color: theme (LOON)`, los cuatro
+  colores con nombre y `Banner color: wallpaper (LOON)`, y `Mark: on|off` es el
+  interruptor de la marca de Pi.
 - `extensions/startup-banner.ts`: el banner de gentle-pi no instala su cabecera en `loon`
   ni en `off`, así que nada se pelea por el hueco.
 - `lib/visual-customize-view.ts`: la etiqueta de una fila se llama con el ancho que la
@@ -315,9 +314,10 @@ clave y hacía parecer que las elecciones de la persona se reiniciaban solas.
 
 ### Ajustes que añade LOON
 
-El menú de gentle-pi no tiene interruptor para el banner en sí ni para el origen del
-acento, así que LOON mantiene su propio archivo, `loon-tui.json`, en el directorio de
-configuración de pi (`$PI_CODING_AGENT_DIR`, o `~/.pi/agent`):
+El menú propio de gentle-pi escribe `banner.json` y `visual-customization.json`, y ese
+archivo tiene tres claves fijas, así que LOON mantiene las suyas aparte, en
+`loon-tui.json`, dentro del directorio de configuración de pi
+(`$PI_CODING_AGENT_DIR`, o `~/.pi/agent`):
 
 ```json
 { "enabled": true, "accent": "banner", "mark": true, "source": "loon" }
@@ -335,13 +335,23 @@ configuración de pi (`$PI_CODING_AGENT_DIR`, o `~/.pi/agent`):
 - `source`: quién pinta el banner: `loon` (por defecto), `rose` u `off`. Lo escribe la
   fila parcheada del menú de gentle-pi; sin el parche simplemente se queda en `loon`.
 
-| Comando | Efecto |
+Con el parche aplicado, cada clave tiene su fila en `/gentle:customize`:
+
+| Fila | Qué escribe |
 | --- | --- |
-| `/loon:tui` | Menú: banner encendido o apagado, acento del tema o de `banner.json`, marca encendida o apagada. |
-| `/loon:tui status` | Una línea: banner, origen del acento, densidad, ubicación, marca. |
-| `/loon:tui on\|off` | Igual que la entrada del menú, sin el diálogo. |
-| `/loon:tui accent theme\|banner\|wallpaper` | Cambia el origen del acento. |
-| `/loon:tui mark on\|off` | Muestra u oculta la marca de Pi. |
+| `Banner: loon` / `rose` / `off` | `source` |
+| `Banner color: theme (LOON)` | `accent: "theme"` |
+| `Banner color: <color>` | `color` en `banner.json` y `accent: "banner"` |
+| `Banner color: wallpaper (LOON)` | `accent: "wallpaper"` |
+| `Mark: on` / `off` | `mark` |
+
+Sin el parche no hay interfaz, y el archivo es el mando: LOON lo vigila, así que editarlo
+a mano tiene el mismo efecto y repinta sin reiniciar pi. Para apagar el banner del todo,
+sin depender de nada más:
+
+```json
+{ "enabled": false, "source": "off" }
+```
 
 Las escrituras son atómicas (un archivo temporal en el mismo directorio y después un
 renombrado), y un archivo ilegible significa los valores por defecto, nunca una caída.
@@ -362,8 +372,17 @@ sobrescrituras, ni la cabecera de hoy.
 - Aplicar la cabecera toca solo `ctx.ui.setHeader` y nunca sigue el `headerPlacement` de
   gentle-pi: ese ajuste mueve la barra propia de gentle-pi, y el banner se queda en el
   hueco de cabecera de pi tanto si la barra va arriba como si va bajo el editor. Nada más
-  de la interfaz de pi se reemplaza; `/use-default-tui` también limpia el pie y el
-  spinner, como siempre hizo.
+  de la interfaz de pi se reemplaza: el pie y el spinner no se tocan nunca.
+
+## Si el parche no aplica
+
+El menú es texto insertado en un paquete ajeno. Cuando una actualización de gentle-pi
+mueve un anclaje, la herramienta se niega a parchear —compilación distinta de la 4.5.1
+contra la que fue escrita, salida 2, nada cambiado— y entonces no hay interfaz para LOON:
+queda editar `~/.pi/agent/loon-tui.json`. Poner `"source": "off"` devuelve el hueco a
+pi, `"enabled": false` apaga el banner, y el resto de claves siguen significando lo
+mismo. Es el precio de que el menú sea la interfaz, y por eso el archivo se documenta
+aquí.
 - **Sin escrituras en gentle-pi.** LOON lee `visual-customization.json` y `banner.json`;
   nunca los edita y nunca añade filas a `/gentle:customization`. La integración va solo en
   un sentido, por diseño: ese menú sigue siendo el único lugar desde el que se escriben
