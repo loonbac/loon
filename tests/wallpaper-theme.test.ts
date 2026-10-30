@@ -4,6 +4,8 @@ import { contrastRatio, oklchToHex, rgbToOklch, hexToRgb, relativeLuminance } fr
 import {
 	CARD_SURFACE_CONTRAST,
 	CARD_SURFACE_STEP,
+	BORDER_SURFACE_CONTRAST_TARGET,
+	CARD_SURFACES,
 	CONTRAST_FLOORS,
 	DIM_SURFACE_CONTRAST_TARGET,
 	ACCENT_SURFACE_CONTRAST_TARGET,
@@ -160,8 +162,43 @@ test('border keeps the accent hue and is no longer mud', () => {
 		const ratio = contrastRatio(border, bg);
 		assert.ok(hueDelta <= 20, 'border hue is ' + hueDelta.toFixed(1) + ' away from the accent');
 		assert.ok(lch.C >= 0.5 * source.C, 'border chroma ' + lch.C.toFixed(3) + ' is below 0.5 x ' + source.C.toFixed(3));
-		assert.ok(ratio >= 1.8 && ratio <= 3.2, 'border/bg ' + ratio.toFixed(2) + ' is outside 1.8..3.2');
+		// Against `bg` the role only has to stay visible. The upper bound it used to carry
+		// came from solving it against `bg` alone: the card surfaces are lighter than
+		// `bg`, so clearing them necessarily lifts the role past 3.2 here.
+		assert.ok(ratio >= 1.8, 'border/bg ' + ratio.toFixed(2) + ' is below 1.8: the border reads as mud');
+		// The band paints its rule with `border` over the `selection` surface, so the lift
+		// must not quieten it. 1.40 was the measured value before the role answered to the
+		// card surfaces; a rule that gets quieter than that is a regression.
+		const onSelection = contrastRatio(border, hexToRgb(vars.selection!)!);
+		assert.ok(
+			onSelection >= 1.4,
+			'border/selection is ' + onSelection.toFixed(2) + ' for accent ' + accent.join(',') + ', below the 1.40 it had before the card lift',
+		);
 	}
+});
+
+/* `border` is ink that lands on card surfaces: the frame of a card, the prompt band's
+ * rule, a quote edge. Solved against `bg` alone it read 1.49 on the lightest card while
+ * the role's own floor was green - the same defect `dim` had before dd24afe. A border is
+ * a non-text component, so WCAG 1.4.11 asks 3.0 and not 4.5. */
+
+test('border clears its floor on the card surfaces, for every accent', () => {
+	for (const accent of SURFACE_ACCESSENTS) {
+		const vars = deriveWallpaperTheme(accent).vars as Record<string, string>;
+		const border = hexToRgb(vars.border!)!;
+		for (const surface of CARD_SURFACES) {
+			const ratio = contrastRatio(border, hexToRgb(vars[surface]!)!);
+			assert.ok(
+				ratio >= CONTRAST_FLOORS.borderSurface,
+				'border/' + surface + ' is ' + ratio.toFixed(2) + ' for accent ' + accent.join(',') + ' (' + vars.border + '); the floor is ' + CONTRAST_FLOORS.borderSurface.toFixed(1) + ' and the target ' + BORDER_SURFACE_CONTRAST_TARGET.toFixed(1),
+			);
+		}
+	}
+});
+
+test('the derivation carries no var that no role reads', () => {
+	const theme = deriveWallpaperTheme([158, 159, 161]);
+	assert.ok(!('accentDim' in theme.vars), 'accentDim is still derived although no role of colors binds it');
 });
 
 /* A card surface is not a status: gentle-pi paints INFO/SUCCESS/PENDING/ERROR card
