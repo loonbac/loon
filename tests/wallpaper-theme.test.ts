@@ -4,6 +4,8 @@ import { contrastRatio, oklchToHex, rgbToOklch, hexToRgb, relativeLuminance } fr
 import {
 	CARD_SURFACE_CONTRAST,
 	CARD_SURFACE_STEP,
+	CONTRAST_FLOORS,
+	DIM_SURFACE_CONTRAST_TARGET,
 	LOON_THEME_SUFFIX,
 	WALLPAPER_THEME_NAME,
 	deriveWallpaperTheme,
@@ -240,5 +242,52 @@ test('the tone signal stays semantic: success, warning and error keep their hues
 		assert.ok(near(hueOf('success'), 150), 'success hue ' + hueOf('success').toFixed(1));
 		assert.ok(near(hueOf('warning'), 75), 'warning hue ' + hueOf('warning').toFixed(1));
 		assert.ok(near(hueOf('error'), 25), 'error hue ' + hueOf('error').toFixed(1));
+	}
+});
+
+/* The hint role lands on card surfaces, not on the background: the band and every card
+ * paint their text over toolSuccessBg / toolPendingBg / toolErrorBg. Solving dim against
+ * bg alone let it fall to 2.43 on the lightest one. WCAG AA for large text (3.0) is the
+ * honest floor for secondary text, with a margin over it so an accent that rotates and
+ * rounds cannot land back underneath. */
+
+const SURFACE_PROBES = ['toolSuccessBg', 'toolPendingBg', 'toolErrorBg'] as const;
+
+function dimRoleMessage(label: string, ratio: number, accent: [number, number, number], floor: number): string {
+	return label + ' is ' + ratio.toFixed(2) + ' for accent ' + accent.join(',') + '; the floor is ' + floor.toFixed(1) + ' and the target ' + DIM_SURFACE_CONTRAST_TARGET.toFixed(1);
+}
+
+test('dim clears its floor on the lightest surface it lands on, for every accent', () => {
+	const accents: [number, number, number][] = [
+		[155, 72, 74],
+		[213, 169, 240],
+		[30, 144, 255],
+		[0, 0, 0],
+		[255, 255, 255],
+		[8, 8, 8],
+		[255, 0, 0],
+		[0, 255, 0],
+	];
+	for (const accent of accents) {
+		const vars = deriveWallpaperTheme(accent).vars as Record<string, string>;
+		const dim = hexToRgb(vars.dim!)!;
+		for (const surface of SURFACE_PROBES) {
+			const ratio = contrastRatio(dim, hexToRgb(vars[surface]!)!);
+			assert.ok(
+				ratio >= CONTRAST_FLOORS.dimSurface,
+				dimRoleMessage('dim/' + surface, ratio, accent, CONTRAST_FLOORS.dimSurface),
+			);
+		}
+		// The hierarchy is what makes a hint a hint: text > muted > dim, and muted keeps its
+		// distance from dim on the background.
+		const bg = hexToRgb(vars.bg!)!;
+		const text = contrastRatio(hexToRgb(vars.text!)!, bg);
+		const muted = contrastRatio(hexToRgb(vars.muted!)!, bg);
+		const onBg = contrastRatio(dim, bg);
+		assert.ok(text > muted && muted > onBg, 'the text hierarchy collapsed for accent ' + accent + ': ' + text.toFixed(2) + ' / ' + muted.toFixed(2) + ' / ' + onBg.toFixed(2));
+		assert.ok(
+			muted - onBg >= CONTRAST_FLOORS.mutedOverDim,
+			'muted - dim on bg is ' + (muted - onBg).toFixed(2) + ' for accent ' + accent + '; the floor is ' + CONTRAST_FLOORS.mutedOverDim,
+		);
 	}
 });
