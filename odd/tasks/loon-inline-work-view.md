@@ -20,11 +20,17 @@ be described as delegation, and the entry must not claim a real subagent ran.
 
 S3. **The main transcript keeps the summaries reachable.**
 User: "el historial de pi al scrollear hacia arriba no es infinito, se corta, y si el trabajo inline se hace siempre en el render principal ya no puedo ver el anterior mensaje de pi".
-The target is scrollback, not context. Consecutive tool calls of one work unit collapse
-into a single card with a call count, so one programming unit costs a few lines in the
-main transcript instead of hundreds, and the previous summaries stay within reach.
-Collapsed detail is never destroyed: the unit's full activity lives in the Agents panel
-entry, expandable on demand.
+User (work order, restating the requirement): "inline parent work must stop occupying the
+main transcript... the main render must now stop flooding, leaving only a closing summary
+behind". Also: "a real subagent task must keep rendering exactly as it does today, and no
+renderer may hide a failure, an error or a question waiting for the owner".
+The target is scrollback, not context. While the session has a carrier, the calls of the
+work unit draw no rows in the main transcript at all, so a programming unit costs the
+assistant's prose and its closing summary instead of hundreds of rows, and the previous
+summaries stay within reach. The count and the detail belong to the Agents panel entry.
+What the collapse does not do yet, and must not be described as doing: the panel entry has
+no detail thread (T11), so the collapsed detail is reachable in the session's own log, not
+in the panel.
 
 S4. **The patch survives package updates, and never damages what it touches.**
 A local patch to `gentle-pi` is lost on every install. It ships as a script that backs
@@ -41,7 +47,10 @@ Restoring must never clobber a file that changed since the backup."
 
 S5. **Expansion is available.**
 User: "a mi me gusta leer lo que hace la ia".
-Collapsed by default, expandable at any time. Collapsing never destroys the detail.
+Collapsed by default, and the collapse is never final: the carrier entry keeps the unit's
+label, its step count and its closing summary, an errored call is never collapsed, and the
+session log holds every call and its output. A detail thread inside the panel entry is
+T11, not this slice; until it lands, the panel shows the unit and the log holds the detail.
 
 ## Design
 
@@ -77,7 +86,8 @@ evidence; this feature must not be sold as a fix for it.
 | T2 | S1, S2 | worker | cab31c8 | Carrier record writer in LOON: `extensions/lib/inline-carrier.ts` plus `extensions/inline-work.ts`, registered in `package.json`. One record per session under `<agent home>/state/loon-inline/`, created with the first tool call, heartbeating while it runs, closed as `completed` with the closing summary, deleted at shutdown, stale records pruned by pid, and `LOON_INLINE_WORK=0` as the kill switch. |
 | T3 | S1, S2 | worker | 5c27faa | `gentle-agents` patch merging the active session's carrier into `visibleTasks()`. Display only: the record never enters the task store, so it is never an owned subagent, never cancellable and never launch authority. |
 | T4 | S4 | inline | 5c27faa | `scripts/apply-inline-carrier-patch.mjs`: check/apply/revert, timestamped backup, verified idempotent rerun, TypeScript syntax gate, and the README note on when it must be rerun. |
-| T5 | S3, S5 | worker | pending | Renderer collapsing consecutive tool calls of one unit into one expandable card with a closing summary. |
+| T10 | S3, S5 | inline | pending | Collapsed renderer through `pi.registerToolRenderer` from `extensions/inline-work.ts`: while the session has a carrier, `read`, `bash`, `grep`, `find`, `ls`, `edit` and `write` draw zero rows (`renderShell: "self"` plus an empty component, which makes `ToolExecutionComponent.render` return no lines). Anything else delegates to `next()`, unchanged: subagent tasks, questions, `todo`, `codemode`, every non-target tool. An errored result delegates to `next()` so the failure keeps its own rows, and `LOON_INLINE_WORK=0` never registers the resolver at all. |
+| T11 | S5 | pending | The panel entry still has no detail thread: `agents-view.threadWindow` reads `store.thread(id)` and the carrier never enters the store, so a carrier's thread is always empty. Giving it one needs either a thread field the view reads for non-store ids or a second patch site, so it is its own slice and the collapsed detail stays in the session log until then. |
 | T6 | S6 | inline | pending | Measure the actual inline/delegated split of recent sessions and report before changing any policy. |
 | T7 | S4 | inline | aa654cb | Harden `scripts/apply-inline-carrier-patch.mjs` after the first review: strict argument parsing (missing value, unknown flag, repeated flag, stray positional all rejected before any read or write) and a `revert` that refuses anything but the exact bytes the patch wrote. Tests first, both proving the failure by absence of a write, not by a message. |
 
@@ -103,3 +113,7 @@ L9. Work order from the orchestrating session: the first native review's lineage
 L10. RED before GREEN for T7, in the `port` box: the two new tests failed for the intended reason (`a different build must not be overwritten by a stale backup`, and the malformed-argument case, whose assertion is that the decoy default installation under a scratch `HOME` keeps its exact bytes and no backup directory appears). Then the guards landed and the targeted file went to 11 of 11, exit 0. Full suite after the fix: `npm run typecheck` exit 2 with only the pre-existing `tests/theme-file.test.ts(106,4)` absolute-path error, and `npm test` exit 1 with 203 tests, 197 pass, 2 fail, 4 skipped — the same two `probe-frame` failures caused by `tmux` missing in the box, unchanged from base. The `revert` expectation is the `patchedMd5` the manifest now records, the same field `scripts/gentle-pi-patch.ts` already uses; backups written by the older script carry no such field, so the expectation is recomputed from the backed-up bytes, which is what makes the existing `…050433` backup safe to reason about.
 
 L8. The patch was rehearsed against a copy of the real installed file: `cp ~/.pi/agent/npm/node_modules/gentle-pi/extensions/gentle-agents.ts` into a scratch install, then `check` (exit 1, "not patched"), `apply` (exit 0, +33 lines, syntax gate `typescript`), `apply` again (exit 0, "already patched and verified", no second backup), `check` (exit 0), `revert` (exit 0, md5 back to `b17799abb1d22664870d9f5591b2ab1c`). It was deliberately not applied to the live install: that is the user's terminal, and the restart is theirs.
+
+L11. Work order for the renderer slice, verbatim: "inline parent work must stop occupying the main transcript. The carrier plus the Agents-card entry made the work visible in the panel; the main render must now stop flooding, leaving only a closing summary behind"; "Use the extension renderer API (pi.registerToolRenderer, the same mechanism gentle-pi uses in extensions/quiet-tools.ts) rather than patching node_modules again. A renderer lives in our own extension and survives updates; the carrier patch does not"; "Only inline work that has a live carrier should be affected: a real subagent task must keep rendering exactly as it does today, and no renderer may hide a failure, an error or a question waiting for the owner"; "Tests first, and they must assert what the user sees"; "LOON_INLINE_WORK=0 must return the previous behaviour in full". The order also asks whether our renderer conflicts with the applied carrier patch and whether the patch is still needed afterwards.
+
+L12. Mechanics the renderer depends on, read from the installed pi 1.4.0 rather than assumed: `ToolExecutionComponent` picks the shell once per call from the resolved definition (`getRenderShell()`), and its `render(width)` returns `[]` when the shell is `"self"` and the component draws no lines, so a zero-row call is expressible and costs no vertical space; `MouseRegion`, which wraps every rendered component, is a pure pass-through, so the empty component survives it. Renderers are resolved once per call (`resolveToolRenderers(toolName, base)` in `dist/core/extensions/runner.js`) and re-invoked on every `updateDisplay`, which re-runs both `renderCall` and `renderResult`; that is why an error can restore the native rows after the call was collapsed. The first call of a unit still paints natively, because the shell is chosen before the carrier exists; every later call of the unit is resolved already collapsed.

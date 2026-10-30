@@ -7,7 +7,11 @@
  * lands in the main transcript instead until the previous summary is out of
  * scrollback. This extension writes the card's missing record; the matching
  * reader patch (`scripts/apply-inline-carrier-patch.mjs`) teaches gentle-pi's
- * Agents card to draw it.
+ * Agents card to draw it. The same extension then stops the flood at its
+ * source: while the session has a carrier, the renderer in
+ * `./lib/inline-collapse.ts` draws no rows for the parent's own file and shell
+ * calls, so the main transcript keeps the assistant's prose and its closing
+ * summary.
  *
  * It is display only. Nothing moves out of the parent: no child process, no
  * second model call, no change to token accounting, and no launch authority. The
@@ -25,8 +29,10 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 	ToolCallEvent,
+	ToolRendererResolver,
 	TurnEndEvent,
 } from '@earendil-works/pi-coding-agent';
+import { collapseResolver } from './lib/inline-collapse.ts';
 import {
 	INLINE_LABEL_MAX,
 	INLINE_STATUS,
@@ -305,6 +311,15 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			stopHeartbeat();
 			if (sessionId !== undefined) removeCarrier(agentHome, sessionId);
 		}));
+
+		// The other half of the feature: while this session has a carrier, its own
+		// file and shell calls stop drawing rows in the transcript and live in the
+		// panel entry instead. A host without the resolver API keeps the old
+		// rendering, and so does LOON_INLINE_WORK=0, which returned above.
+		const host = pi as ExtensionAPI & { registerToolRenderer?: (resolver: ToolRendererResolver) => void };
+		if (typeof host.registerToolRenderer === 'function') {
+			host.registerToolRenderer(collapseResolver(() => written && !closed));
+		}
 	} catch {
 		// Registration itself must not break pi either.
 	}
