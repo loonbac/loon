@@ -535,6 +535,10 @@ test('every turn end keeps its own answer legible, and a work message still coll
 	try {
 		const pi = runningUnit(agentHome);
 		const answer = 'Primera respuesta del turno, con dos líneas.\n\nY la segunda.';
+		// The real order: the answer is drawn while it streams, and only then does the
+		// message end. The frame drawn during the turn is collapsed, which is why the
+		// exemption has to be in place before pi rebuilds the finished message.
+		assert.equal(pi.transform(answer, { isStreaming: true }).split('\n').length, 1, 'collapsed while streaming');
 		pi.fire(
 			'message_end',
 			{ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: answer }] } },

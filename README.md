@@ -411,6 +411,31 @@ Cuatro reglas que hacen esto seguro:
   sesión normal no llega ahí; una sesión muy larga puede, y entonces lo peor que pasa es que un
   mensaje viejo cambie de forma al repintarse.
 
+#### El otro orden: el mensaje ya está dibujado
+
+Hay un segundo orden que este colapso depende de respetar, y no es el de los renderers de
+herramienta. El componente de Markdown de pi **cachea sus líneas por texto y ancho**
+(`pi-tui/dist/components/markdown.js:205`), y solo vuelve a llamar al transformador cuando falla
+esa caché. De ahí se siguen tres cosas:
+
+- **Un repintado no arregla una decisión.** `this.ui.requestRender()` —y por tanto
+  `setWidget`/`renderWidgets`— redibuja componentes ya construidos: las mismas líneas
+  cacheadas. Si la respuesta se dibujó colapsada, pedir un frame la deja colapsada.
+- **La palanca es la reconstrucción del mensaje.** En `message_end` pi vacía el contenedor y
+  construye un `Markdown` nuevo con un transformador nuevo (`assistant-message.js:69`,
+  `interactive-mode.js:2845`), y eso sí vuelve a preguntar. Y las extensiones ven el evento
+  **antes** que los listeners propios de pi (`core/agent-session.js:752`: «Emit to extensions
+  first, then notify public listeners»), así que la exención ya está en memoria cuando el
+  mensaje terminado se reconstruye. Ese es el mecanismo, no un repintado.
+- **No hay componente propio para el texto del asistente.** `registerMessageRenderer` sirve
+  para `CustomMessageEntry` —mensajes con `role: "custom"`— y nada más: no permite apropiarse
+  del mensaje del asistente para re-decidir en cada `render()`.
+
+`tests/inline-transcript-order.test.ts` fija las tres cosas contra el componente real de pi:
+dibuja el mensaje transmitiéndose, exime después, comprueba que un repintado **no** cambia lo
+dibujado y que la reconstrucción de `message_end` sí. Si una versión futura de pi deja de
+reconstruir en `message_end`, ese test falla antes que la terminal.
+
 #### Lo que el hilo del panel duplica, y por qué no es una fuga
 
 El hilo de una tarjeta guarda la prosa del asistente tal cual: esa es la transcripción del trabajo.
