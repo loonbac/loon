@@ -214,7 +214,7 @@ const SHELL_CARD_2_REPLACEMENT = '// Every style is one geometry: how far the pa
 const SHELL_CARD_3_ANCHOR = '\treturn cardStyle() === CARD_STYLE.FLOAT && Math.floor(width) >= FLOAT_MIN_WIDTH ? panelOpener(theme, tone) : "";';
 const SHELL_CARD_3_REPLACEMENT = '\treturn cardGeometry().background && Math.floor(width) >= FLOAT_MIN_WIDTH ? panelOpener(theme, tone) : "";';
 const SHELL_CARD_4_ANCHOR = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst margin = " ".repeat(FLOAT_MARGIN);\n\treturn rows.map((row) => `${margin}${open}${row.replace(BG_CLEARING, (reset) => reset + open)}${BG_RESET}${margin}`);\n}';
-const SHELL_CARD_4_REPLACEMENT = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst geometry = cardGeometry();\n\tconst left = " ".repeat(geometry.padLeft);\n\tconst right = " ".repeat(geometry.padRight);\n\treturn rows.map((row) => `${left}${open}${row.replace(BG_CLEARING, (reset) => reset + open)}${BG_RESET}${right}`);\n}';
+const SHELL_CARD_4_REPLACEMENT = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst geometry = cardGeometry();\n\tconst left = " ".repeat(geometry.padLeft);\n\tconst right = " ".repeat(geometry.padRight);\n\treturn rows.map((row) => {\n\t\tconst body = row.replace(BG_CLEARING, (reset) => reset + open);\n\t\tif (left.length > 0) return `${left}${open}${body}${BG_RESET}${right}`;\n\t\t// A painted row may not begin with the background escape: the first cell has to be\n\t\t// printable, or the sequencer loses the ESC and the terminal prints the parameter.\n\t\t// With no left margin the first printable glyph - the card\'s own rule - is printed\n\t\t// bare and the surface is armed from the cell after it, so the seam is that one\n\t\t// border cell and nothing else.\n\t\tconst first = /^((?:\\x1b\\[[0-9;]*m)*)([\\s\\S])/.exec(body);\n\t\tif (!first) return `${open}${body}${BG_RESET}${right}`;\n\t\treturn `${first[1]}${first[2]}${open}${body.slice(first[0].length)}${BG_RESET}${right}`;\n\t});\n}\n';
 const SHELL_CARD_5_ANCHOR = '\tconst inner = target - FLOAT_MARGIN * 2;';
 const SHELL_CARD_5_REPLACEMENT = '\tconst inner = target - cardGeometry().padLeft - cardGeometry().padRight;';
 const SHELL_CARD_6_ANCHOR = '\treturn floatOpener(theme, tone, width) ? cardInnerWidth(Math.floor(width) - FLOAT_MARGIN * 2) : cardInnerWidth(width);';
@@ -323,7 +323,7 @@ export const TARGETS: TargetSpec[] = [
 		// Card style loon: lib/shell-card.ts
 		file: 'lib/shell-card.ts',
 		md5: 'd189f85262f41f5a5e8f590a0c57ed2d',
-		md5Patched: '8dbecc2f2ac057b87ce5c344d7ba5241',
+		md5Patched: '1396337fef79e03acc168e63344a8a5f',
 		edits: [
 			{ anchor: SHELL_CARD_1_ANCHOR, replacement: SHELL_CARD_1_REPLACEMENT },
 			{ anchor: SHELL_CARD_2_ANCHOR, replacement: SHELL_CARD_2_REPLACEMENT },
