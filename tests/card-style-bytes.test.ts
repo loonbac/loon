@@ -52,6 +52,15 @@ test('no painted row starts with an escape, in any card style', { skip: !availab
 		bg: (_role: string, text: string) => `\u001b[48;2;61;56;35m${text}\u001b[49m`,
 		bold: (text: string) => `\u001b[1m${text}\u001b[22m`,
 	};
+	// The geometry is the invariant behind the byte rule: a style with no left margin puts
+	// the surface in the first cell, and that is the bug this file exists to catch.
+	const geometry = (card as unknown as { CARD_GEOMETRY?: Record<string, { padLeft: number }> }).CARD_GEOMETRY;
+	if (geometry) {
+		for (const [style, spec] of Object.entries(geometry)) {
+			assert.ok(spec.padLeft >= 1, `${style} has padLeft ${spec.padLeft}: a painted row would start with an escape`);
+		}
+	}
+
 	const subject = {
 		title: 'read',
 		subtitle: 'a.ts',
@@ -64,8 +73,21 @@ test('no painted row starts with an escape, in any card style', { skip: !availab
 		card.setCardStyle(style);
 		for (const width of [100, 120, 160]) {
 			const rows = card.renderCard(subject, theme, width, { expanded: true, previewRows: 3, panel: true });
-			const offenders = bareBackground(rows);
-			assert.deepEqual(offenders, [], `${style} at ${width} columns rendered a row whose first bytes are a bare background escape`);
+			assert.deepEqual(bareBackground(rows), [], `${style} at ${width} columns rendered a bare background escape`);
+			const painted = rows.join('\n');
+			// The same rule stated as the agent asked: every background parameter counted is a
+			// background parameter preceded by ESC.
+			assert.equal(
+				(painted.match(/\[48;2;/g) ?? []).length,
+				(painted.match(/\u001b\[48;2;/g) ?? []).length,
+				`${style} at ${width} columns has a background parameter without its ESC`,
+			);
+			// The rule is about painted rows: an outlined row (neon) starts with its frame in a
+			// colour escape and always has, so only rows carrying a surface are constrained.
+			for (const row of rows) {
+				if (!row.includes('[48;2;')) continue;
+				assert.ok(!row.startsWith('\u001b'), `${style} at ${width} columns begins a painted row with an escape`);
+			}
 		}
 	}
 });
