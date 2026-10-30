@@ -77,6 +77,9 @@ interface FakePi {
 	handlers: Map<string, ((event: unknown, ctx: unknown) => void)[]>;
 	resolvers: ToolRendererResolver[];
 	messageRenderers: string[];
+	transformers: ((markdown: string, context: unknown) => string)[];
+	/** What pi renders for an assistant message: every transformer in load order. */
+	transform: (markdown: string, context?: Record<string, unknown>) => string;
 	fire: (event: string, payload?: Record<string, unknown>, ctx?: unknown) => void;
 	/** What pi draws for a call: every resolver in load order, then the tool itself. */
 	resolve: (toolName: string) => ToolRenderers | undefined;
@@ -86,6 +89,8 @@ function fakePi(): FakePi {
 	const handlers = new Map<string, ((event: unknown, ctx: unknown) => void)[]>();
 	const resolvers: ToolRendererResolver[] = [];
 	const messageRenderers: string[] = [];
+	/** The prose transformers the extension registered, in load order. */
+	const transformers: ((markdown: string, context: unknown) => string)[] = [];
 	const on = (event: string, handler: (event: unknown, ctx: unknown) => void): (() => void) => {
 		const list = handlers.get(event) ?? [];
 		list.push(handler);
@@ -100,8 +105,8 @@ function fakePi(): FakePi {
 		registerMessageRenderer: (customType: string): void => {
 			messageRenderers.push(customType);
 		},
-		registerMarkdownTransformer: (): void => {
-			messageRenderers.push('markdown');
+		registerMarkdownTransformer: (transformer: unknown): void => {
+			transformers.push(transformer as (markdown: string, context: unknown) => string);
 		},
 	} as unknown as ExtensionAPI;
 	return {
@@ -109,8 +114,16 @@ function fakePi(): FakePi {
 		handlers,
 		resolvers,
 		messageRenderers,
+		transformers,
 		fire(event, payload = { type: event }, ctx) {
 			for (const handler of handlers.get(event) ?? []) handler(payload, ctx);
+		},
+		transform(markdown, context = {}) {
+			let text = markdown;
+			for (const transformer of transformers) {
+				text = transformer(text, { messageType: 'assistant', isStreaming: false, availableWidth: 100, ...context });
+			}
+			return text;
 		},
 		resolve(toolName) {
 			const base = (): ToolRenderers => nativeRenderers(toolName);
@@ -403,6 +416,58 @@ test('a call right after a unit closed still collapses', () => {
 			assert.equal(pi.resolve(toolName)?.renderShell, 'self');
 			assert.deepEqual(pi.resolve(toolName)?.renderCall?.({}, theme as never, renderContext() as never)?.render(80), []);
 		}
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('the prose of a live turn collapses to one line, and the answer does not', () => {
+	const agentHome = scratch();
+	try {
+		const pi = runningUnit(agentHome);
+		const prose = 'Voy a leer el repositorio y después escribir el slice.\n\nCon dos párrafos.';
+		const collapsed = pi.transform(prose);
+		assert.notEqual(collapsed, prose, 'the prose must not reach the transcript whole');
+		assert.equal(collapsed.split('\n').length, 1);
+		assert.match(collapsed, /gentle:agents/);
+
+		// The closing message is the answer: the extension exempts it at agent_end.
+		const answer = 'Hecho: el slice quedó con sus pruebas.';
+		pi.fire('agent_end', { type: 'agent_end', messages: [{ role: 'assistant', content: [{ type: 'text', text: answer }] }] }, sessionContext());
+		assert.equal(pi.transform(answer), answer, 'the final answer stays legible in full');
+		// And a repaint after the turn keeps the earlier prose collapsed.
+		assert.equal(pi.transform(prose), collapsed, 'a collapsed message must not expand afterwards');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a user message and the thinking text are never transformed', () => {
+	const agentHome = scratch();
+	try {
+		const pi = runningUnit(agentHome);
+		const prose = 'Una pregunta del dueño, en dos líneas.\n\nCon contexto.';
+		assert.equal(pi.transform(prose, { messageType: 'user' }), prose);
+		assert.equal(pi.transform(prose, { messageType: 'assistant-thinking' }), prose);
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('LOON_INLINE_TRANSCRIPT=full leaves the prose alone, and the kill switch registers nothing', () => {
+	const agentHome = scratch();
+	try {
+		const full = fakePi();
+		createInlineWork(full.api, { env: { LOON_INLINE_TRANSCRIPT: 'full' }, agentHome, heartbeatMs: 0 });
+		full.fire('session_start', { type: 'session_start' }, sessionContext());
+		full.fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path: 'README.md' } }, sessionContext());
+		const prose = 'Prosa completa, dos líneas.\n\nY otra.';
+		assert.equal(full.transform(prose), prose);
+
+		const off = fakePi();
+		createInlineWork(off.api, { env: { LOON_INLINE_WORK: '0' }, agentHome, heartbeatMs: 0 });
+		off.fire('session_start', { type: 'session_start' }, sessionContext());
+		assert.deepEqual(off.transformers, [], 'the disabled extension registers no transformer at all');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}

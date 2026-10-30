@@ -336,6 +336,50 @@ escribió: el manifiesto guarda ese `patchedMd5`, y cuando el respaldo es más v
 trae, se recompone desde los bytes respaldados. Si gentle-pi se actualizó, o alguien tocó
 el archivo después, se niega en vez de pisar una versión más nueva y decir que salió bien.
 
+### La prosa también vive en el panel
+
+Las filas de herramientas son la mitad. La otra mitad es la prosa del asistente: los mismos
+párrafos que el panel enseña como transcripción del trabajo aparecían enteros en el transcript.
+Eso no necesita ningún parche: pi expone `registerMarkdownTransformer`, «un transformador del
+Markdown del usuario y del asistente antes de que Pi lo dibuje en el transcript interactivo», y
+el contexto le dice si el mensaje es del usuario, del asistente o es el razonamiento del modelo.
+
+Tres valores, y uno por defecto:
+
+```sh
+LOON_INLINE_TRANSCRIPT=summary   # por defecto: una línea por mensaje, con su puntero
+LOON_INLINE_TRANSCRIPT=off       # solo el puntero, sin extracto
+LOON_INLINE_TRANSCRIPT=full      # el comportamiento de siempre, sin tocar nada
+```
+
+En `summary` un mensaje del asistente se dibuja como una línea:
+
+```
+▸ Voy a mirar el estado del repositorio antes de tocar nada. · inline · /gentle:agents
+```
+
+`off` deja solo `· inline · /gentle:agents`. El texto completo sigue en el panel, dentro de la
+tarjeta del trabajo.
+
+Cuatro reglas que hacen esto seguro:
+
+- Solo se transforma un mensaje **del asistente** y solo mientras la sesión trabaja inline. Los
+  mensajes del usuario, el razonamiento del modelo y cualquier mensaje de una sesión sin
+  trabajo inline se dibujan byte por byte como antes.
+- **La primera decisión es la que queda.** Un mensaje que se colapsó mientras la unidad corría
+  sigue colapsado al repintarse, y uno que ya era historia cuando la unidad empezó se queda
+  entero: por eso el transcript no se rellena hacia atrás mientras lees.
+- **El cierre del turno se queda legible entero, para siempre.** Al cerrar la unidad se guarda
+  el texto exacto de la respuesta y se exime; se reconoce por su texto (o por su arranque, si un
+  repintado normaliza los bordes), y se pide un repintado para que aparezca sin tocar una tecla.
+  Una respuesta que solo existiera en el panel sería peor que la prosa que se quería esconder.
+- **La memoria está acotada**: 500 decisiones. Al llegar al tope se olvida la más antigua, y ese
+  mensaje se vuelve a decidir en su siguiente repintado —colapsado si la unidad sigue viva. Una
+  sesión normal no llega ahí; una sesión muy larga puede, y entonces lo peor que pasa es que un
+  mensaje viejo cambie de forma al repintarse.
+
+### El colapso de filas
+
 La tercera pieza no necesita parche. Desde la primera llamada de la sesión,
 `extensions/inline-work.ts` registra un renderer con `pi.registerToolRenderer` que no dibuja
 ninguna fila para
