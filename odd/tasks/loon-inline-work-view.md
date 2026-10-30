@@ -103,6 +103,7 @@ evidence; this feature must not be sold as a fix for it.
 | T3 | S1, S2 | worker | 5c27faa | `gentle-agents` patch merging the active session's carrier into `visibleTasks()`. Display only: the record never enters the task store, so it is never an owned subagent, never cancellable and never launch authority. |
 | T4 | S4 | inline | 5c27faa | `scripts/apply-inline-carrier-patch.mjs`: check/apply/revert, timestamped backup, verified idempotent rerun, TypeScript syntax gate, and the README note on when it must be rerun. |
 | T10 | S3, S5 | inline | 8104eee | Collapsed renderer through `pi.registerToolRenderer` from `extensions/inline-work.ts`: while the session has a carrier, `read`, `bash`, `grep`, `find`, `ls`, `edit` and `write` draw zero rows (`renderShell: "self"` plus an empty component, which makes `ToolExecutionComponent.render` return no lines). Anything else delegates to `next()`, unchanged: subagent tasks, questions, `todo`, `codemode`, every non-target tool. An errored result delegates to `next()` so the failure keeps its own rows, and `LOON_INLINE_WORK=0` never registers the resolver at all. |
+| T14 | S3, S5 | inline | CODIGO | `codemode` joins `COLLAPSED_TOOL_NAMES`, because an agent that works through `codemode` makes every single call through that one tool and the seven file and shell names left its transcript exactly as flooded as before. Tests first, asserting rows: the call collapses while a carrier is live, a failed `codemode` call still draws its row (pi builds the render context with the result's own error flag), `Ctrl+O` expansion brings it back, a session without a carrier is untouched, and `LOON_INLINE_WORK=0` still registers no renderer. The seven original names stay covered by the same test. |
 | T11 | S5 | pending | The panel entry still has no detail thread: `agents-view.threadWindow` reads `store.thread(id)` and the carrier never enters the store, so a carrier's thread is always empty. Giving it one needs either a thread field the view reads for non-store ids or a second patch site, so it is its own slice and the collapsed detail stays in the session log until then. |
 | T6 | S6 | inline | pending | Measure the actual inline/delegated split of recent sessions and report before changing any policy. |
 | T7 | S4 | inline | aa654cb | Harden `scripts/apply-inline-carrier-patch.mjs` after the first review: strict argument parsing (missing value, unknown flag, repeated flag, stray positional all rejected before any read or write) and a `revert` that refuses anything but the exact bytes the patch wrote. Tests first, both proving the failure by absence of a write, not by a message. |
@@ -159,3 +160,16 @@ a reader needs expanded by default, the answer is that the collapsed state is ne
 state: `Ctrl+O` (`app.tools.expand`) sets `expanded` on every tool component and every new one
 (`interactive-mode.js`, `setToolsExpanded`), the renderer delegates when `expanded` is true, an
 error restores its own row, and `LOON_INLINE_WORK=0` restores everything.
+
+L15. T14 order (verbatim): "Owner's answer on the collapse: yes, add `codemode`. He works with
+an agent whose every call is codemode, so the seven-tool list leaves the transcript flooding
+exactly as before." And, to record with no code: "`extensions/gentle-agents.ts:927` counts
+badge/sidebar tasks from `store.list(...).filter(ownedTaskIds.has(...))`, not from the patched
+`visibleTasks()`. So the carrier draws a card in the panel while the running-count does not
+include it. That is the patch's territory and it is display-only, so do not patch
+`node_modules` again for it; write it down as a known inconsistency with the reason." The
+count is published from `publishActivityNow` (`gentle-agents.ts:573` in 4.5.1); `:927` is the
+same predicate reused for the standalone-sleep block, so both stay blind to the carrier by the
+same design. And: "The carrier file is removed at shutdown, so a Pi reload or restart drops the
+card until the next tool call re-creates it... Say so in the README, next to the
+double-invisible warning." Both limits are now in the README; neither adds code.
