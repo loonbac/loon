@@ -240,6 +240,22 @@ function liftToContrast(rgb: Rgb, background: Rgb, floor: number): string {
 }
 
 /**
+ * Raise a colour's lightness until it clears `floor` against every surface it can land
+ * on, keeping its hue. The floor is reached, not skipped.
+ */
+function liftToSurfaces(rgb: Rgb, surfaces: readonly string[], floor: number): string {
+	const lch = rgbToOklch(rgb);
+	let lightness = lch.L;
+	for (let guard = 0; guard < 40; guard += 1) {
+		const hex = paint(lightness, lch.C, lch.H);
+		const candidate = hexToRgb(hex) as Rgb;
+		if (surfaces.every((surface) => contrastRatio(candidate, hexToRgb(surface) as Rgb) >= floor)) return hex;
+		if (lightness >= 1) break;
+		lightness = Math.min(1, lightness + 0.02);
+	}
+	return paint(lightness, lch.C, lch.H);
+}
+/**
  * Derive the whole palette from one accent colour.
  *
  * Deterministic: the same accent always yields the same theme, and the result is
@@ -262,6 +278,15 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 	const surface = Math.min(0.034, Math.max(0.02, tint * 0.6));
 	const [cardSuccess, cardPending, cardError] = cardSurfaces(bg, H, surface);
 
+	// `dim` is the hint role, and a hint lands on a card surface, not on the background:
+	// solved against `bg` alone it read 2.43 on the lightest card while its own floor was
+	// green. Solve it against every surface a hint can land on, at a target above the
+	// floor so a rotating accent cannot round the role back underneath.
+	const dimHex = liftToSurfaces(hexToRgb(paint(0.56, 0.02, H)) as Rgb, [cardSuccess, cardPending, cardError], DIM_SURFACE_CONTRAST_TARGET);
+	// The lift must not let the hint merge into the secondary text: muted keeps at
+	// least the same distance from dim on the background that it had before.
+	const mutedHex = liftToContrast(hexToRgb(paint(0.73, 0.02, H)) as Rgb, bg, contrastRatio(hexToRgb(dimHex) as Rgb, bg) + CONTRAST_FLOORS.mutedOverDim);
+
 	const vars: Record<string, string> = {
 		bg: paint(0.16, low, H),
 		bgPanel: paint(0.205, low + 0.005, H),
@@ -274,8 +299,8 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 		border: tintedSurface(H, Math.max(0.55 * source.C, 0.042), bg, 2.5, 3.2),
 		borderSubtle: paint(0.27, low + 0.005, H),
 		text: paint(0.96, 0.012, H),
-		muted: paint(0.73, 0.02, H),
-		dim: paint(0.56, 0.02, H),
+		muted: mutedHex,
+		dim: dimHex,
 		accent: accentHex,
 		accentBright: liftToContrast(hexToRgb(paint(Math.min(1, source.L + 0.12), Math.min(source.C, 0.14), H)) as Rgb, bg, 3),
 		accentDim: paint(Math.max(0.3, source.L - 0.2), Math.min(source.C, 0.1), H),
@@ -321,7 +346,17 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 }
 
 /** The three floors the palette must clear, named for the tests and the docs. */
-export const CONTRAST_FLOORS = { text: 7, muted: 4.5, accent: 3 } as const;
+export const CONTRAST_FLOORS = { text: 7, muted: 4.5, accent: 3, dimSurface: 3, mutedOverDim: 2.5 } as const;
+
+/**
+ * The lightness `dim` is solved to. It is secondary text, so WCAG AA for large text
+ * (3.0) is its honest floor; the target sits above it so an accent that rotates and
+ * rounds cannot land the role back underneath the floor.
+ */
+export const DIM_SURFACE_CONTRAST_TARGET = 3.2;
+
+/** The surfaces a hint can land on: the cards, whose bodies sit on these tones. */
+export const HINT_SURFACES = ['toolSuccessBg', 'toolPendingBg', 'toolErrorBg'] as const;
 
 /** Measure the derived palette against its floors. */
 export function measureContrast(theme: LoonThemeFile): { text: number; muted: number; accent: number; dim: number } {
@@ -335,4 +370,26 @@ export function measureContrast(theme: LoonThemeFile): { text: number; muted: nu
 	};
 }
 
+/** The surfaces a text role can land on, lightest last: the card tones come from the
+ * accent and are the ones a hint actually sits on. */
+const SURFACE_ROLES = ['bg', 'bgPanel', 'bgElement', 'toolSuccessBg', 'toolPendingBg', 'toolErrorBg', 'selection'] as const;
+
+/**
+ * Contrast of every text role against every surface it can land on. A role measured
+ * only against `bg` is a role nobody measured: the hint fell to 2.43 on a card while
+ * its own floor was green.
+ */
+export function measureSurfaceContrast(theme: LoonThemeFile): Array<{ surface: string; text: number; muted: number; dim: number; accent: number }> {
+	const vars = theme.vars;
+	return SURFACE_ROLES.map((surface) => {
+		const back = hexToRgb(vars[surface] as string) as Rgb;
+		return {
+			surface,
+			text: contrastRatio(hexToRgb(vars.text as string) as Rgb, back),
+			muted: contrastRatio(hexToRgb(vars.muted as string) as Rgb, back),
+			dim: contrastRatio(hexToRgb(vars.dim as string) as Rgb, back),
+			accent: contrastRatio(hexToRgb(vars.accent as string) as Rgb, back),
+		};
+	});
+}
 export type { Oklch };
