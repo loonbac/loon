@@ -17,6 +17,27 @@ const PI_ROOT = join(homedir(), '.local', 'share', 'loon-pi', 'npm-prefix', 'lib
 
 const available = existsSync(join(GENTLE, 'lib', 'shell-card.ts')) && existsSync(join(PI_ROOT, 'package.json'));
 
+/** The visible columns that carry the surface, decoded from the row's own escapes. */
+function paintedColumns(row: string): number[] {
+	const columns: number[] = [];
+	let column = 0;
+	let surface = false;
+	for (let index = 0; index < row.length;) {
+		const escape = /^\u001b\[([0-9;]*)m/.exec(row.slice(index));
+		if (escape) {
+			const parameters = escape[1] ?? '';
+			if (parameters === '' || parameters === '0' || parameters === '49') surface = false;
+			else if (parameters.startsWith('48;')) surface = true;
+			index += escape[0].length;
+			continue;
+		}
+		if (surface) columns.push(column);
+		column += 1;
+		index += 1;
+	}
+	return columns;
+}
+
 function bareBackground(rows: readonly string[]): string[] {
 	const offenders: string[] = [];
 	for (const row of rows) {
@@ -111,7 +132,9 @@ test('no painted row starts with an escape, in any card style', { skip: !availab
 	const bandRows = prompt.framePromptLines(['', 'hello', ''], 120, bandOptions, layout);
 	const band = bandRows[1]!.replace(/\u001b\[[0-9;]*m/g, '');
 	assert.equal(band.indexOf('▎'), 1, `loon band rule sits in column ${band.indexOf('▎')}, expected 1: column 0 is the margin`);
-	assert.equal(band.indexOf('hello'), 2, `loon band text sits in column ${band.indexOf('hello')}, expected 2`);
+	// One cell of air between the rule and the text, taken from the trailing air: the surface
+	// still closes on the last column.
+	assert.equal(band.indexOf('hello'), 3, `loon band text sits in column ${band.indexOf('hello')}, expected 3`);
 	assert.ok(!bandRows[1]!.startsWith('\u001b'), 'the band row begins with an escape');
 
 	const subject = {
@@ -179,27 +202,6 @@ test('the loon band surface ends where the bar surface ends', { skip: !available
 		bg: (_role: string, text: string) => OPEN + text + CLOSE,
 		bold: (text: string) => text,
 	};
-	// The visible columns that carry the surface, decoded from the row's own escapes.
-	const painted = (row: string): number[] => {
-		const columns: number[] = [];
-		let column = 0;
-		let surface = false;
-		for (let index = 0; index < row.length;) {
-			const escape = /^\u001b\[([0-9;]*)m/.exec(row.slice(index));
-			if (escape) {
-				const parameters = escape[1] ?? '';
-				if (parameters === '' || parameters === '0' || parameters === '49') surface = false;
-				else if (parameters.startsWith('48;')) surface = true;
-				index += escape[0].length;
-				continue;
-			}
-			if (surface) columns.push(column);
-			column += 1;
-			index += 1;
-		}
-		return columns;
-	};
-
 	const model = {
 		cwd: '/tmp', branch: 'main', dirty: 0, modelId: 'test-model', effort: 'high',
 		contextPercent: 10, contextWindow: 100000, costTotal: 0, subscription: false,
@@ -217,19 +219,62 @@ test('the loon band surface ends where the bar surface ends', { skip: !available
 		}, layout)[1]!;
 		const chrome = shellBar.renderShellBelowInputFloat(model, theme, width, undefined, presentation);
 		assert.ok(chrome, 'the bar did not render at ' + width + ' columns');
-		const bandRight = Math.max(...painted(bandRow));
+		const bandRight = Math.max(...paintedColumns(bandRow));
 		const barRow = chrome.rows[chrome.headerRow]!;
-		const barRight = Math.max(...painted(barRow));
+		const barRight = Math.max(...paintedColumns(barRow));
 		assert.equal(bandRight, barRight, 'at ' + width + ' columns the band surface ends at ' + bandRight + ' and the bar at ' + barRight);
-		assert.equal(Math.min(...painted(barRow)), 1, 'the bar surface starts in column 1, where the band starts: one margin for the whole chrome');
-		assert.ok(!painted(barRow).includes(0), 'column 0 is a margin for the bar too: it carries no surface');
+		assert.equal(Math.min(...paintedColumns(barRow)), 1, 'the bar surface starts in column 1, where the band starts: one margin for the whole chrome');
+		assert.ok(!paintedColumns(barRow).includes(0), 'column 0 is a margin for the bar too: it carries no surface');
 		assert.equal(bandRight, width - 1, 'the surface reaches the last column at ' + width);
 		const bandCells = bandRow.replace(/\u001b\[[0-9;]*m/g, '');
-		assert.equal(Math.min(...painted(bandRow)), 1, 'the band surface starts in column 1');
-		assert.ok(!painted(bandRow).includes(0), 'column 0 is a margin: it carries no surface');
-		assert.ok(painted(bandRow).includes(1), 'the rule cell carries the surface: the glyph is a quarter block, and a transparent cell around it reads as a hole');
+		assert.equal(Math.min(...paintedColumns(bandRow)), 1, 'the band surface starts in column 1');
+		assert.ok(!paintedColumns(bandRow).includes(0), 'column 0 is a margin: it carries no surface');
+		assert.ok(paintedColumns(bandRow).includes(1), 'the rule cell carries the surface: the glyph is a quarter block, and a transparent cell around it reads as a hole');
 		assert.equal(bandCells[0], ' ', 'the row starts with its margin, never with an escape or the glyph');
 		assert.equal(bandCells[1], '▎', 'the rule glyph sits in column 1, inside the surface');
+	}
+});
+
+// The rule is a glyph, not a margin. With no cell of air after it, the hint's first glyph
+// landed on the rule - column 2 held the petal instead of a space - and all the air the row
+// carried was on its right. One cell on each side, taken from the trailing air so the
+// surface still closes on the last column, where the bar closes its own.
+test('the band keeps a cell of air between the rule and the content of every row', { skip: !available && 'gentle-pi is not installed here' }, async () => {
+	const { createJiti } = (await import(join(PI_ROOT, 'node_modules', 'jiti', 'lib', 'jiti-static.mjs'))) as {
+		createJiti: (url: string, options: Record<string, unknown>) => { import: (path: string) => Promise<unknown> };
+	};
+	const jiti = createJiti(import.meta.url, {
+		moduleCache: false,
+		interopDefault: true,
+		fsCache: false,
+		alias: {
+			'@earendil-works/pi-tui': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-tui', 'dist', 'index.js'),
+			'@earendil-works/pi-agent-core': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-agent-core', 'dist', 'index.js'),
+			'@earendil-works/pi-ai': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-ai', 'dist', 'compat.js'),
+		},
+	});
+	const prompt = (await jiti.import(join(GENTLE, 'lib', 'shell-prompt.ts'))) as {
+		resolvePromptLayout: (width: number, style: string, bg: unknown) => unknown;
+		framePromptLines: (lines: string[], width: number, options: unknown, layout: unknown) => string[];
+	};
+	const theme = {
+		fg: (_role: string, text: string) => text,
+		bg: (_role: string, text: string) => '\u001b[48;2;61;56;35m' + text + '\u001b[49m',
+	};
+	for (const width of [120, 160]) {
+		const layout = prompt.resolvePromptLayout(width, 'loon', theme.bg);
+		const rows = prompt.framePromptLines(['', 'hello', ''], width, {
+			state: 'idle', tick: 0, bg: theme.bg, fg: theme.fg, borderColor: (text: string) => text, style: 'loon',
+		}, layout);
+		for (const [index, row] of rows.entries()) {
+			const cells = row.replace(/\u001b\[[0-9;]*m/g, '');
+			assert.equal(cells[0], ' ', 'band row ' + index + ' at ' + width + ' does not start with its margin');
+			assert.equal(cells[1], '▎', 'band row ' + index + ' at ' + width + ' does not carry the rule in column 1');
+			assert.equal(cells[2], ' ', 'band row ' + index + ' at ' + width + ' paints its content on the rule: column 2 is ' + JSON.stringify(cells[2]));
+			assert.equal(cells.length, width, 'band row ' + index + ' at ' + width + ' is ' + cells.length + ' cells wide');
+			const right = Math.max(...paintedColumns(row));
+			assert.equal(right, width - 1, 'band row ' + index + ' at ' + width + ' closes its surface at column ' + right);
+		}
 	}
 });
 
