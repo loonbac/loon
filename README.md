@@ -280,8 +280,10 @@ Semántica:
 | `rose` | el banner de gentle-pi; LOON libera el hueco y nunca lo reclama |
 | `off` | nadie: la cabecera propia de pi |
 
-La herramienta se niega a tocar un archivo que no es exactamente la compilación 4.5.1
-contra la que fue escrita (md5), comprueba que cada ancla aparece exactamente una vez,
+La herramienta no exige que el archivo sea exactamente la compilación 4.5.1 contra la que
+fue escrita: exige que cada ancla aparezca exactamente una vez. Un cambio de gentle-pi que
+no toque ningún ancla no la detiene; uno que mueva un ancla sí, y entonces lo dice con el
+detalle de abajo. Además,
 importa la copia parcheada en un proceso hijo con el mismo cargador que usa pi *antes* de
 reemplazar nada, y guarda una copia de seguridad con marca de tiempo en
 `~/.pi/agent/backups/gentle-pi-banner-patch-*` que `revert` restaura y verifica. Aquí nada
@@ -376,30 +378,48 @@ sobrescrituras, ni la cabecera de hoy.
 
 ## Cuando gentle-pi cambia
 
-El menú es texto insertado en un paquete ajeno, así que una actualización de gentle-pi
-**rompe el parche a propósito**: la herramienta se niega a tocar nada (salida 2, cero
-bytes escritos) y dice qué arreglar. Ese ruido es el mantenimiento, no un fallo que haya
-que esquivar:
+El menú es texto insertado en un paquete ajeno, así que la pregunta es qué pasa cuando
+gentle-pi se actualiza. La respuesta son dos reglas, y la primera es la que importa:
 
-```
-extensions/gentle-shell.ts: not the build this patch was written against
-  md5:      expected ad1bfce9…, found 3f2b91c1…
-  version:  installed 4.6.0 · patch pinned to 4.5.1
-  anchor:   scripts/gentle-pi-patch.ts:63 (shellRows) occurs 0 time(s), expected 1
-    expected: add(() => `Banner rose: ...`
-    found:    line 2493: add(() => `Banner rose: ...`
-  nothing was written: no file changed and no backup was created
+- **Si el cambio no toca ningún ancla, el parche sigue funcionando.** No hay que
+  intervenir. Un comentario nuevo, una función que se movió de sitio, un archivo que
+  creció: nada de eso es un problema, aunque el md5 del archivo sea otro. Aplicar sobre
+  una compilación distinta de la probada se permite y se avisa:
+
+  ```
+  gentle-pi 4.6.0: anchors intact, version not tested (this patch was written against 4.5.1)
+  ```
+
+- **Si el cambio toca un ancla, el parche se rompe a propósito.** No aplica nada (salida
+  2, cero bytes escritos) y dice qué arreglar:
+
+  ```
+  lib/shell-bar.ts: not the build this patch was written against
+    md5:      expected c5b38192…, found e119c8be…
+    version:  installed 4.6.0 · patch pinned to 4.5.1
+    anchor:   scripts/gentle-pi-patch.ts:232 (shellBarStagesTail) occurs 0 time(s), expected 1
+      expected: [brand, location, withProfile],
+      found:    line 282: const withProfile = model.profile ? `${withEffort} …
+    nothing was written: no file changed and no backup was created
+  ```
+
+Un ancla que aparece dos veces también rompe el parche, por ambigüedad: sustituir la
+primera cuando hay dos sería adivinar. Y el resultado se verifica antes de escribirlo: cada
+reemplazo tiene que haber caído exactamente una vez y el marcador tiene que estar.
+
+`check` dice lo mismo antes de intentar nada:
+
+```sh
+node --experimental-strip-types scripts/gentle-pi-patch.ts check
 ```
 
-El mensaje nombra el objetivo, los dos md5, la versión instalada frente a la fijada, el
-anclaje que dejó de coincidir con su línea en `scripts/gentle-pi-patch.ts`, y la línea del
-paquete que más se le parece. `check` imprime la comparación de versiones y esos anclajes
-antes de aplicar, para que la deriva se vea sin intentar nada.
+Deshacer no depende del md5 de gentle-pi 4.5.1: cada respaldo guarda el archivo que había
+antes y el md5 de lo que el parche escribió, así que `revert` devuelve exactamente el
+archivo que estaba ahí—aunque no fuera la versión probada—y se niega si lo instalado ya no
+es lo que este parche escribió, porque entonces lo que hay es de otra persona.
 
 Sin el parche aplicado LOON funciona igual: lee su archivo, pinta su cabecera y no
-depende de que ese texto esté en el paquete. Lo único que falta entonces es el menú; los
-ajustes siguen en `loon-tui.json` y editarlo a mano surte efecto igual, porque LOON lo
-vigila.
+depende de que ese texto esté en el paquete. Lo único que falta entonces es el menú.
 
 ## Convenciones de idioma
 

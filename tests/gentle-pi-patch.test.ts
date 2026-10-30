@@ -20,6 +20,7 @@ import {
 	md5,
 	diagnoseAnchors,
 	patchText,
+	verifyPatched,
 	type TargetSpec,
 } from '../scripts/gentle-pi-patch.ts';
 
@@ -338,11 +339,93 @@ test('check shows the installed version beside the pinned one', async () => {
 
 	const { code, output } = captureOutput(() => report({ install, backups: join(root, 'backups') }, [shellSpec]));
 
-	// Visible before anyone tries to apply, which is the whole point of check.
+	// Visible before anyone tries to apply, which is the whole point of check: the build
+	// is not the pinned one, the anchors are intact, so it is patchable and untested.
 	assert.match(output, /gentle-pi installed: 4\.6\.0/);
 	assert.match(output, /patch pinned to 4\.5\.1/);
-	assert.match(output, /extensions\/gentle-shell\.ts: different-version/);
+	assert.match(output, /not the build this patch was written against/);
+	assert.match(output, /extensions\/gentle-shell\.ts: clean \(anchors intact; md5 [0-9a-f]{32} is not the pinned [0-9a-f]{32}/);
 	assert.equal(code, 0, 'check reports, it does not fail the shell');
+});
+
+test('a change outside the anchors does not block the patch', () => {
+	// A newer gentle-pi with a new comment at the end of the file: our anchors are
+	// untouched, so the patch applies. The md5 of the file is not the gate.
+	const root = mkdtempSync(join(tmpdir(), 'loon-drift-harmless-'));
+	const install = join(root, 'gentle-pi');
+	const backups = join(root, 'backups');
+	mkdirSync(join(install, 'extensions'), { recursive: true });
+	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.6.0' }));
+	const pristine = shellStand();
+	const edited = pristine + '\n// a comment a newer gentle-pi added\n';
+	const path = join(install, 'extensions', 'gentle-shell.ts');
+	writeFileSync(path, edited);
+
+	const spec: TargetSpec = { ...shellSpec, md5: md5(pristine) };
+	const { code, output } = captureOutput(() => apply({ install, backups }, [spec]));
+
+	assert.equal(code, 0, 'a change that misses every anchor must not block the patch');
+	assert.match(readFileSync(path, 'utf8'), /LOON banner patch/, 'the file was not patched');
+	assert.equal(readFileSync(path, 'utf8').endsWith('// a comment a newer gentle-pi added\n'), true, 'the patch dropped the new tail');
+	assert.match(output, /gentle-pi 4\.6\.0: anchors intact, version not tested/);
+});
+
+test('an anchor that occurs twice is refused as ambiguous', () => {
+	const root = mkdtempSync(join(tmpdir(), 'loon-drift-twice-'));
+	const install = join(root, 'gentle-pi');
+	const backups = join(root, 'backups');
+	mkdirSync(join(install, 'extensions'), { recursive: true });
+	const pristine = shellStand();
+	const doubled = pristine + '\n' + ANCHORS.shellInit + '\n';
+	const path = join(install, 'extensions', 'gentle-shell.ts');
+	writeFileSync(path, doubled);
+
+	const spec: TargetSpec = { ...shellSpec, md5: md5(pristine) };
+	const { code, output } = captureOutput(() => apply({ install, backups }, [spec]));
+
+	assert.equal(code, 2, 'an ambiguous anchor must be refused');
+	assert.equal(readFileSync(path, 'utf8'), doubled, 'a refused apply rewrote the target');
+	assert.ok(!existsSync(backups) || readdirSync(backups).length === 0, 'a refused apply wrote a backup');
+	assert.match(output, /occurs 2 time\(s\), expected 1/, 'the refusal does not report the ambiguity');
+	assert.ok(output.includes('extensions/gentle-shell.ts'), 'the refusal does not name the target');
+});
+
+test('revert restores the file that was there before the patch, not a pinned copy', () => {
+	const root = mkdtempSync(join(tmpdir(), 'loon-revert-drifted-'));
+	const install = join(root, 'gentle-pi');
+	const backups = join(root, 'backups');
+	mkdirSync(join(install, 'extensions'), { recursive: true });
+	const pristine = shellStand();
+	const edited = pristine + '\n// a comment a newer gentle-pi added\n';
+	const path = join(install, 'extensions', 'gentle-shell.ts');
+	writeFileSync(path, edited);
+
+	const spec: TargetSpec = { ...shellSpec, md5: md5(pristine) };
+	const applied = captureOutput(() => apply({ install, backups }, [spec]));
+	assert.equal(applied.code, 0, 'the harmless change was refused, so there is nothing to revert');
+
+	const reverted = captureOutput(() => revert({ install, backups }, [spec]));
+	assert.equal(reverted.code, 0, 'revert refused its own patch');
+	assert.equal(readFileSync(path, 'utf8'), edited, 'revert restored a different file than the one it patched');
+});
+
+test('the patched result is verified by its substitutions, not by the marker', () => {
+	// lib/visual-customize-view.ts replaces code that never mentions the marker; the
+	// promise is that each substitution landed once, whatever the replacement says.
+	const text = ['// head', 'REPLACE ME', '// tail', ''].join('\n');
+	const spec: TargetSpec = {
+		file: 'lib/example.ts',
+		md5: md5(text),
+		edits: [{ anchor: 'REPLACE ME', replacement: 'replaced once' }],
+	};
+	const result = patchText(text, spec);
+	assert.ok(result.ok);
+	assert.equal(verifyPatched((result as { text: string }).text, spec), undefined);
+	assert.match(
+		verifyPatched('// head\nreplaced once replaced once\n// tail', spec) ?? '',
+		/landed 2 time/,
+		'a doubled replacement must be caught',
+	);
 });
 
 test('the four patch states, end to end on a copy of the package', async () => {
@@ -399,13 +482,20 @@ test('the four patch states, end to end on a copy of the package', async () => {
 	assert.equal(classify(readFileSync(shellPath, 'utf8'), standTargets[0]!), 'patched');
 	assert.ok(readFileSync(shellPath, 'utf8').includes('Banner color: wallpaper'));
 
-	// a different build is refused and left alone
-	const altered = shellText + '// a build this patch does not know\n';
+	// a build whose anchors moved is refused and left alone; the digest is not the gate
+	const moved = ANCHORS.shellRows.slice(0, 20) + 'X' + ANCHORS.shellRows.slice(21);
+	const altered = shellText.replace(ANCHORS.shellRows, moved);
 	writeFileSync(shellPath, altered);
 	assert.equal(apply(paths, standTargets), 2);
 	assert.equal(readFileSync(shellPath, 'utf8'), altered, 'a refused apply modified the file');
 
-	// revert goes back to the pristine bytes of both files
+	// the installed file is not the one this patch wrote any more, so revert refuses
+	// instead of destroying whatever replaced it
+	assert.equal(revert(paths, standTargets), 2);
+	assert.equal(readFileSync(shellPath, 'utf8'), altered, 'a refused revert overwrote the file');
+
+	// give our own output back and the restore goes through, to the bytes that were there
+	writeFileSync(shellPath, (shellV2 as { text: string }).text);
 	assert.equal(revert(paths, standTargets), 0);
 	assert.equal(readFileSync(shellPath, 'utf8'), shellText);
 	assert.equal(readFileSync(bannerPath, 'utf8'), bannerText);
@@ -542,10 +632,13 @@ test('a missing snapshot names the file and copies nothing at all', async () => 
 			spec.file + ' was touched even though the restore could not complete',
 		);
 	}
-	assert.deepEqual(planRestore({ install, backups }, targets), {
-		ok: false,
-		missing: [{ file: 'lib/visual-customize-view.ts', md5: targets[2]!.md5 }],
-	});
+	const plan = planRestore({ install, backups }, targets);
+	assert.equal(plan.ok, false);
+	if (!plan.ok) {
+		// The gap is named, and so is what a restore would have accepted as ours.
+		assert.deepEqual(plan.missing.map((item) => item.file), ['lib/visual-customize-view.ts']);
+		assert.ok(plan.missing[0]!.expects.includes(targets[2]!.md5Patched!), 'the plan does not name our own output');
+	}
 });
 
 /* The header bar's brand, and what a theme LOON generated does to it. */

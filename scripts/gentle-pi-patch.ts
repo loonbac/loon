@@ -430,27 +430,35 @@ export const TARGETS: TargetSpec[] = [
 	},
 ];
 
-export type PatchState = 'missing' | 'patched' | 'patched-v1' | 'clean' | 'different-version';
-
 export function md5(text: string): string {
 	return createHash('md5').update(text).digest('hex');
 }
 
+export type PatchState = 'missing' | 'patched' | 'patched-v1' | 'clean' | 'different-version';
+
 /**
- * What the file on disk is, relative to this patch.
- *
- * The patched states are decided by md5, not by the marker alone: a file that
- * carries our marker but no longer matches the bytes we write was edited after
- * the patch, and `apply` must refuse it instead of pretending it is ours.
+ * True when every anchor of the target occurs exactly once: the only condition the
+ * patch actually needs. A gentle-pi update that misses every anchor is patchable, and
+ * one that touches an anchor is not, whatever the file's digest says.
+ */
+export function anchorsResolve(text: string, spec: TargetSpec): boolean {
+	return spec.edits.every((edit) => text.split(edit.anchor).length - 1 === 1);
+}
+
+/**
+ * What the file in front of us is. The digest is a diagnosis and a backup datum, never
+ * a permission: gating on it refused to patch a build whose anchors were untouched,
+ * which is the opposite of what a patch that must break loudly is for.
  */
 export function classify(text: string | undefined, spec: TargetSpec): PatchState {
 	if (text === undefined) return 'missing';
 	const digest = md5(text);
-	if (digest === spec.md5) return 'clean';
-	if (spec.md5PatchedV1 !== undefined && spec.md5PatchedV1.includes(digest)) return 'patched-v1';
 	if (spec.md5Patched !== undefined && digest === spec.md5Patched) return 'patched';
-	return 'different-version';
+	if (spec.md5PatchedV1 !== undefined && spec.md5PatchedV1.includes(digest)) return 'patched-v1';
+	return anchorsResolve(text, spec) ? 'clean' : 'different-version';
 }
+
+
 
 /** True when the file carries our marker, so a refusal can say what happened. */
 export function isMarked(text: string | undefined, spec: TargetSpec): boolean {
@@ -460,6 +468,23 @@ export function isMarked(text: string | undefined, spec: TargetSpec): boolean {
 export type PatchResult = { ok: true; text: string; changed: boolean } | { ok: false; reason: string };
 
 /** Apply every edit of one target to its text. Idempotent and anchor-checked. */
+/**
+ * The promise the patch makes, checked on its own output: the marker is there and every
+ * replacement landed exactly once. An anchor that resolves is not enough if the result
+ * does not contain what it was supposed to write.
+ */
+export function verifyPatched(text: string, spec: TargetSpec): string | undefined {
+	// No marker check: not every target's replacement carries it, and the promise that
+	// matters is the substitutions themselves.
+	for (const edit of spec.edits) {
+		const occurrences = text.split(edit.replacement).length - 1;
+		if (occurrences !== 1) {
+			return 'a replacement landed ' + occurrences + ' time(s) in ' + spec.file + ', expected 1';
+		}
+	}
+	return undefined;
+}
+
 export function patchText(text: string, spec: TargetSpec): PatchResult {
 	if (text.includes(PATCH_MARKER)) return { ok: true, text, changed: false };
 
@@ -718,9 +743,35 @@ function timestamp(): string {
 	return [now.getFullYear(), pad(now.getMonth() + 1), pad(now.getDate()), pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds())].join('');
 }
 
-function backupOriginals(paths: PatchPaths, specs: { spec: TargetSpec; text: string }[]): string {
+/**
+ * What a backup directory says we wrote, per file. A patch applied over a build that is
+ * not the pinned one produces a digest no constant can predict, so the record of our own
+ * output is the only honest thing to verify a revert against.
+ */
+function recordedOutputs(paths: PatchPaths, dir: string): Map<string, string> {
+	const recorded = new Map<string, string>();
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(join(paths.backups, dir, 'manifest.json'), 'utf8'));
+		const files = (parsed as { files?: unknown }).files;
+		if (!Array.isArray(files)) return recorded;
+		for (const item of files) {
+			const entry = item as { file?: unknown; patchedMd5?: unknown };
+			if (typeof entry.file === 'string' && typeof entry.patchedMd5 === 'string') {
+				recorded.set(entry.file, entry.patchedMd5);
+			}
+		}
+	} catch {
+		return recorded;
+	}
+	return recorded;
+}
+
+function backupOriginals(
+	paths: PatchPaths,
+	specs: { spec: TargetSpec; text: string; patched: string }[],
+): string {
 	// Two runs inside the same second must not share a directory: the second could
-	// mix its pristine copies with the first one's.
+	// mix its copies with the first one's.
 	const base = 'gentle-pi-banner-patch-' + timestamp();
 	let dir = join(paths.backups, base);
 	for (let copy = 2; existsSync(dir); copy += 1) dir = join(paths.backups, base + '-' + copy);
@@ -732,7 +783,13 @@ function backupOriginals(paths: PatchPaths, specs: { spec: TargetSpec; text: str
 	const manifest = {
 		version: GENTLE_PI_VERSION,
 		at: new Date().toISOString(),
-		files: specs.map(({ spec, text }) => ({ file: spec.file, md5: md5(text) })),
+		files: specs.map(({ spec, text, patched }) => ({
+			file: spec.file,
+			// The file that was there, which is what revert gives back.
+			md5: md5(text),
+			// And the file this run wrote, which is what revert verifies before it does.
+			patchedMd5: md5(patched),
+		})),
 	};
 	writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest, null, '\t') + '\n');
 	return dir;
@@ -747,10 +804,18 @@ function writeAtomically(path: string, text: string): void {
 export function report(paths: PatchPaths, targets: TargetSpec[] = TARGETS): number {
 	const installed = installedVersion(paths.install);
 	console.log('gentle-pi installed: ' + (installed ?? 'unknown') + ' · patch pinned to ' + GENTLE_PI_VERSION);
+	if (installed !== GENTLE_PI_VERSION) {
+		console.log('  not the build this patch was written against: the anchors decide, and each target below says whether they still resolve');
+	}
 	for (const spec of targets) {
 		const text = readTarget(spec, paths);
 		const state = classify(text, spec);
-		const extra = state === 'different-version' ? ' (md5 ' + md5(text ?? '') + ', expected ' + spec.md5 + ')' : '';
+		const extra =
+			state === 'different-version'
+				? ' (md5 ' + md5(text ?? '') + ', expected ' + spec.md5 + ')'
+				: state === 'clean' && md5(text ?? '') !== spec.md5
+					? ' (anchors intact; md5 ' + md5(text ?? '') + ' is not the pinned ' + spec.md5 + ', so the build is untested)'
+					: '';
 		console.log(spec.file + ': ' + state + extra);
 		if (state !== 'different-version') continue;
 		for (const problem of diagnoseAnchors(text ?? '', spec)) {
@@ -783,6 +848,11 @@ export function apply(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numbe
 			}
 			return 2;
 		}
+		if (state === 'clean' && md5(text ?? '') !== spec.md5) {
+			// The anchors are intact in a file this patch was not written against: patch it,
+			// and say so rather than pretending the build is the tested one.
+			console.log(spec.file + ': anchors intact on a build with md5 ' + md5(text ?? '') + ', pinned ' + spec.md5);
+		}
 
 		// A file we patched in an earlier version is upgraded from the pristine copy
 		// recorded in its backup: patching over a patched file would nest anchors.
@@ -803,12 +873,24 @@ export function apply(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numbe
 			console.error(spec.file + ': ' + result.reason + '; nothing was changed');
 			return 2;
 		}
+		const promise = verifyPatched(result.text, spec);
+		if (promise !== undefined) {
+			console.error(spec.file + ': ' + promise + '; nothing was changed');
+			return 2;
+		}
 		prepared.push({ spec, pristine: base, patched: result.text });
 	}
 
 	if (prepared.length === 0) {
 		console.log('already patched');
 		return 0;
+	}
+
+	const installed = installedVersion(paths.install);
+	if (installed !== GENTLE_PI_VERSION) {
+		console.log(
+			'gentle-pi ' + (installed ?? 'unknown') + ': anchors intact, version not tested (this patch was written against ' + GENTLE_PI_VERSION + ')',
+		);
 	}
 
 	const piRoot = findPiInstall(paths);
@@ -843,7 +925,7 @@ export function apply(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numbe
 
 	// Every backup holds the pristine 4.5.1 bytes, so `revert` always has something
 	// to verify against - including when this run upgraded our own earlier patch.
-	const dir = backupOriginals(paths, prepared.map(({ spec, pristine }) => ({ spec, text: pristine })));
+	const dir = backupOriginals(paths, prepared.map(({ spec, pristine, patched }) => ({ spec, text: pristine, patched })));
 	console.log('backup: ' + dir);
 	for (const { spec, patched } of prepared) {
 		writeAtomically(join(paths.install, spec.file), patched);
@@ -883,33 +965,44 @@ export function findPristineBackup(paths: PatchPaths, spec: TargetSpec): string 
 
 export interface RestoreStep {
 	spec: TargetSpec;
-	/** Where the verified pristine bytes were found. */
+	/** Where the recorded bytes were found. */
 	source: string;
 	text: string;
+	/** Digests of every output this patch would have written for the target. */
+	ours: string[];
 }
 
 export type RestorePlan =
 	| { ok: true; steps: RestoreStep[] }
-	| { ok: false; missing: { file: string; md5: string }[] };
+	| { ok: false; missing: { file: string; expects: string[] }[] };
+
+/** Every digest this patch may have written for a target, newest first. */
+function ourOutputs(spec: TargetSpec): string[] {
+	return [spec.md5Patched, ...(spec.md5PatchedV1 ?? [])].filter((value): value is string => typeof value === 'string');
+}
 
 /**
  * Resolve and verify every target before anything is written, so a missing or wrong
  * snapshot cannot leave the installation half restored.
+ *
+ * The recorded copy is used as it is: it holds whatever was installed before the patch,
+ * which is the file to give back. The pinned digest of gentle-pi 4.5.1 is not the gate
+ * here either - a build that was patched over a harmless change must revert to that
+ * change, not to a release this machine never had.
  */
 export function planRestore(paths: PatchPaths, targets: TargetSpec[] = TARGETS): RestorePlan {
 	const steps: RestoreStep[] = [];
-	const missing: { file: string; md5: string }[] = [];
+	const missing: { file: string; expects: string[] }[] = [];
 	for (const spec of targets) {
-		const dir = backupDirs(paths).find((name) => {
-			const candidate = join(paths.backups, name, spec.file);
-			return existsSync(candidate) && md5(readFileSync(candidate, 'utf8')) === spec.md5;
-		});
+		const dir = backupDirs(paths).find((name) => existsSync(join(paths.backups, name, spec.file)));
 		if (dir === undefined) {
-			missing.push({ file: spec.file, md5: spec.md5 });
+			missing.push({ file: spec.file, expects: ourOutputs(spec) });
 			continue;
 		}
 		const source = join(paths.backups, dir, spec.file);
-		steps.push({ spec, source, text: readFileSync(source, 'utf8') });
+		const recorded = recordedOutputs(paths, dir).get(spec.file);
+		const ours = recorded === undefined ? ourOutputs(spec) : [recorded, ...ourOutputs(spec)];
+		steps.push({ spec, source, text: readFileSync(source, 'utf8'), ours });
 	}
 	return missing.length > 0 ? { ok: false, missing } : { ok: true, steps };
 }
@@ -918,29 +1011,32 @@ export function revert(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numb
 	const plan = planRestore(paths, targets);
 	if (!plan.ok) {
 		for (const item of plan.missing) {
-			console.error(item.file + ': no pristine snapshot with md5 ' + item.md5 + ' in any backup under ' + paths.backups);
+			console.error(item.file + ': no recorded copy to restore from under ' + paths.backups);
 		}
 		console.error('nothing was restored');
 		return 2;
 	}
 
-	// Verified once when the plan was built; every step is checked again here, before
-	// a single byte is copied, because a plan is not a promise about the disk.
+	// Before overwriting anything: what is installed has to be what this patch wrote.
+	// Otherwise someone else changed the file, and restoring would destroy their work.
 	for (const step of plan.steps) {
-		if (md5(step.text) !== step.spec.md5) {
-			console.error(step.spec.file + ': the snapshot changed while planning; nothing was restored');
+		const installed = md5(readTarget(step.spec, paths) ?? '');
+		if (!step.ours.includes(installed)) {
+			console.error(step.spec.file + ': the installed file is md5 ' + installed + ', not one this patch wrote');
+			console.error('  expected one of: ' + step.ours.join(', '));
+			console.error('something else changed it; nothing was restored');
 			return 2;
 		}
 	}
 
 	for (const step of plan.steps) {
-		copyFileSync(step.source, join(paths.install, step.spec.file));
-		const restored = readFileSync(join(paths.install, step.spec.file), 'utf8');
-		if (md5(restored) !== step.spec.md5) {
-			console.error(step.spec.file + ': restore did not produce the original bytes');
+		const target = join(paths.install, step.spec.file);
+		writeAtomically(target, step.text);
+		if (readFileSync(target, 'utf8') !== step.text) {
+			console.error(step.spec.file + ': restore did not produce the recorded bytes');
 			return 2;
 		}
-		console.log(step.spec.file + ': restored (' + step.spec.md5 + ') from ' + step.source);
+		console.log(step.spec.file + ': restored (' + md5(step.text) + ') from ' + step.source);
 	}
 	return 0;
 }
