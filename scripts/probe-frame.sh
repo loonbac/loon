@@ -270,7 +270,7 @@ report_partial() {
 }
 
 capture() {
-	local label=probe width=80 height=32 theme=Gentle density="" card_style="" settle=14 out="" start_dir=$HOME gentle_dir=""
+	local label=probe width=80 height=32 theme=Gentle density="" card_style="" header_placement="top" settle=14 out="" start_dir=$HOME gentle_dir=""
 	local override_command=""
 	local sgr=0
 	local extra=()
@@ -282,6 +282,7 @@ capture() {
 			--theme) theme=$2; shift 2 ;;
 			--density) density=$2; shift 2 ;;
 			--card-style) card_style=$2; shift 2 ;;
+			--header-placement) header_placement=$2; shift 2 ;;
 			--settle) settle=$2; shift 2 ;;
 			--out) out=$2; shift 2 ;;
 			--start-dir) start_dir=$2; shift 2 ;;
@@ -311,8 +312,10 @@ capture() {
 	if [ -n "$card_style" ]; then
 		printf '{"schema":"gentle-pi.card-style/v1","style":"%s"}\n' "$card_style" > "$gentle_dir/card-style.json" || die "cannot write the probe's card style; nothing was started"
 	fi
-	if [ -n "$density" ]; then
-		printf '{"schema":"gentle-pi.visual-customization/v1","statusPlacement":"auto","headerPlacement":"top","density":"%s","visibility":{"changes":true,"rdd":true,"agents":true,"todo":true,"usageCost":true,"modelDetails":true,"contextWarning":true}}\n' "$density" > "$gentle_dir/visual-customization.json" || die "cannot write the probe's own config; nothing was started"
+	# Placement travels with the frame too: a label cannot describe a layout the config does
+	# not ask for. Written whenever either knob is asked for, so density alone keeps working.
+	if [ -n "$density" ] || [ "$header_placement" != "top" ]; then
+		printf '{"schema":"gentle-pi.visual-customization/v1","statusPlacement":"auto","headerPlacement":"%s","density":"%s","visibility":{"changes":true,"rdd":true,"agents":true,"todo":true,"usageCost":true,"modelDetails":true,"contextWarning":true}}\n' "$header_placement" "${density:-comfortable}" > "$gentle_dir/visual-customization.json" || die "cannot write the probe's own config; nothing was started"
 	fi
 
 	local session="probe-$$"
