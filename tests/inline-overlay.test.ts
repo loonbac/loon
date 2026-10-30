@@ -120,7 +120,9 @@ test('when the unit closes, the history record is the one card, not a second one
 	try {
 		// Both sources exist at once, which is exactly the window between the
 		// history write and the shutdown that removes the carrier.
-		carrier(root, SESSION, { status: 'completed', label: 'working', result: null });
+		// Both are written at the same close with the same content: the carrier is the
+		// authority for its id, so what it says is what the card says.
+		carrier(root, SESSION, { status: 'completed', label: 'cerrado', result: null });
 		// The writer keeps both in step: the sidecar is rewritten at the close too.
 		const closed = [toolItem('c1', 'read'), { kind: 'text', text: 'listo' }];
 		liveThread(root, SESSION, closed);
@@ -128,7 +130,7 @@ test('when the unit closes, the history record is the one card, not a second one
 		const tasks = overlayTasks(root, SESSION, []);
 		assert.equal(tasks.length, 1, 'one unit is one card');
 		assert.equal(tasks[0]?.status, 'completed');
-		assert.equal(tasks[0]?.label, 'cerrado', 'the history record wins: it is the finished unit');
+		assert.equal(tasks[0]?.label, 'cerrado', 'the finished job keeps its own description');
 		const thread = overlayThread(root, tasks[0]?.id ?? '');
 		assert.equal(thread?.items.length, 2);
 	} finally {
@@ -159,6 +161,23 @@ test('a finished unit beside a running one is one card, and it says running', ()
 		assert.equal(tasks.length, 1, 'one job, one card');
 		assert.equal(tasks[0]?.status, 'running', 'a closing unit must not leave the job looking finished');
 		assert.equal(tasks[0]?.label, 'segunda', 'and the card shows what is happening now');
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('a persisted record never overrides the live job it belongs to', () => {
+	const root = home();
+	try {
+		// The pair that would flicker: the history file of this job says completed -
+		// and even claims to be newer - while the carrier of the same job says it is
+		// still running. The card must read running, because the process owns it.
+		history(root, SESSION, { status: 'completed', label: 'cerrado', endedAt: 2000, lastActivityAt: Date.now() + 60_000 }, [toolItem('c1', 'read')]);
+		carrier(root, SESSION, { status: 'running', label: 'trabajando' });
+		const tasks = overlayTasks(root, SESSION, []);
+		assert.equal(tasks.length, 1, 'same id, one card');
+		assert.equal(tasks[0]?.status, 'running', 'the card must never say finished while the work continues');
+		assert.equal(tasks[0]?.label, 'trabajando');
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

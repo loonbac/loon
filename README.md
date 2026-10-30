@@ -481,6 +481,18 @@ señal pequeña junto al registro vivo y la extensión la consume en su siguient
 tarjeta pasa a `completed`, la transcripción se guarda y el registro anota
 `"closedBy": "agent"`. Se puede forzar una sesión concreta con `--session <id>`.
 
+**La tarjeta no puede decir "terminado" mientras el trabajo siga abierto**, ni por un tick.
+Dos cosas lo garantizan, y conviene saber que son dos. En el escritor, `agent_end` no completa
+nada: deja `status: running` y no escribe historia, y el único código que pone el estado
+`completed` es `closeJob` (`extensions/inline-work.ts`), al que solo llegan la señal, el cierre
+por inactividad y el apagado de sesión. En el lector, el portador vivo de un trabajo manda sobre
+cualquier registro persistido con su mismo id, sin comparar fechas
+(`extensions/lib/inline-overlay.ts`): comparar "la descripción más reciente" era la vía por la
+que un registro terminado podía ganar un repintado y decir que la obra había acabado cuando no.
+La prueba que cubre el par peligroso —historia `completed`, portador `running`, mismo id— está
+en `tests/inline-overlay.test.ts`, y la que lee la tarjeta entre tres turnos en
+`tests/inline-history.test.ts`.
+
 Dos salidas de emergencia, porque un agente puede olvidarse de avisar: un trabajo sin actividad
 real durante **diez minutos** se cierra solo como completado y lo dice en su registro
 (`"closedBy": "idle"`, y una nota en la transcripción explicando que no lo cerró el agente); y
