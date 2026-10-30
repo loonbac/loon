@@ -322,6 +322,15 @@ aplicarlo es una operación nula que solo comprueba. Un registro que no se puede
 pertenece a otra sesión, o cuyo pi ya murió, no se dibuja: por eso el registro guarda el
 `pid` de su escritor y late.
 
+Dos guardas más, porque este script edita una instalación viva. Un argumento malformado
+—`--install` o `--backups` sin valor, una opción desconocida, una repetida con otro
+valor, un directorio suelto— falla con salida 1 antes de leer o escribir nada, en vez de
+caer en las rutas por defecto y parchear la instalación real cuando creías apuntar a una
+copia. Y `revert` solo restaura si el archivo en disco es exactamente el que el parche
+escribió: el manifiesto guarda ese `patchedMd5`, y cuando el respaldo es más viejo y no lo
+trae, se recompone desde los bytes respaldados. Si gentle-pi se actualizó, o alguien tocó
+el archivo después, se niega en vez de pisar una versión más nueva y decir que salió bien.
+
 Tres límites que conviene conocer. El panel completo de `/gentle:agents` lee el store de
 gentle-pi directamente y no verá el registro (la tarjeta lateral sí lo hace). Una fila
 terminada desaparece de la tarjeta a los 60 segundos, exactamente como la de un subagente

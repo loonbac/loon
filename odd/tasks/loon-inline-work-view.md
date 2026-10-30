@@ -26,10 +26,18 @@ main transcript instead of hundreds, and the previous summaries stay within reac
 Collapsed detail is never destroyed: the unit's full activity lives in the Agents panel
 entry, expandable on demand.
 
-S4. **The patch survives package updates.**
+S4. **The patch survives package updates, and never damages what it touches.**
 A local patch to `gentle-pi` is lost on every install. It ships as a script that backs
 up the file first, applies the smallest possible change and verifies it, mirroring the
 existing banner-patch backups under `~/.pi/agent/backups/`.
+User (work order): "Malformed or incomplete arguments must fail closed: no default to the
+live install, no write of any kind, non-zero exit, and a message naming what was wrong.
+Concretely, `--install` and `--backups` without a value, unknown flags, and repeated
+conflicting flags must all be rejected before anything is read or written."
+User (work order): "`revert` must refuse when the file on disk no longer matches the
+backup it would restore: compare the recorded identity of the patched file against the
+current one and fail with a clear message instead of overwriting a newer version.
+Restoring must never clobber a file that changed since the backup."
 
 S5. **Expansion is available.**
 User: "a mi me gusta leer lo que hace la ia".
@@ -71,6 +79,7 @@ evidence; this feature must not be sold as a fix for it.
 | T4 | S4 | inline | 5c27faa | `scripts/apply-inline-carrier-patch.mjs`: check/apply/revert, timestamped backup, verified idempotent rerun, TypeScript syntax gate, and the README note on when it must be rerun. |
 | T5 | S3, S5 | worker | pending | Renderer collapsing consecutive tool calls of one unit into one expandable card with a closing summary. |
 | T6 | S6 | inline | pending | Measure the actual inline/delegated split of recent sessions and report before changing any policy. |
+| T7 | S4 | inline | pending | Harden `scripts/apply-inline-carrier-patch.mjs` after the first review: strict argument parsing (missing value, unknown flag, repeated flag, stray positional all rejected before any read or write) and a `revert` that refuses anything but the exact bytes the patch wrote. Tests first, both proving the failure by absence of a write, not by a message. |
 
 ## Log
 
@@ -88,5 +97,9 @@ L6. Evidence for T2-T4, all in the `port` instabox box at `/data/workspace/loon`
 `npm ci` exit 0. `npm test` exit 1 with 201 tests, 195 pass, 2 fail, 4 skipped. The two failures are `tests/probe-frame.test.ts` ("a probe that never draws a frame fails…" and "--sgr keeps the escape sequences…") and their cause is `tmux: command not found` in the box; the same two fail identically at base `f1af63e` (182 tests, 176 pass, 2 fail), so they are environmental and not from this slice. `npx tsc --noEmit` exits 2 with one error, `tests/theme-file.test.ts(106,4): error TS2307` pointing at an absolute `/home/loonbac/.local/share/loon-pi/...` path that only exists on this machine; base `f1af63e` reports the same single error and exit 2. The 19 new tests pass on their own: `node --experimental-strip-types --test tests/inline-carrier.test.ts tests/inline-carrier-patch.test.ts` exit 0, 19 of 19.
 
 L7. Discovery about the two readers: only the sidebar/above-editor card (`agentsCard` in `extensions/gentle-agents.ts`) renders `visibleTasks()`. The full-screen `/gentle:agents` overlay (`lib/agents-view.ts`) reads `deps.store.list()` directly and subscribes to store events, so the carrier record does not appear there. Making the overlay list it needs a second patch site and a thread source for the detail pane, which is a bigger change than this slice; T5 stays the renderer task and this gap is recorded here rather than hidden.
+
+L9. Work order from the orchestrating session: the first native review's lineage `review-c2fa1cd599ecdab3` stays deadlocked and must be left alone (no retry of the correction-plan capture, no START, no abandon/reset/quarantine — those stay with the human), and the two deterministic findings are to be fixed here as T7, then re-reviewed on a fresh lineage. Findings, verbatim: "`parseArgs` ignores malformed options and can patch the live install"; "`revert` restores a backup over a file from a different version". The same session applied the patch to the live install (`patched and verified`, backup `loon-inline-carrier-patch-20261030050433`), which is the first real application.
+
+L10. RED before GREEN for T7, in the `port` box: the two new tests failed for the intended reason (`a different build must not be overwritten by a stale backup`, and the malformed-argument case, whose assertion is that the decoy default installation under a scratch `HOME` keeps its exact bytes and no backup directory appears). Then the guards landed and the targeted file went to 11 of 11, exit 0. Full suite after the fix: `npm run typecheck` exit 2 with only the pre-existing `tests/theme-file.test.ts(106,4)` absolute-path error, and `npm test` exit 1 with 203 tests, 197 pass, 2 fail, 4 skipped — the same two `probe-frame` failures caused by `tmux` missing in the box, unchanged from base. The `revert` expectation is the `patchedMd5` the manifest now records, the same field `scripts/gentle-pi-patch.ts` already uses; backups written by the older script carry no such field, so the expectation is recomputed from the backed-up bytes, which is what makes the existing `…050433` backup safe to reason about.
 
 L8. The patch was rehearsed against a copy of the real installed file: `cp ~/.pi/agent/npm/node_modules/gentle-pi/extensions/gentle-agents.ts` into a scratch install, then `check` (exit 1, "not patched"), `apply` (exit 0, +33 lines, syntax gate `typescript`), `apply` again (exit 0, "already patched and verified", no second backup), `check` (exit 0), `revert` (exit 0, md5 back to `b17799abb1d22664870d9f5591b2ab1c`). It was deliberately not applied to the live install: that is the user's terminal, and the restart is theirs.

@@ -68,10 +68,21 @@ function backupDirs(paths: Paths): string[] {
 }
 
 function cli(paths: Paths, command: string): { status: number; stdout: string; stderr: string } {
+	return cliRaw([command, '--install', paths.install, '--backups', paths.backups]);
+}
+
+/**
+ * Run the script with exact arguments and a scratch HOME. The HOME override is
+ * what makes a bad argument observable: the script's default paths resolve
+ * under it, so a fallback that patches "the default installation" changes a
+ * file this test owns instead of the real one.
+ */
+function cliRaw(args: string[], home?: string): { status: number; stdout: string; stderr: string } {
 	try {
-		const stdout = execFileSync(process.execPath, [SCRIPT, command, '--install', paths.install, '--backups', paths.backups], {
+		const stdout = execFileSync(process.execPath, [SCRIPT, ...args], {
 			encoding: 'utf8',
 			stdio: ['ignore', 'pipe', 'pipe'],
+			env: home === undefined ? process.env : { ...process.env, HOME: home },
 		});
 		return { status: 0, stdout, stderr: '' };
 	} catch (error) {
@@ -212,6 +223,66 @@ test('the command line reports success and failure in its exit code', () => {
 	const unknown = cli(paths, 'frobnicate');
 	assert.equal(unknown.status, 1);
 	assert.match(unknown.stderr, /unknown command/);
+	rmSync(join(paths.backups, '..'), { recursive: true, force: true });
+});
+
+test('a malformed option fails closed and never reaches the default installation', () => {
+	// HOME points at a scratch directory, so the script's default installation is
+	// a decoy we can watch. If a bad argument falls back to it, that file changes
+	// and this test reports a write, not just a message.
+	const home = mkdtempSync(join(tmpdir(), 'loon-inline-home-'));
+	const decoy = join(home, '.pi', 'agent', 'npm', 'node_modules', 'gentle-pi');
+	mkdirSync(dirname(join(decoy, TARGET_FILE)), { recursive: true });
+	writeFileSync(join(decoy, TARGET_FILE), fixture());
+	const decoyPath = join(decoy, TARGET_FILE);
+	const before = readFileSync(decoyPath, 'utf8');
+	const backupsDir = join(home, '.pi', 'agent', 'backups');
+
+	const cases: string[][] = [
+		['apply', '--install'],
+		['apply', '--backups'],
+		['apply', '--instal', '/tmp/elsewhere'],
+		['apply', '/tmp/elsewhere'],
+		['apply', '--install', '/tmp/one', '--install', '/tmp/two'],
+	];
+	for (const args of cases) {
+		const result = cliRaw(args, home);
+		assert.equal(result.status, 1, 'must fail closed: ' + args.join(' '));
+		assert.match(result.stderr, /needs a directory|unknown option|unexpected argument|more than once/, 'the message must name the problem: ' + args.join(' '));
+		assert.equal(result.stdout, '', 'a rejected argument reports nothing but the error');
+	}
+
+	assert.equal(readFileSync(decoyPath, 'utf8'), before, 'a rejected argument must not write to the default installation');
+	assert.equal(existsSync(backupsDir), false, 'a rejected argument must not create a backup');
+	rmSync(home, { recursive: true, force: true });
+});
+
+test('revert refuses a file that is no longer the one the backup recorded', async () => {
+	const paths = scratch();
+	writeTarget(paths, fixture());
+	const applied = await run('apply', paths);
+	assert.ok(applied.ok, applied.ok ? '' : applied.reason);
+	const patched = readTarget(paths);
+
+	// A newer gentle-pi drops the patch entirely: no marker, no anchor.
+	const newer = fixture({ anchor: false });
+	writeTarget(paths, newer);
+	const refused = await run('revert', paths);
+	assert.ok(!refused.ok, 'a different build must not be overwritten by a stale backup');
+	assert.match(refused.reason, /refus|changed|not one this patch wrote/);
+	assert.equal(readTarget(paths), newer, 'the newer file survives untouched');
+
+	// The same hazard with the marker still on disk: somebody edited our patch.
+	writeTarget(paths, patched + '\n// edited by hand after the patch\n');
+	const edited = await run('revert', paths);
+	assert.ok(!edited.ok, 'a file edited after the patch must not be overwritten either');
+	assert.match(edited.reason, /refus|changed|not one this patch wrote/);
+
+	// The file this patch really wrote still restores.
+	writeTarget(paths, patched);
+	const restored = await run('revert', paths);
+	assert.ok(restored.ok, restored.ok ? '' : restored.reason);
+	assert.equal(readTarget(paths), fixture());
 	rmSync(join(paths.backups, '..'), { recursive: true, force: true });
 });
 

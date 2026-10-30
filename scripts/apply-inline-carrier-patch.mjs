@@ -221,12 +221,16 @@ function readTarget(paths) {
 }
 
 /**
- * Keep the file that was there, with the digest that proves it.
+ * Keep the file that was there, with the digest that proves it, and the digest
+ * of what the patch wrote next to it. Without the second one a revert cannot
+ * tell "the file this patch produced" from "a file somebody replaced later",
+ * and it would restore an old backup over newer code.
  * @param {{ install: string, backups: string }} paths
- * @param {string} text
+ * @param {string} text the original bytes
+ * @param {string} patched the bytes this patch writes
  * @returns {string}
  */
-export function backupOriginal(paths, text) {
+export function backupOriginal(paths, text, patched) {
 	const base = BACKUP_PREFIX + timestamp();
 	let dir = join(paths.backups, base);
 	for (let copy = 2; existsSync(dir); copy += 1) dir = join(paths.backups, base + '-' + copy);
@@ -235,7 +239,7 @@ export function backupOriginal(paths, text) {
 	writeFileSync(copy, text);
 	writeFileSync(
 		join(dir, 'manifest.json'),
-		JSON.stringify({ at: new Date().toISOString(), files: [{ file: TARGET_FILE, md5: md5(text) }] }, null, '\t') + '\n',
+		JSON.stringify({ at: new Date().toISOString(), files: [{ file: TARGET_FILE, md5: md5(text), patchedMd5: md5(patched) }] }, null, '\t') + '\n',
 	);
 	return dir;
 }
@@ -243,7 +247,7 @@ export function backupOriginal(paths, text) {
 /**
  * The newest trustworthy backup: its bytes must be the ones its manifest names.
  * @param {{ install: string, backups: string }} paths
- * @returns {{ dir: string, text: string } | undefined}
+ * @returns {{ dir: string, text: string, patchedMd5?: string } | undefined}
  */
 export function latestBackup(paths) {
 	if (!existsSync(paths.backups)) return undefined;
@@ -265,9 +269,23 @@ export function latestBackup(paths) {
 		if (typeof recorded?.md5 !== 'string') continue;
 		const text = readFileSync(path, 'utf8');
 		if (md5(text) !== recorded.md5) continue;
-		return { dir, text };
+		const patchedMd5 = typeof recorded.patchedMd5 === 'string' ? recorded.patchedMd5 : undefined;
+		return patchedMd5 === undefined ? { dir, text } : { dir, text, patchedMd5 };
 	}
 	return undefined;
+}
+
+/**
+ * What a revert must find on disk before it may overwrite anything. Backups
+ * written by an older script carry no patchedMd5, but the patch is
+ * deterministic: recomputing it from the backed-up bytes proves the same thing.
+ * @param {{ text: string, patchedMd5?: string }} backup
+ * @returns {string | undefined}
+ */
+function expectedPatchedDigest(backup) {
+	if (typeof backup.patchedMd5 === 'string') return backup.patchedMd5;
+	const patched = patchText(backup.text);
+	return patched.ok ? md5(patched.text) : undefined;
 }
 
 /**
@@ -308,7 +326,7 @@ export async function run(command, paths) {
 		if (!patched.ok) return { ok: false, reason: patched.reason };
 		const syntax = await checkSyntax(patched.text);
 		if (!syntax.ok) return { ok: false, reason: syntax.reason };
-		const dir = backupOriginal(paths, text);
+		const dir = backupOriginal(paths, text, patched.text);
 		writeFileSync(targetPath(paths), patched.text);
 		const written = readTarget(paths);
 		const verified = written === undefined ? { ok: false, reason: 'the file disappeared after the write' } : verifyPatched(written);
@@ -318,8 +336,22 @@ export async function run(command, paths) {
 
 	if (command === 'revert') {
 		if (state === 'clean') return { ok: true, message: 'already unpatched; nothing to do' };
+		// A restore is only safe over the exact bytes this patch wrote. Anything
+		// else on disk is newer or foreign, and a backup taken before it must not
+		// win: the caller would lose an update and be told it succeeded.
+		if (state === 'patched-modified') {
+			return { ok: false, reason: 'the installed file carries the marker but was changed after the patch; refusing to overwrite it from ' + paths.backups };
+		}
+		if (state === 'different-version') {
+			return { ok: false, reason: 'the installed file is not one this patch wrote (gentle-pi changed or was replaced); refusing to overwrite it with a backup' };
+		}
 		const backup = latestBackup(paths);
 		if (backup === undefined) return { ok: false, reason: 'no trustworthy backup under ' + paths.backups + ' to restore from' };
+		const expected = expectedPatchedDigest(backup);
+		if (expected === undefined) return { ok: false, reason: 'the backup in ' + backup.dir + ' cannot prove which bytes this patch wrote; refusing to guess' };
+		if (md5(text) !== expected) {
+			return { ok: false, reason: 'the installed file changed after the backup was made; refusing to overwrite it with ' + backup.dir };
+		}
 		writeFileSync(targetPath(paths), backup.text);
 		const restored = readTarget(paths);
 		if (restored === undefined || md5(restored) !== md5(backup.text)) {
@@ -331,21 +363,36 @@ export async function run(command, paths) {
 	return { ok: false, reason: 'unknown command: ' + String(command) };
 }
 
+/**
+ * Strict on purpose: this command edits a live installation. A silently ignored
+ * flag would fall back to the default paths and patch the real gentle-pi while
+ * the caller believes it is pointing at a copy, so anything unexpected is an
+ * error before a single byte is read or written.
+ * @param {string[]} argv
+ * @returns {{ command: string | undefined, paths: { install: string, backups: string } }}
+ */
 function parseArgs(argv) {
 	const paths = defaultPaths();
+	const seen = new Set();
 	let command;
 	for (let index = 0; index < argv.length; index += 1) {
 		const value = argv[index];
-		if (value === '--install' && argv[index + 1] !== undefined) {
-			paths.install = argv[index + 1];
-			index += 1;
-		} else if (value === '--backups' && argv[index + 1] !== undefined) {
-			paths.backups = argv[index + 1];
+		if (value === '--install' || value === '--backups') {
+			if (seen.has(value)) throw new Error(value + ' was given more than once');
+			seen.add(value);
+			const given = argv[index + 1];
+			if (given === undefined || given.startsWith('-')) throw new Error(value + ' needs a directory');
+			if (value === '--install') paths.install = given;
+			else paths.backups = given;
 			index += 1;
 		} else if (value === '--help' || value === '-h') {
 			command = 'help';
-		} else if (!value.startsWith('--') && command === undefined) {
+		} else if (value.startsWith('-')) {
+			throw new Error('unknown option: ' + value);
+		} else if (command === undefined) {
 			command = value;
+		} else {
+			throw new Error('unexpected argument: ' + value);
 		}
 	}
 	return { command, paths };
@@ -360,7 +407,15 @@ export const USAGE = [
 ].join('\n');
 
 async function main(argv) {
-	const { command, paths } = parseArgs(argv);
+	let parsed;
+	try {
+		parsed = parseArgs(argv);
+	} catch (error) {
+		console.error('inline carrier patch: ' + (error instanceof Error ? error.message : String(error)));
+		console.error(USAGE.split('\n')[0]);
+		return 1;
+	}
+	const { command, paths } = parsed;
 	if (command === undefined || command === 'help') {
 		console.log(USAGE);
 		return command === 'help' ? 0 : 1;
