@@ -341,6 +341,27 @@ otra herramienta. Una llamada que falla delega en el renderer que tenía antes, 
 error nunca se esconda, y sin registro —sesión ociosa, o `LOON_INLINE_WORK=0`— no se
 registra renderer alguno y todo se dibuja exactamente como antes.
 
+Una fila colapsada no se puede pulsar: no tiene altura, así que no tiene zona de clic. Se
+expande con el atajo global de pi, `Ctrl+O`, que marca todas las filas de herramienta —las
+que ya están y las que lleguen— como expandidas; el renderer respeta ese estado y devuelve
+el dibujo completo mientras dure. La expansión es de todo o nada, no fila por fila.
+
+**Las dos mitades degradan por separado, y sólo una combinación es peligrosa.** La tarjeta
+del panel y el colapso del transcript no dependen la una del otro. Sin el parche —lo normal
+después de cada actualización de gentle-pi— el colapso sigue funcionando y lo que falta es la
+tarjeta; sin el renderer, la tarjeta sigue y el transcript vuelve a llenarse. La combinación
+que no avisa es la tercera: registro activo con el parche ausente, porque entonces el trabajo
+inline no está ni en el transcript ni en el panel, y nada lo dice. La recuperación, después de
+cada actualización de gentle-pi, es comprobar y volver a aplicar —nunca `revert`:
+
+```sh
+node scripts/apply-inline-carrier-patch.mjs check
+node scripts/apply-inline-carrier-patch.mjs apply
+```
+
+Y si quieres el transcript de antes sin tocar `node_modules`, `LOON_INLINE_WORK=0` apaga las
+dos mitades a la vez.
+
 Cuatro límites que conviene conocer. El panel completo de `/gentle:agents` lee el store de
 gentle-pi directamente y no verá el registro (la tarjeta lateral sí lo hace). Una fila
 terminada desaparece de la tarjeta a los 60 segundos, exactamente como la de un subagente

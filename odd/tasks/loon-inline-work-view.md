@@ -51,6 +51,9 @@ Collapsed by default, and the collapse is never final: the carrier entry keeps t
 label, its step count and its closing summary, an errored call is never collapsed, and the
 session log holds every call and its output. A detail thread inside the panel entry is
 T11, not this slice; until it lands, the panel shows the unit and the log holds the detail.
+Expansion is pi's own global toggle (`app.tools.expand`, `Ctrl+O`), which sets `expanded` on
+every tool row and on every new one; the renderer honours it, so the rows come back on
+demand. A single row cannot be clicked open: a zero-height row has no hit region.
 
 ## Design
 
@@ -63,6 +66,19 @@ Two pieces, one repository each:
    `visibleTasks = () => store.list(activeSessionId())`, unfiltered by ownership, and
    that is what the sidebar and the panel render. The patch merges carrier records into
    that list. Nothing else in the package changes.
+
+### Las dos mitades degradan por separado
+The carrier record and the collapsed renderer are independent, and each one degrades alone:
+without the panel patch the collapse still works and only the card is missing; without the
+renderer the card still works and the transcript floods again. The one combination that is
+dangerous is the third —**carrier active with the panel patch absent**— because the inline
+work is then invisible in the transcript and in the panel at the same time, and nothing says
+so. Recovery after every gentle-pi update is `node scripts/apply-inline-carrier-patch.mjs
+check` then `node scripts/apply-inline-carrier-patch.mjs apply`, never `revert`;
+`LOON_INLINE_WORK=0` returns the previous transcript without touching `node_modules`. The
+collapse is deliberately not armed on whether the patch is detectable: that would couple a
+writer-side renderer to a file we do not own, and a patch removed on purpose would silently
+bring the flood back.
 
 Why not edit only the prompt: the fires are display and policy. The display half is this
 feature. The policy half — work staying inline until the context is two thirds full — is
@@ -131,3 +147,15 @@ assessment for the candidate reported tier medium, `reviewDue: false` (`under_bu
 self-verification and no independent verifier. Not verified: the collapse as pixels in a real
 terminal, which needs a restart of the session running it, and the panel detail thread, which
 is T11.
+
+L14. Decision on the boundary (work order): "do not add it. Arming the collapse on a
+detectable node_modules patch would couple a writer-side renderer to a file we do not own,
+and it would fail in the direction that matters — a patch the user removed on purpose would
+silently re-enable the transcript flood"; and "the failure mode you named is real and must be
+written down, because it is silent: after a gentle-pi update the patch is gone, so inline work
+has no card and no rows — invisible in both places, with nothing telling the owner". Written
+down here and in the README; no code. Asked whether the seven-name list could ever catch a row
+a reader needs expanded by default, the answer is that the collapsed state is never the only
+state: `Ctrl+O` (`app.tools.expand`) sets `expanded` on every tool component and every new one
+(`interactive-mode.js`, `setToolsExpanded`), the renderer delegates when `expanded` is true, an
+error restores its own row, and `LOON_INLINE_WORK=0` restores everything.
