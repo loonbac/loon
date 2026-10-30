@@ -49,16 +49,116 @@
 			"md5Patched": "993a7f2237db3eb718b9d6ab05591bf1",
 			"md5PatchedV1": [
 				"fa3cc52522ee55195f48ceeee9c47259",
-				"08885475062712796843ef9508f6b1ed",
 				"040c2b8c8ca1f727aa937ca6e5204375",
 				"0618298301450ad9811a4d7b287bc3cd",
 				"2174a62f342df42f37d2a78b53b2a9e0",
 				"6ed83675ab5a63201df8ea38867cee8d",
 				"5bd10c1347200edb2f181e7631e67b52",
 				"0d07a750ae6162d2c8bbfbda7760e55f",
-				"4e357af84fcafc01f3e240ea6331b066",
 				"ddb8bd748ae664cb28f9f0307e0917e5"
 			]
+		}
+	},
+	"producers": {
+		"7da141c898257cf56230f735fe4c553e": {
+			"file": "extensions/gentle-shell.ts",
+			"commit": "cd944eb"
+		},
+		"ec03598026098aefe27e1cd4dcfe7393": {
+			"file": "extensions/gentle-shell.ts",
+			"commit": "bcbb260"
+		},
+		"b12919486a662d03f1587ee719d0bd73": {
+			"file": "extensions/gentle-shell.ts",
+			"commit": "fe8e6b0"
+		},
+		"f389ce976bc0a92e65b5d2f9e9b5dd3d": {
+			"file": "extensions/gentle-shell.ts",
+			"commit": "c163cb7"
+		},
+		"24763fed19449f3a4e31a52bbe1be72e": {
+			"file": "extensions/gentle-shell.ts",
+			"commit": "9ed24b0"
+		},
+		"8ae96c97de14436e9755608a81579441": {
+			"file": "extensions/gentle-shell.ts",
+			"commit": "dc04964"
+		},
+		"b808107af050aa1778410fefa67974df": {
+			"file": "extensions/gentle-shell.ts",
+			"commit": "ba881b4"
+		},
+		"945363c38d21403cce653143e0305a6a": {
+			"file": "extensions/gentle-shell.ts",
+			"commit": "a681ea2"
+		},
+		"23bb9997b474842fe5f2a4d652c4178b": {
+			"file": "lib/visual-customize-view.ts",
+			"commit": "cd944eb"
+		},
+		"79167d2ce9c12de796f7c751778d0b18": {
+			"file": "extensions/startup-banner.ts",
+			"commit": "cd944eb"
+		},
+		"5b43e3127eae0024d45b21eec34b1a95": {
+			"file": "lib/shell-bar.ts",
+			"commit": "cd944eb"
+		},
+		"36afe7b323c27f7c2753a22d08cb57fa": {
+			"file": "lib/shell-bar.ts",
+			"commit": "9d18d0b"
+		},
+		"c4392741927c8da26d0b9d24142e3a41": {
+			"file": "lib/shell-bar.ts",
+			"commit": "5c9b999"
+		},
+		"8f3460ef6d3a5222d7a26662bb46b642": {
+			"file": "lib/shell-card.ts",
+			"commit": "cd944eb"
+		},
+		"8dbecc2f2ac057b87ce5c344d7ba5241": {
+			"file": "lib/shell-card.ts",
+			"commit": "709134f"
+		},
+		"874f4ca140cf3c951af7f3403a57b4ee": {
+			"file": "lib/card-style-policy.ts",
+			"commit": "cd944eb"
+		},
+		"993a7f2237db3eb718b9d6ab05591bf1": {
+			"file": "lib/shell-prompt.ts",
+			"commit": "cd944eb"
+		},
+		"fa3cc52522ee55195f48ceeee9c47259": {
+			"file": "lib/shell-prompt.ts",
+			"commit": "bcbb260"
+		},
+		"040c2b8c8ca1f727aa937ca6e5204375": {
+			"file": "lib/shell-prompt.ts",
+			"commit": "3140819"
+		},
+		"0618298301450ad9811a4d7b287bc3cd": {
+			"file": "lib/shell-prompt.ts",
+			"commit": "fe8e6b0"
+		},
+		"2174a62f342df42f37d2a78b53b2a9e0": {
+			"file": "lib/shell-prompt.ts",
+			"commit": "259fef0"
+		},
+		"6ed83675ab5a63201df8ea38867cee8d": {
+			"file": "lib/shell-prompt.ts",
+			"commit": "a00f9a4"
+		},
+		"5bd10c1347200edb2f181e7631e67b52": {
+			"file": "lib/shell-prompt.ts",
+			"commit": "6d1e10c"
+		},
+		"0d07a750ae6162d2c8bbfbda7760e55f": {
+			"file": "lib/shell-prompt.ts",
+			"commit": "3ba4f27"
+		},
+		"ddb8bd748ae664cb28f9f0307e0917e5": {
+			"file": "lib/shell-prompt.ts",
+			"commit": "4af745c"
 		}
 	}
 }
