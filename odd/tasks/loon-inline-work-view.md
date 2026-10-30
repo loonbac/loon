@@ -66,9 +66,9 @@ evidence; this feature must not be sold as a fix for it.
 | ID | Spec | Route | Commit | Outcome |
 | --- | --- | --- | --- | --- |
 | T1 | S1-S6 | inline | pending | This document. |
-| T2 | S1, S2 | worker | pending | Carrier record writer in LOON: schema, session-scoped path, start/update/finish, and removal of stale records at shutdown. |
-| T3 | S1, S2 | worker | pending | `gentle-agents` patch merging carrier records into `visibleTasks()`, marked read-only and never counted as an owned subagent. |
-| T4 | S4 | inline | pending | Apply/verify script with backup and a re-apply check, plus a note in the repository on when it must be rerun. |
+| T2 | S1, S2 | worker | cab31c8 | Carrier record writer in LOON: `extensions/lib/inline-carrier.ts` plus `extensions/inline-work.ts`, registered in `package.json`. One record per session under `<agent home>/state/loon-inline/`, created with the first tool call, heartbeating while it runs, closed as `completed` with the closing summary, deleted at shutdown, stale records pruned by pid, and `LOON_INLINE_WORK=0` as the kill switch. |
+| T3 | S1, S2 | worker | 5c27faa | `gentle-agents` patch merging the active session's carrier into `visibleTasks()`. Display only: the record never enters the task store, so it is never an owned subagent, never cancellable and never launch authority. |
+| T4 | S4 | inline | 5c27faa | `scripts/apply-inline-carrier-patch.mjs`: check/apply/revert, timestamped backup, verified idempotent rerun, TypeScript syntax gate, and the README note on when it must be rerun. |
 | T5 | S3, S5 | worker | pending | Renderer collapsing consecutive tool calls of one unit into one expandable card with a closing summary. |
 | T6 | S6 | inline | pending | Measure the actual inline/delegated split of recent sessions and report before changing any policy. |
 
@@ -83,3 +83,10 @@ L4. User: "yo se que colapsar el render no baja el contexto, era solo para que e
 L5. Discovery: `tuiMode: fullscreen` (the current setting) scrolls the transcript inside the terminal window, so history is whatever Pi retains; `regular` mode hands scrolling to the terminal and its own scrollback. Immediate stopgap, with the trade-off that fullscreen fixes the editor and status area.
 
 L3. User: "bastante de mi trabajo no se esta delegando y aun asi el orquestador edita en inline hasta llegar a limites de contexto del 70 por ahi, y llena el render principal de basura, entonces hay que parchar mas el gentle agents".
+
+L6. Evidence for T2-T4, all in the `port` instabox box at `/data/workspace/loon` (Node v22.23.3) because the build rule is box-first, never this machine:
+`npm ci` exit 0. `npm test` exit 1 with 201 tests, 195 pass, 2 fail, 4 skipped. The two failures are `tests/probe-frame.test.ts` ("a probe that never draws a frame fails…" and "--sgr keeps the escape sequences…") and their cause is `tmux: command not found` in the box; the same two fail identically at base `f1af63e` (182 tests, 176 pass, 2 fail), so they are environmental and not from this slice. `npx tsc --noEmit` exits 2 with one error, `tests/theme-file.test.ts(106,4): error TS2307` pointing at an absolute `/home/loonbac/.local/share/loon-pi/...` path that only exists on this machine; base `f1af63e` reports the same single error and exit 2. The 19 new tests pass on their own: `node --experimental-strip-types --test tests/inline-carrier.test.ts tests/inline-carrier-patch.test.ts` exit 0, 19 of 19.
+
+L7. Discovery about the two readers: only the sidebar/above-editor card (`agentsCard` in `extensions/gentle-agents.ts`) renders `visibleTasks()`. The full-screen `/gentle:agents` overlay (`lib/agents-view.ts`) reads `deps.store.list()` directly and subscribes to store events, so the carrier record does not appear there. Making the overlay list it needs a second patch site and a thread source for the detail pane, which is a bigger change than this slice; T5 stays the renderer task and this gap is recorded here rather than hidden.
+
+L8. The patch was rehearsed against a copy of the real installed file: `cp ~/.pi/agent/npm/node_modules/gentle-pi/extensions/gentle-agents.ts` into a scratch install, then `check` (exit 1, "not patched"), `apply` (exit 0, +33 lines, syntax gate `typescript`), `apply` again (exit 0, "already patched and verified", no second backup), `check` (exit 0), `revert` (exit 0, md5 back to `b17799abb1d22664870d9f5591b2ab1c`). It was deliberately not applied to the live install: that is the user's terminal, and the restart is theirs.
