@@ -336,17 +336,25 @@ escribió: el manifiesto guarda ese `patchedMd5`, y cuando el respaldo es más v
 trae, se recompone desde los bytes respaldados. Si gentle-pi se actualizó, o alguien tocó
 el archivo después, se niega en vez de pisar una versión más nueva y decir que salió bien.
 
-La tercera pieza no necesita parche. Mientras la sesión tiene registro, `extensions/inline-work.ts`
-registra un renderer con `pi.registerToolRenderer` que no dibuja ninguna fila para
+La tercera pieza no necesita parche. Desde la primera llamada de la sesión,
+`extensions/inline-work.ts` registra un renderer con `pi.registerToolRenderer` que no dibuja
+ninguna fila para
 `read`, `bash`, `grep`, `find`, `ls`, `edit`, `write` y `codemode`: pi dibuja un componente
 vacío de una herramienta con `renderShell: "self"` como cero líneas, así que el transcript
 se queda con la prosa del asistente y su resumen de cierre. Las ocho son dos familias del
 mismo problema: las herramientas de archivo y shell, y `codemode`, por donde pasa *cada*
 llamada de un agente que trabaja a través de él —con las siete primeras su transcript
 seguiría igual de lleno—. Todo lo demás conserva su dibujo: los subagentes reales, las
-preguntas que esperan tu respuesta, `todo` y cualquier otra herramienta. Una llamada que falla delega en el renderer que tenía antes, para que el
-error nunca se esconda, y sin registro —sesión ociosa, o `LOON_INLINE_WORK=0`— no se
-registra renderer alguno y todo se dibuja exactamente como antes.
+preguntas que esperan tu respuesta, `todo` y cualquier otra herramienta. Una llamada que falla
+delega en el renderer que tenía antes, para que el error nunca se esconda, y sin sesión —o con
+`LOON_INLINE_WORK=0`— no se registra renderer alguno y todo se dibuja exactamente como antes.
+
+La condición es la **sesión**, no el registro. La razón está en el orden del propio pi: el
+componente de una llamada se construye mientras llega el mensaje del asistente, antes de que la
+herramienta se ejecute, así que una condición que esperara al registro dejaría pasar la primera
+fila de cada unidad —y una unidad que trabaja a través de `codemode` puede ser una sola
+llamada—. Con la condición en la sesión, la primera llamada ya no dibuja nada y lo que queda en
+el transcript es la prosa del asistente y su resumen de cierre.
 
 Una fila colapsada no se puede pulsar: no tiene altura, así que no tiene zona de clic. Se
 expande con el atajo global de pi, `Ctrl+O`, que marca todas las filas de herramienta —las

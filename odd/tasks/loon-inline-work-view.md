@@ -174,6 +174,27 @@ S17. **Dedupe is keyed by job.**
 card." Every inline id of a session resolves to that session's job; when the store already
 serves any of them, the provider adds nothing, and otherwise the newest description wins.
 
+S18. **The gate is the session, not the carrier.**
+"The content of the inline unit must be hidden from the main render and live only in the
+subagents menu." pi constructs a call's `ToolExecutionComponent` while the assistant message
+streams (`interactive-mode.js:2815`, in the `message_update` branch), which is strictly before
+the tool runs and therefore before LOON's `tool_call` handler can write the carrier. A gate
+that waits for the carrier (`written && !closed`) lets the first row of every unit through, and
+a unit driven through `codemode` can be a single call. So: collapse for the whole session,
+from its first call, gated on `sessionId !== undefined && !closed`.
+
+S19. **`renderShell: "self"` is honoured, and that is not the problem.**
+"Confirm whether `renderShell: "self"` is honoured for the real `codemode` tool in this host
+version, by reading how the host builds the component for that tool rather than assuming from
+the earlier probe." It is: `ToolExecutionComponent.getRenderShell()` returns
+`this.toolDefinition?.renderShell ?? "default"` (`tool-execution.js:71`), the constructor adds
+only `selfRenderContainer` for that shell (`:54-56`), and `render()` returns `[]` when that
+container draws nothing and there are no images (`:159-168`). The definition is whatever
+`interactive-mode.js:1706` resolves, i.e. our resolver followed by
+`withBuiltInRenderers(toolName, ...)`; `withBuiltInRenderers` supplies renderers only for
+read, bash, powershell, edit, write, grep, find and ls, so `codemode` arrives with whatever its
+own definition has.
+
 ## Tasks
 
 | ID | Spec | Route | Commit | Outcome |
@@ -192,6 +213,8 @@ serves any of them, the provider adds nothing, and otherwise the newest descript
 | T20 | S10-S13 | inline | 302c445 | Tests first: a copy of the installed `lib/` gets the patch, is imported with jiti and rendered, so the assertions are about what the panel draws — one card while the unit runs, one after it closes, none duplicated once the store restored it, a non-inline task unchanged, a malformed record absent, and an anchor mismatch refused before any write. |
 | T22 | S14, S15, S17 | inline | 608f065 | The card is the job: `jobId(sessionId)` as the record id, one file rewritten at every close, the thread accumulating with a `note` divider where a new request began, totals summed and the status taken from the newest description of the job. |
 | T23 | S16 | inline | 608f065 | `consolidateLegacyHistory`: at session start, the numbered records the previous design wrote are merged into the job record and removed, so a resume brings one card. |
+| T25 | S18, S19 | inline | 0930de4 | The collapse gate becomes the session (`sessionId !== undefined && !closed`), so the first call of a unit collapses like the rest and a `codemode` unit that is one call leaves no row. Tests first: the first call before any carrier exists, a call mid-unit, and a call right after a unit closed; plus the narrow truth that a session which never started keeps its rows. |
+| T26 | S18, S19 | inline | 0930de4 | README and this file: the gate is the session, why the carrier cannot gate it (pi builds the row while streaming), and the `renderShell` evidence that the mechanism itself was never the problem. |
 | T24 | S14-S17 | inline | 608f065 | Tests and docs: two requests in one session are one card with both transcripts in order; a restore of that session brings one card; a finished stretch beside a running one says running; the totals add up; a malformed record is still absent; the README explains the job, the divider and the merge. |
 | T21 | S10-S13 | inline | 302c445 | README and this file: the panel now shows a running unit and flips it, the two patched files, the two anchors, and what a version mismatch does. |
 | T11 | S5 | dropped | The panel entry still has no detail thread: `agents-view.threadWindow` reads `store.thread(id)` and the carrier never enters the store, so a carrier's thread is always empty. Giving it one needs either a thread field the view reads for non-store ids or a second patch site, so it is its own slice and the collapsed detail stays in the session log until then. |
@@ -404,3 +427,58 @@ same job twice. The card then shows the restored status until the process restar
 detail keeps updating live. It is the price of never showing two cards and it is the one place
 where "running while any unit is open" does not hold; a session that never disappears from the
 store is not affected.
+
+L22. Work order for T18 and T19, and the diagnosis it asked for. The owner: "The collapse is not
+hiding anything on the owner's machine ... the content of the inline unit must be hidden from the
+main render and live only in the subagents menu. What he pasted from the panel is exactly what
+also appears in the transcript: the `codemode` tool row, its `Output`, `Script completed · 14
+lines`, and the text item." T18: "diagnose before fixing, and name the mechanism". T19: "while a
+unit is live, its tool rows must not reach the transcript at all, from the first call to the
+last, including the moment where the carrier is being created. If the carrier cannot exist before
+the first call, the fallback is to collapse unconditionally whenever this session is the inline
+worker's session".
+Diagnosis, from the installed pi 1.4.0 and this repository:
+1. The resolver **is** invoked. `InteractiveMode.getRegisteredToolDefinition(toolName)`
+   (`dist/modes/interactive/interactive-mode.js:1706`) runs `extensionRunner.resolveToolRenderers(
+   toolName, () => withBuiltInRenderers(toolName, session.getToolDefinition(toolName)))`
+   (`core/extensions/runner.js:542`), and that is called from each `new ToolExecutionComponent(
+   ...)` site: `:2815` (`message_update`, while the assistant message streams), `:2886`
+   (`tool_execution_start`) and `:3227` (history replay).
+2. The suspicion was right, and it is the whole bug: the component for a call is built on
+   `message_update`, i.e. **before the tool runs**, so at that moment our gate `written &&
+   !closed` is still false for the first call of a unit and the resolver returns `next()` -
+   pi's own renderer. From the second call of the same unit the gate is true and the row
+   collapses. A unit driven through `codemode` can be a single call, so what the owner pasted
+   is one unit's only call, drawn natively, with its `Output` and `Script completed · N lines`
+   result.
+3. `renderShell: "self"` is honoured and was never the problem: `getRenderShell()` reads
+   `toolDefinition?.renderShell ?? "default"` (`components/tool-execution.js:71`), the
+   constructor attaches only `selfRenderContainer` for that shell (`:54-56`), and `render()`
+   returns `[]` when that container draws no lines and there are no images (`:159-168`).
+   `withBuiltInRenderers` only supplies read/bash/powershell/edit/write/grep/find/ls, so
+   `codemode` is rendered by whatever definition our resolver passes through.
+4. The second gate is not what it looked like: nothing in this repository sets `closed` at
+   `agent_end`; it flips only at `session_shutdown`, so a call after a unit closes already
+   collapsed. The evidence for that is the test that now covers it.
+The fix is one expression - the gate becomes `sessionId !== undefined && !closed` - and the
+tests are the policy: the first call of a unit collapses before any carrier exists, a call
+mid-unit collapses, and a call right after a unit closed collapses, while a session that never
+started keeps its rows.
+This also closes T17. The panel-shaped content in the main render was not a compositing leak: it
+was the `codemode` row - the call itself, its output and its `Script completed · N lines`
+result - that the collapse never hid, because the gate raced the carrier. The shapes match
+exactly: a `codemode` unit is one call, and one call was precisely what leaked. The TUI
+compositing path read in T17 remains a candidate only for content that survives this fix; with
+the gate moved, the test that a `codemode` call draws zero rows is the measurement that
+distinguishes them.
+
+L23. Verification for T25-T26. Box `port` (Node v22.23.3, `npm ci` exit 0): targeted
+`tests/inline-collapse.test.ts` exit 0 with 16 pass; `npm run typecheck` exit 2 with only the
+box's pre-existing `theme-file` TS2307, 0 errors on this machine; `npm test` 246 tests / 231
+pass / 2 fail / 13 skipped, the two failures the `probe-frame` tmux pair identical at base. On
+this machine 246/246 pass.
+What this slice cannot prove on its own: the pixels. The row is drawn by pi's TUI, and the
+assertion here is the component the host would draw (zero lines for a `renderShell: "self"`
+call whose self container is empty) plus the ordering fact that made the old gate wrong, read
+from the host source. The acceptance is a person restarting pi, asking for work that goes
+through `codemode`, and seeing no tool row in the transcript while the panel shows the unit.
