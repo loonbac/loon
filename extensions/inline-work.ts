@@ -35,6 +35,7 @@ import type {
 } from '@earendil-works/pi-coding-agent';
 import { collapseResolver } from './lib/inline-collapse.ts';
 import { clearLiveThread, installOverlayPanel, writeLiveThread } from './lib/inline-overlay.ts';
+import { createTranscriptTransformer, transcriptMode } from './lib/inline-transcript.ts';
 import {
 	INLINE_RESULT_MAX,
 	addText,
@@ -107,6 +108,42 @@ export function summaryLine(messages: unknown, max: number = INLINE_LABEL_MAX): 
  * The closing result as the panel shows it: the assistant's final text, head
  * kept, bounded. This is what the owner reads in the thread after a reload.
  */
+/**
+ * The last assistant text, untouched: what the transcript must keep in full.
+ * @param {unknown} messages
+ * @returns {string}
+ */
+export function rawClosingText(messages: unknown): string {
+	const list = Array.isArray(messages) ? messages : [];
+	for (let index = list.length - 1; index >= 0; index -= 1) {
+		const message = list[index] as { role?: unknown; content?: unknown };
+		if (message === null || typeof message !== 'object' || message.role !== 'assistant' || !Array.isArray(message.content)) continue;
+		const parts: string[] = [];
+		for (const part of message.content) {
+			const candidate = part as { type?: unknown; text?: unknown };
+			if (candidate?.type === 'text' && typeof candidate.text === 'string') parts.push(candidate.text);
+		}
+		const text = parts.join('\n\n');
+		if (text.trim().length > 0) return text;
+	}
+	return '';
+}
+
+/**
+ * Ask the TUI for one frame. Removing a widget that was never set still triggers
+ * a render, which is enough for a message the transformer has just exempted to
+ * expand without waiting for the next keystroke.
+ * @param {ExtensionContext | undefined} ctx
+ */
+export function repaintTranscript(ctx: ExtensionContext | undefined): void {
+	try {
+		const ui = (ctx as { ui?: { setWidget?: (key: string, content: string[] | undefined) => void } } | undefined)?.ui;
+		ui?.setWidget?.('loon-inline-prose', undefined);
+	} catch {
+		// A missing frame costs a collapse, never the session.
+	}
+}
+
 export function closingText(messages: unknown, max: number = INLINE_RESULT_MAX): string {
 	if (!Array.isArray(messages)) return '';
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -164,6 +201,8 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		const pid = deps.pid ?? process.pid;
 		const agentHome = deps.agentHome ?? agentHomeDirectory(env);
 		const heartbeatMs = deps.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+		// How the assistant's prose is drawn while this session works inline.
+		const proseMode = transcriptMode(env);
 
 		let sessionId: string | undefined;
 		let cwd = '';
@@ -190,6 +229,14 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		let unit = 0;
 		let thread: UnitThread = emptyUnitThread();
 		let historyWritten = false;
+		// The answer of the current turn, untruncated, kept so the transcript can
+		// refuse to collapse it even after the turn is over.
+		let closingFull: string | undefined;
+		const prose = createTranscriptTransformer({
+			mode: proseMode,
+			isLive: () => written && !closed,
+			closingText: () => closingFull,
+		});
 
 		/**
 		 * A unit is one stretch of work between two closing turns, and the job is the
@@ -386,7 +433,7 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			persist();
 		}));
 
-		pi.on('agent_end', safeHandler((event: AgentEndEvent): void => {
+		pi.on('agent_end', safeHandler((event: AgentEndEvent, ctx: ExtensionContext): void => {
 			if (closed || !written) return;
 			const at = now();
 			status = INLINE_STATUS.COMPLETED;
@@ -401,6 +448,13 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			if (unit === 0 || historyWritten) return;
 			const closing = closingText((event as { messages?: unknown }).messages);
 			if (closing.length > 0) thread = addText(thread, closing);
+			// The answer of the turn must stay legible in the transcript: exempt its
+			// exact text, then ask for one frame, because the message may already have
+			// been drawn while it still looked like work in progress.
+			const answer = rawClosingText((event as { messages?: unknown }).messages);
+			closingFull = answer.length > 0 ? answer : undefined;
+			if (closingFull !== undefined) prose.exempt(closingFull);
+			repaintTranscript(ctx);
 			const record = snapshot();
 			if (record === undefined) return;
 			const withResult: InlineCarrierRecord = { ...record, result: closing.length > 0 ? closing : record.result };
@@ -441,6 +495,16 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			// unit driven through codemode can be a single call. Every row of an
 			// inline session belongs in the panel, from the first call to the last.
 			host.registerToolRenderer(collapseResolver(() => sessionId !== undefined && !closed));
+		}
+		// The prose half: pi renders every Markdown message through this hook, so an
+		// assistant message of a live inline session collapses to one line and the
+		// panel keeps the whole text. User messages, thinking and the closing answer
+		// are never touched.
+		const proseHost = pi as ExtensionAPI & {
+			registerMarkdownTransformer?: (transformer: (markdown: string, context: never) => string) => void;
+		};
+		if (typeof proseHost.registerMarkdownTransformer === 'function') {
+			proseHost.registerMarkdownTransformer(prose.transformer);
 		}
 	} catch {
 		// Registration itself must not break pi either.
