@@ -116,6 +116,41 @@ shutdown. A unit that closed stays readable; that is the whole point." And: "Do 
 gentle-pi's files: we write into its history directory, which is data, not code. No new
 `node_modules` patch."
 
+S10. **The overlay shows the unit while it runs, and flips when it closes.**
+The panel lists `store.list()` filtered to this session (`lib/agents-view.ts:573`) and draws
+the detail from `store.thread(task.id)` (`:743`). Our record never enters the store, so the
+panel only sees it after a resume restored it — unusable for real work. Two lines of
+`lib/agents-view.ts` are patched behind one provider on `globalThis`
+(`__loonInlinePanel`): the list merges our records, the detail asks our thread before the
+store's. While the unit runs, the card is the live carrier as `running` with the live thread;
+when the turn ends it is the history file as `completed`, with the same thread plus the
+closing text. No restart at either step: the view calls `refreshTasks()` and
+`requestRender()` on the presence tick it reschedules every second (`:246-258`), so a
+running card and its status change appear on their own.
+
+S11. **One card per unit, whatever the sources.**
+"One card per unit, always: dedupe by id across the three possible sources (live carrier,
+history file, store-restored record). A restored record must not double the card, and a
+running unit must not appear twice because its history file already exists from an earlier
+unit." The key is the unit number in `loon-inline-<sessionId>-<n>`. Same unit in two
+sources is one card, the history record winning for status and summary; ids the store already
+serves are excluded; a numberless id — a carrier written before units existed — is a legacy
+key, dropped as soon as the session has a numbered history record.
+
+S12. **The patched panel fails closed, exactly like the patched card list.**
+"Fail closed on an unknown shape. If `lib/agents-view.ts` (or whatever file you patch) does
+not match the expected anchor exactly, the script must refuse to apply and say which anchor
+failed, exactly as the hardened argument parsing does. A patch that half-applies to a newer
+gentle-pi is worse than no patch." One script, one backup directory, one manifest, both files
+in it; `check` reports every patched file and its state; every anchor appears exactly once;
+`revert` restores only the exact bytes the patch wrote.
+
+S13. **Nothing throws into the panel, and a broken record is absent.**
+"Nothing may throw into the panel, and a malformed or unreadable record must render as absent
+rather than as an error card." A read, a parse or a shape check that fails yields no task and
+no thread, never an entry and never an exception. With the patch absent, or the provider
+absent, the panel behaves exactly as it does today.
+
 ## Tasks
 
 | ID | Spec | Route | Commit | Outcome |
@@ -129,7 +164,11 @@ gentle-pi's files: we write into its history directory, which is data, not code.
 | T15 | S7, S8 | inline | 49185b8 | The unit's thread, built in memory as the unit runs: one `tool` item per top-level call (`{ kind: "tool", callId, name, args, output, running, isError }`, the shape `applyTaskEvent` builds), a bounded summary instead of raw output, and the closing result text as a `text` item. Nested calls (`parentToolCallId`) are skipped, as the carrier already does. |
 | T16 | S7, S9 | inline | 49185b8 | Persist the closed unit into gentle-pi's history directory as `{ task, thread }`, with per-unit ids (`loon-inline-<sessionId>-<n>`) so a second unit never overwrites the first; atomic write, no deletion on shutdown, no gentle-pi file touched. |
 | T17 | S7, S9 | inline | 49185b8 | README and this file: what survives a reload, what the panel now shows and its detail thread, what the widget card shows while a unit runs (the overlay reads the store), and how unit ids are allocated. |
-| T11 | S5 | pending | The panel entry still has no detail thread: `agents-view.threadWindow` reads `store.thread(id)` and the carrier never enters the store, so a carrier's thread is always empty. Giving it one needs either a thread field the view reads for non-store ids or a second patch site, so it is its own slice and the collapsed detail stays in the session log until then. |
+| T18 | S10, S11, S13 | inline | 302c445 | Provider for the overlay: `extensions/lib/inline-overlay.ts`, registered on `globalThis` from `extensions/inline-work.ts` at session start and removed at shutdown. Tasks = live carrier plus this session's history records, deduped by unit number and minus the ids the store already has; thread = the history record's, or the live one from a sidecar `<state>/loon-inline/<sessionId>.thread.json` rewritten as the unit works. Every read is wrapped: a broken file is absent, never an error card. |
+| T19 | S10-S12 | inline | 302c445 | `scripts/apply-inline-carrier-patch.mjs` becomes a two-file patch: `extensions/gentle-agents.ts` (the card list) and `lib/agents-view.ts` (the panel list and its detail). Each anchor exact-once, each failure naming its anchor; `check` reports both files; same backup, same manifest, same digest-verified revert. |
+| T20 | S10-S13 | inline | 302c445 | Tests first: a copy of the installed `lib/` gets the patch, is imported with jiti and rendered, so the assertions are about what the panel draws — one card while the unit runs, one after it closes, none duplicated once the store restored it, a non-inline task unchanged, a malformed record absent, and an anchor mismatch refused before any write. |
+| T21 | S10-S13 | inline | 302c445 | README and this file: the panel now shows a running unit and flips it, the two patched files, the two anchors, and what a version mismatch does. |
+| T11 | S5 | dropped | The panel entry still has no detail thread: `agents-view.threadWindow` reads `store.thread(id)` and the carrier never enters the store, so a carrier's thread is always empty. Giving it one needs either a thread field the view reads for non-store ids or a second patch site, so it is its own slice and the collapsed detail stays in the session log until then. |
 | T6 | S6 | inline | pending | Measure the actual inline/delegated split of recent sessions and report before changing any policy. |
 | T7 | S4 | inline | aa654cb | Harden `scripts/apply-inline-carrier-patch.mjs` after the first review: strict argument parsing (missing value, unknown flag, repeated flag, stray positional all rejected before any read or write) and a `revert` that refuses anything but the exact bytes the patch wrote. Tests first, both proving the failure by absence of a write, not by a message. |
 
@@ -243,3 +282,56 @@ two `probe-frame` tmux failures identical at base. On this machine, where gentle
 installed, all eight tests of the file pass, including the one that loads `loadHistory` and
 `TaskStore` from the installed package and checks that the restored store lists the card and
 keeps its thread.
+L18. Work order for T15, verbatim, because the words carry the limits:
+"He sees two `gentle-ai-worker` cards for what is one unit. The panel is showing both the
+record restored into the store and the one our patch merges, or the live carrier plus the
+restored record. Whatever the pair is, two cards for one unit is wrong and it is the reason
+dedupe must be explicit." And: "It has to appear in real time, without restarting Pi each
+time. Today the overlay only sees a unit after a `session_start` with reason `resume`
+restores it, which is unusable for actual work."
+"Real-time means: while the unit runs it shows as running from the live carrier; when it
+closes it flips to completed from the history file just written; no restart at either step."
+"Keep the durable half you built: restarting still restores through gentle-pi's history. The
+patch is for liveness, not for persistence, and losing it must degrade to what we have today,
+not to a broken panel."
+Constraints on `node_modules`, "which now becomes a second patched file": "Fail closed on an
+unknown shape. ... A patch that half-applies to a newer gentle-pi is worse than no patch."
+And acceptance: "I ask for work, open `/gentle:agents` while the unit is running and see it,
+watch it flip to completed when the turn ends, see its thread, and see one card, not two — all
+without restarting Pi."
+The repaint was not something to invent: the view already refreshes on the presence tick it
+reschedules every second (`lib/agents-view.ts:246-258` calls `refreshTasks()` and
+`requestRender()`), so reading the provider at merge time is enough for the flip to arrive on
+its own. The patch's two anchors are the `const local = this.deps.store.list()...` statement
+in `refreshTasks` and the `threadLines(... store.thread(task.id) ...)` call in
+`threadWindow`.
+
+L19. What the panel patch is, and what it costs. Two anchors in
+`lib/agents-view.ts`: the `const local = this.deps.store.list()...` statement in
+`refreshTasks` (kept byte for byte, with the provider's records pushed after it, so the
+panel's own filtering, ordering and cap still run over everything it draws) and the
+`threadLines(... store.thread(task.id) ...)` line in `threadWindow` (replaced, with the
+provider consulted before the store and the store kept as the fallback). Both read one
+global, `__loonInlinePanel`, which `extensions/inline-work.ts` publishes on `session_start`
+and withdraws on `session_shutdown`.
+The three sources of a card are merged by unit, not by file: `unitKey` splits on the session
+id, because a session id can itself end in digits and splitting on the last dash read a
+session as a unit — the test that caught it asserts
+`unitKey('loon-inline-sess-1', 'sess-1') === 'loon-inline-sess-1#legacy'`. Ids the store
+already serves are dropped before anything is returned, so a restore cannot double a card, and
+a numberless carrier is dropped once the session has a numbered record.
+The live transcript is a sidecar, `state/loon-inline/<session>.thread.json`, rewritten on
+every step and removed with the carrier at shutdown; the carrier file keeps its TaskRecord
+shape so the card patch and its duplicate guard keep reading it the same way.
+Verification: box `port`, targeted exit 0 (23 pass, 5 skipped — the view tests need the
+installed gentle-pi and skip there), `npm run typecheck` exit 2 with only the box's
+pre-existing `theme-file` TS2307 (clean on this machine), `npm test` 242 tests / 228 pass /
+2 fail / 12 skipped with the two `probe-frame` tmux failures identical at base. On this
+machine the five view tests run against a copy of the installed `lib/` with the real patch
+applied and the real `AgentsView` rendered: one card while running (`◐` and the live thread),
+one card after closing (`✓`, closing text, no second card), one card when the store restored
+the same unit, byte-identical rows for a non-inline subagent, and zero cards for a malformed
+record.
+The live install was patched with this script (both files verified, backup
+`loon-inline-carrier-patch-20261030124038`). A gentle-pi whose anchors moved is refused with
+the file and the anchor named, and neither file is written.

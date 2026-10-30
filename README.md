@@ -308,8 +308,11 @@ Dos piezas, una de este repositorio y otra de gentle-pi:
   de tokens y el registro nunca es autoridad de lanzamiento. Además, al cerrarse, la unidad
   se guarda **con su hilo** en el directorio de historia de gentle-pi —eso es lo que la hace
   sobrevivir a una recarga, y está más abajo—.
-- `scripts/apply-inline-carrier-patch.mjs` enseña a `visibleTasks()` de gentle-pi, en
-  `extensions/gentle-agents.ts`, a dibujar ese registro. Nada más del paquete cambia.
+- `scripts/apply-inline-carrier-patch.mjs` enseña a gentle-pi esos registros, en dos
+  archivos: `visibleTasks()` en `extensions/gentle-agents.ts`, que es la tarjeta de la
+  derecha; y, en `lib/agents-view.ts`, la lista y el detalle del panel de `/gentle:agents`,
+  que hasta ahora solo leía el store y por eso no podía mostrar una unidad viva. Nada más del
+  paquete cambia.
 
 ```sh
 node scripts/apply-inline-carrier-patch.mjs check
@@ -382,13 +385,34 @@ Una unidad por registro, con su número: `…-1`, `…-2`. La segunda nunca sobr
 y el número se reparte mirando lo que ya hay en disco, así que una sesión reanudada sigue la
 cuenta en vez de reutilizar un id tomado.
 
-Dos precisiones, porque las dos se ven como defecto sin serlo. Mientras una unidad corre, el
-panel completo todavía no la muestra —el panel lee el store de gentle-pi, y el registro vivo no
-entra ahí—: la tarjeta de la derecha sí, y el panel la muestra en cuanto la unidad cierra. Y
-gentle-pi solo restaura historia en una reanudación: su `session_start` restaura cuando el
-motivo es `resume`, o cuando es `startup` y la sesión ya tenía entradas; nunca en una sesión
-nueva, un fork ni un `/reload` en proceso. Si abres `/gentle:agents` después de un `/reload` y
-la tarjeta no está, es esa puerta, no un archivo que falta.
+### El panel, mientras la unidad corre
+
+La unidad se ve en `/gentle:agents` **mientras trabaja**, sin reiniciar pi. La extensión
+publica un proveedor en `globalThis.__loonInlinePanel` al empezar la sesión, y las dos líneas
+que el parche añade en `lib/agents-view.ts` lo consultan: la lista suma sus registros a lo que
+devuelve el store, y el detalle pregunta por el hilo antes de caer al store. Mientras la unidad
+corre, la tarjeta sale del registro vivo con su último estado y su transcripción en un sidecar
+al lado (`state/loon-inline/<sesión>.thread.json`); cuando el turno termina, sale del registro
+de historia recién escrito, con el mismo hilo más el texto de cierre. No hay ningún paso que
+haga falta provocar: el panel se repinta solo en el tick de presencia que gentle-pi reprograma
+cada segundo.
+
+**Una unidad es una tarjeta, siempre.** Las tres fuentes —el registro vivo, el archivo de
+historia y lo que un reinicio metió en el store— se juntan por unidad, no por archivo: la clave
+sale del número de `loon-inline-<sesión>-<n>`, y los ids que el store ya sirve se descartan
+antes de devolver nada. Cuando la unidad cierra, los dos primeros existen a la vez durante el
+lapso entre escribir la historia y borrar el registro vivo, y aun así es una sola tarjeta.
+Un registro sin número, de antes de que las unidades se numeraran, se descarta en cuanto la
+sesión tiene uno numerado: es la misma unidad que la primera.
+
+Dos precisiones, porque las dos se ven como defecto sin serlo. La mitad durable y la mitad viva
+son independientes: si el parche no está, o gentle-pi cambió de versión, no se dibuja nada
+nuevo en el panel y este se comporta exactamente como antes; el registro de historia sigue
+escribiéndose igual. Y gentle-pi solo restaura historia en una reanudación: su `session_start`
+restaura cuando el motivo es `resume`, o cuando es `startup` y la sesión ya tenía entradas;
+nunca en una sesión nueva, un fork ni un `/reload` en proceso. Eso ya no hace falta para ver
+una unidad viva —para eso está el proveedor—, pero sí para volver a ver las cerradas de una
+sesión que no estás reabriendo.
 
 Cinco límites que conviene conocer. El hilo vive dentro del panel; abrir la sesión del hijo
 (Enter) avisa de que esta tarea no tiene archivo de sesión, porque no hay hijo detrás. El
@@ -399,9 +423,9 @@ trabajo en curso, en cambio, no cuenta la tarjeta: gentle-pi lo calcula en
 `ownedTaskIds`. Es solo presentación, y arreglarlo pediría otro parche a `node_modules` por un
 número: queda escrito como inconsistencia conocida, no como tarea. Una fila
 terminada desaparece de la tarjeta a los 60 segundos, exactamente como la de un subagente
-real. La tarjeta del panel todavía no tiene hilo de detalle, así que el detalle que el
-transcript deja de dibujar se lee en el log de la sesión; darle uno es la tarea
-siguiente. Y colapsar el render no reduce el contexto: para eso hay que delegar o partir
+real. El detalle del panel es la transcripción acotada de la unidad, no el log completo, y
+abrirlo como si fuera un hijo real (Enter) avisa de que no hay archivo de sesión, porque no hay
+hijo detrás. Y colapsar el render no reduce el contexto: para eso hay que delegar o partir
 el trabajo, que es otra decisión. Apagar todo esto es `LOON_INLINE_WORK=0`.
 
 ### Medir un frame
