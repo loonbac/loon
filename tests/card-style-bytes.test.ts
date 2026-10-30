@@ -110,3 +110,83 @@ test('no painted row starts with an escape, in any card style', { skip: !availab
 		}
 	}
 });
+
+// The band and the bar are one visual panel: their painted surfaces have to close on the
+// same column, or the band shows a two-column notch of unpainted background beside a bar
+// that painted those same cells. Read from rendered columns, never from string widths.
+test('the loon band surface ends where the bar surface ends', { skip: !available && 'gentle-pi is not installed here' }, async () => {
+	const { createJiti } = (await import(join(PI_ROOT, 'node_modules', 'jiti', 'lib', 'jiti-static.mjs'))) as {
+		createJiti: (url: string, options: Record<string, unknown>) => { import: (path: string) => Promise<unknown> };
+	};
+	const jiti = createJiti(import.meta.url, {
+		moduleCache: false,
+		interopDefault: true,
+		fsCache: false,
+		alias: {
+			'@earendil-works/pi-tui': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-tui', 'dist', 'index.js'),
+			'@earendil-works/pi-agent-core': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-agent-core', 'dist', 'index.js'),
+			'@earendil-works/pi-ai': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-ai', 'dist', 'compat.js'),
+			'@earendil-works/pi-coding-agent': join(PI_ROOT, 'dist', 'index.js'),
+		},
+	});
+	const card = (await jiti.import(join(GENTLE, 'lib', 'shell-card.ts'))) as { setCardStyle: (style: string) => void };
+	const prompt = (await jiti.import(join(GENTLE, 'lib', 'shell-prompt.ts'))) as {
+		resolvePromptLayout: (width: number, style: string, bg: unknown) => unknown;
+		framePromptLines: (lines: string[], width: number, options: unknown, layout: unknown) => string[];
+	};
+	const shellBar = (await jiti.import(join(GENTLE, 'lib', 'shell-bar.ts'))) as {
+		renderShellBelowInputFloat: (model: unknown, theme: unknown, width: number, usageHint: unknown, presentation: unknown) => { rows: string[] } | undefined;
+	};
+	const OPEN = '\u001b[48;2;61;56;35m';
+	const CLOSE = '\u001b[49m';
+	const theme = {
+		fg: (_role: string, text: string) => text,
+		bg: (_role: string, text: string) => OPEN + text + CLOSE,
+		bold: (text: string) => text,
+	};
+	// The visible columns that carry the surface, decoded from the row's own escapes.
+	const painted = (row: string): number[] => {
+		const columns: number[] = [];
+		let column = 0;
+		let surface = false;
+		for (let index = 0; index < row.length;) {
+			const escape = /^\u001b\[([0-9;]*)m/.exec(row.slice(index));
+			if (escape) {
+				const parameters = escape[1] ?? '';
+				if (parameters === '' || parameters === '0' || parameters === '49') surface = false;
+				else if (parameters.startsWith('48;')) surface = true;
+				index += escape[0].length;
+				continue;
+			}
+			if (surface) columns.push(column);
+			column += 1;
+			index += 1;
+		}
+		return columns;
+	};
+
+	const model = {
+		cwd: '/tmp', branch: 'main', dirty: 0, modelId: 'test-model', effort: 'high',
+		contextPercent: 10, contextWindow: 100000, costTotal: 0, subscription: false,
+		usage: undefined, statuses: [],
+	};
+	const presentation = {
+		density: 'comfortable', headerPlacement: 'below-input', statusPlacement: 'auto',
+		visibility: { changes: true, rdd: true, agents: true, todo: true, usageCost: true, modelDetails: true, contextWarning: true },
+	};
+	card.setCardStyle('loon');
+	for (const width of [120, 160]) {
+		const layout = prompt.resolvePromptLayout(width, 'loon', theme.bg);
+		const bandRow = prompt.framePromptLines(['', 'a line the band paints', ''], width, {
+			state: 'idle', tick: 0, bg: theme.bg, fg: theme.fg, borderColor: (text: string) => text, style: 'loon',
+		}, layout)[1]!;
+		const chrome = shellBar.renderShellBelowInputFloat(model, theme, width, undefined, presentation);
+		assert.ok(chrome, 'the bar did not render at ' + width + ' columns');
+		const bandRight = Math.max(...painted(bandRow));
+		const barRight = Math.max(...painted(chrome.rows[1]!));
+		assert.equal(bandRight, barRight, 'at ' + width + ' columns the band surface ends at ' + bandRight + ' and the bar at ' + barRight);
+		assert.equal(bandRight, width - 1, 'the surface reaches the last column at ' + width);
+		assert.equal(Math.min(...painted(bandRow)), 1, 'the band surface starts in column 1: column 0 is the rule');
+		assert.equal(bandRow.replace(/\u001b\[[0-9;]*m/g, '')[0], '▎', 'the band rule keeps column 0');
+	}
+});
