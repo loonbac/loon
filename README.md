@@ -374,19 +374,32 @@ sobrescrituras, ni la cabecera de hoy.
   hueco de cabecera de pi tanto si la barra va arriba como si va bajo el editor. Nada más
   de la interfaz de pi se reemplaza: el pie y el spinner no se tocan nunca.
 
-## Si el parche no aplica
+## Cuando gentle-pi cambia
 
-El menú es texto insertado en un paquete ajeno. Cuando una actualización de gentle-pi
-mueve un anclaje, la herramienta se niega a parchear —compilación distinta de la 4.5.1
-contra la que fue escrita, salida 2, nada cambiado— y entonces no hay interfaz para LOON:
-queda editar `~/.pi/agent/loon-tui.json`. Poner `"source": "off"` devuelve el hueco a
-pi, `"enabled": false` apaga el banner, y el resto de claves siguen significando lo
-mismo. Es el precio de que el menú sea la interfaz, y por eso el archivo se documenta
-aquí.
-- **Sin escrituras en gentle-pi.** LOON lee `visual-customization.json` y `banner.json`;
-  nunca los edita y nunca añade filas a `/gentle:customization`. La integración va solo en
-  un sentido, por diseño: ese menú sigue siendo el único lugar desde el que se escriben
-  esos archivos.
+El menú es texto insertado en un paquete ajeno, así que una actualización de gentle-pi
+**rompe el parche a propósito**: la herramienta se niega a tocar nada (salida 2, cero
+bytes escritos) y dice qué arreglar. Ese ruido es el mantenimiento, no un fallo que haya
+que esquivar:
+
+```
+extensions/gentle-shell.ts: not the build this patch was written against
+  md5:      expected ad1bfce9…, found 3f2b91c1…
+  version:  installed 4.6.0 · patch pinned to 4.5.1
+  anchor:   scripts/gentle-pi-patch.ts:63 (shellRows) occurs 0 time(s), expected 1
+    expected: add(() => `Banner rose: ...`
+    found:    line 2493: add(() => `Banner rose: ...`
+  nothing was written: no file changed and no backup was created
+```
+
+El mensaje nombra el objetivo, los dos md5, la versión instalada frente a la fijada, el
+anclaje que dejó de coincidir con su línea en `scripts/gentle-pi-patch.ts`, y la línea del
+paquete que más se le parece. `check` imprime la comparación de versiones y esos anclajes
+antes de aplicar, para que la deriva se vea sin intentar nada.
+
+Sin el parche aplicado LOON funciona igual: lee su archivo, pinta su cabecera y no
+depende de que ese texto esté en el paquete. Lo único que falta entonces es el menú; los
+ajustes siguen en `loon-tui.json` y editarlo a mano surte efecto igual, porque LOON lo
+vigila.
 
 ## Convenciones de idioma
 
