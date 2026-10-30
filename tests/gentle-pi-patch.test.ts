@@ -336,6 +336,11 @@ test('every anchor of every target reports where it lives', () => {
  * slot without a surface keeps the native count for loon - so loon needs no row shift -
  * while float still opens with a padding row and does.
  *
+ * This is a COUPLING GUARD, not a behavioural test: it matches the emitted source, with
+ * comments stripped so a comment cannot satisfy it. There is no behavioural mouse test
+ * and there cannot be one here - it would need pi's editor, which these tests replace
+ * with a double - so what is checked is the pair that can desynchronise.
+ *
  * The limit, stated: there is no behavioural proof of the mouse mapping, and there cannot
  * be one here - it would need pi's editor, which these tests replace with a double. What
  * can desynchronise is the label row and the shift, so that pair is what is asserted, with
@@ -343,8 +348,11 @@ test('every anchor of every target reports where it lives', () => {
 test('the label slot and the mouse shift stay in step', () => {
 	const shell = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
 	const prompt = TARGETS.find((target) => target.file === 'lib/shell-prompt.ts')!;
-	const labelOutside = prompt.edits.some((edit) => edit.replacement.includes('layout.chrome === "loon" ? label'));
-	const mouseSource = shell.edits.map((edit) => edit.replacement).join('\n');
+	// Comments out first: a comment mentioning the string must not satisfy the guard.
+	const withoutComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+	const replacements = (target: typeof shell) => target.edits.map((edit) => withoutComments(edit.replacement)).join('\n');
+	const labelOutside = replacements(prompt).includes('layout.chrome === "loon" ? label');
+	const mouseSource = replacements(shell);
 	const shift = /layout\.chrome === "loon" \? (\d) : (\d)/.exec(mouseSource);
 	const loonShift = shift ? Number(shift[1]) : 1;
 	const floatShift = shift ? Number(shift[2]) : 1;
