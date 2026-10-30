@@ -13,7 +13,6 @@ import { renderBanner } from './lib/banner.ts';
 import { watchConfigDirs } from './lib/config-watch.ts';
 import { readWallpaperAccent, wallpaperAccentDir, wallpaperAccentPath } from './lib/wallpaper-accent.ts';
 import { ensureWallpaperTheme, themesDir, type EnsureOutcome } from './lib/theme-file.ts';
-import { WALLPAPER_THEME_NAME } from './lib/wallpaper-theme.ts';
 import {
 	gentleConfigHome,
 	readGentleSettings,
@@ -33,24 +32,13 @@ import {
 import { resolvePalette, type LoonTheme } from './lib/palette.ts';
 import { ACCENT_RGB, type Rgb } from './lib/accent.ts';
 
-/** Reapply the header, and turn the banner on. */
-export const LOOK_COMMAND = 'use-loon-tui';
-/** Turn the banner off and restore pi's own header, footer and spinner. */
-export const RESTORE_COMMAND = 'use-default-tui';
-/** The two settings gentle-pi's menu does not have. */
-export const MENU_COMMAND = 'loon:tui';
 /** Key of the widget drawn under the editor when gentle-pi asks for it. */
 export const WIDGET_KEY = 'loon-header';
 
-/** The accent source one step along the menu cycle: theme -> banner -> wallpaper. */
 /** True when two parsed accents would paint the same colour. */
 export function sameRgb(a: Rgb | undefined, b: Rgb | undefined): boolean {
 	if (a === undefined || b === undefined) return a === b;
 	return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
-}
-export function nextAccentSource(current: AccentSource): AccentSource {
-	const index = ACCENT_SOURCES.indexOf(current);
-	return ACCENT_SOURCES[(index + 1) % ACCENT_SOURCES.length] as AccentSource;
 }
 /**
  * Which RGB the accent roles get, for one setting:
@@ -207,11 +195,7 @@ function takeSnapshot(pi: ExtensionAPI, ctx: ExtensionContext): HeaderSnapshot {
 		model: formatModelLabel(ctx.model),
 		effort: pi.getThinkingLevel(),
 		cwd: formatCwd(ctx.cwd),
-		tips: pickSlashCommandTips(collectPiCommandNames(pi.getCommands()), {
-			fixed: [RESTORE_COMMAND],
-			count: 3,
-			exclude: [LOOK_COMMAND, MENU_COMMAND],
-		}),
+		tips: pickSlashCommandTips(collectPiCommandNames(pi.getCommands()), { count: 3 }),
 	};
 }
 
@@ -306,43 +290,6 @@ export const defaultLoonDeps: LoonDeps = {
 	watch: (onChange) => watchConfigDirs([gentleConfigHome(), piConfigHome(), wallpaperAccentDir()], onChange),
 };
 
-/**
- * Which accent is in effect, and - for the wallpaper - whether the file was
- * readable, because "the theme colour appeared" needs an explanation.
- */
-function describeAccent(state: LoonState, wallpaper: Rgb | undefined): string {
-	if (state.loon.accent === 'theme') return 'accent theme';
-	if (state.loon.accent === 'banner') return 'accent gentle-pi banner.json';
-	return wallpaper === undefined
-		? 'accent wallpaper (unavailable, theme fallback)'
-		: 'accent wallpaper #' + wallpaper.map((channel) => channel.toString(16).padStart(2, '0')).join('').toUpperCase();
-}
-
-/**
- * The generated theme, in one phrase: what happened to its file and whether it is
- * the one in effect. Nothing is claimed when no attempt has run yet.
- */
-function describeTheme(theme: EnsureOutcome | undefined, activeTheme: string | undefined): string {
-	if (theme === undefined) return 'theme not generated yet';
-	const active = activeTheme === WALLPAPER_THEME_NAME ? ', active' : '';
-	return 'theme ' + WALLPAPER_THEME_NAME + ' ' + theme.result + active;
-}
-
-/** One sentence for notifications: what LOON is doing and why. */
-function describe(state: LoonState, wallpaper: Rgb | undefined, theme?: EnsureOutcome, activeTheme?: string): string {
-	const banner = state.loon.enabled ? 'on' : 'off';
-	const accent = describeAccent(state, wallpaper);
-	return [
-		`LOON banner ${banner}`,
-		accent,
-		`density ${state.gentle.density}`,
-		`gentle-pi placement ${state.gentle.headerPlacement} (its bar; the banner stays on top)`,
-		state.loon.mark ? 'mark on' : 'mark off',
-		`source ${state.loon.source}`,
-		describeTheme(theme, activeTheme),
-	].join(' · ');
-}
-
 export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 	let state: LoonState | undefined;
 	let snapshot: HeaderSnapshot | undefined;
@@ -353,8 +300,6 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 	let attached: 'none' | 'header' | 'widget' = 'none';
 	/** The wallpaper accent, parsed once per read and reused for every render. */
 	let wallpaperRgb: Rgb | undefined;
-	/** What the last attempt to write the generated theme did. */
-	let themeOutcome: EnsureOutcome | undefined;
 	const health: HeaderHealth = { lastRenderAt: 0 };
 
 	const cancelPending = () => {
@@ -422,7 +367,7 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 	}
 
 	/** Re-read both config homes and repaint, restarting the watchdog if needed. */
-	function refresh(ctx: ExtensionContext, options: { refreshSnapshot?: boolean } = {}): boolean {
+	function refresh(ctx: ExtensionContext): boolean {
 		cancelPending();
 		health.lastRenderAt = 0;
 		state = deps.read();
@@ -430,8 +375,7 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 		// Regenerate the theme when it is missing or older than the accent it came
 		// from; on a wallpaper change this runs again, which is what makes the open
 		// session recolour through pi's own theme watcher.
-		themeOutcome = deps.ensureTheme(wallpaperRgb);
-		if (options.refreshSnapshot) snapshot = undefined;
+		deps.ensureTheme(wallpaperRgb);
 		const applied = apply(ctx);
 		cancelWatchdog();
 		if (applied && ownsTopSlot()) {
@@ -439,46 +383,6 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 			watchdog.start();
 		}
 		return applied;
-	}
-
-	function detach(ctx: ExtensionContext, restorePi: boolean): void {
-		cancelPending();
-		cancelWatchdog();
-		attached = 'none';
-		if (ctx.mode !== 'tui') return;
-		ctx.ui.setHeader(undefined);
-		ctx.ui.setWidget(WIDGET_KEY, undefined);
-		if (restorePi) {
-			ctx.ui.setFooter(undefined);
-			ctx.ui.setWorkingIndicator(undefined);
-		}
-	}
-
-	function persist(next: LoonSettings): void {
-		deps.write(next);
-		state = state ? { loon: next, gentle: state.gentle } : { loon: next, gentle: deps.read().gentle };
-	}
-
-	async function openMenu(ctx: ExtensionContext): Promise<void> {
-		for (;;) {
-			const current = deps.read();
-			const bannerOption = `Banner: ${current.loon.enabled ? 'on' : 'off'}`;
-			const accentOption = `Accent: ${current.loon.accent}`;
-			const markOption = `Mark: ${current.loon.mark ? 'on' : 'off'}`;
-			const closeOption = 'Close';
-			const choice = await ctx.ui.select('LOON banner', [bannerOption, accentOption, markOption, closeOption]);
-			if (!choice || choice === closeOption) return;
-
-			const next: LoonSettings =
-				choice === bannerOption
-					? { ...current.loon, enabled: !current.loon.enabled }
-					: choice === accentOption
-						? { ...current.loon, accent: nextAccentSource(current.loon.accent) }
-						: { ...current.loon, mark: !current.loon.mark };
-			persist(next);
-			refresh(ctx);
-			ctx.ui.notify(describe({ loon: next, gentle: current.gentle }, wallpaperRgb, themeOutcome, ctx.ui.theme?.name), 'info');
-		}
 	}
 
 	pi.on('session_start', (_event, ctx) => {
@@ -509,63 +413,6 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 		disposeWatch = undefined;
 		state = undefined;
 		snapshot = undefined;
-	});
-
-	pi.registerCommand(LOOK_COMMAND, {
-		description: 'Apply the LOON startup header and turn the banner on',
-		handler: async (_args, ctx) => {
-			persist({ ...(state?.loon ?? deps.read().loon), enabled: true });
-			const applied = refresh(ctx, { refreshSnapshot: true });
-			ctx.ui.notify(applied ? 'LOON header applied' : 'LOON header could not be applied', applied ? 'info' : 'warning');
-		},
-	});
-
-	pi.registerCommand(RESTORE_COMMAND, {
-		description: "Turn the banner off and restore pi's own header, footer and spinner",
-		handler: async (_args, ctx) => {
-			persist({ ...(state?.loon ?? deps.read().loon), enabled: false });
-			detach(ctx, true);
-			ctx.ui.notify('Using the default pi TUI', 'info');
-		},
-	});
-
-	pi.registerCommand(MENU_COMMAND, {
-		description: 'LOON banner settings: on or off, and where the accent comes from',
-		handler: async (args, ctx) => {
-			const [verb = '', value = ''] = String(args ?? '').trim().split(/\s+/).filter(Boolean);
-			const current = deps.read();
-
-			if (verb === 'status') {
-				ctx.ui.notify(describe(current, wallpaperRgb, themeOutcome, ctx.ui.theme?.name), 'info');
-				return;
-			}
-			if (verb === 'on' || verb === 'off') {
-				persist({ ...current.loon, enabled: verb === 'on' });
-				refresh(ctx);
-				ctx.ui.notify(describe(deps.read(), wallpaperRgb, themeOutcome, ctx.ui.theme?.name), 'info');
-				return;
-			}
-			if (verb === 'accent' && (value === 'theme' || value === 'banner' || value === 'wallpaper')) {
-				persist({ ...current.loon, accent: value });
-				refresh(ctx);
-				ctx.ui.notify(describe(deps.read(), wallpaperRgb, themeOutcome, ctx.ui.theme?.name), 'info');
-				return;
-			}
-			if (verb === 'mark' && (value === 'on' || value === 'off')) {
-				persist({ ...current.loon, mark: value === 'on' });
-				refresh(ctx);
-				ctx.ui.notify(describe(deps.read(), wallpaperRgb, themeOutcome, ctx.ui.theme?.name), 'info');
-				return;
-			}
-			if (verb) {
-				ctx.ui.notify(
-					'Usage: /loon:tui [on|off|accent theme|accent banner|accent wallpaper|mark on|mark off|status]',
-					'warning',
-				);
-				return;
-			}
-			await openMenu(ctx);
-		},
 	});
 }
 

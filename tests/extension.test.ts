@@ -3,9 +3,6 @@ import assert from 'node:assert/strict';
 import {
 	createLoonExtension,
 	HeaderWatchdog,
-	LOOK_COMMAND,
-	MENU_COMMAND,
-	RESTORE_COMMAND,
 	WATCHDOG_CONFIG,
 	WIDGET_KEY,
 	type LoonDeps,
@@ -91,12 +88,7 @@ function fakePi(): FakePi {
 		registerCommand: (name, options) => {
 			commands.set(name, options);
 		},
-		getCommands: () => [
-			{ name: LOOK_COMMAND },
-			{ name: RESTORE_COMMAND },
-			{ name: MENU_COMMAND },
-			{ name: 'deploy' },
-		],
+		getCommands: () => [{ name: 'deploy' }, { name: 'review' }, { name: 'ship' }, { name: 'explain' }],
 		getThinkingLevel: () => 'high',
 	};
 }
@@ -208,12 +200,10 @@ function renderWidget(ctx: FakeContext, width = 80): string[] {
 	return content({ requestRender: () => {} }, plainTheme()).render(width);
 }
 
-test('registers exactly three commands', () => {
+test('registers no command of its own', () => {
+	// Every setting lives in gentle-pi's menu; LOON adds no command to /commands.
 	const { pi } = boot();
-	assert.deepEqual([...pi.commands.keys()], [LOOK_COMMAND, RESTORE_COMMAND, MENU_COMMAND]);
-	assert.equal(LOOK_COMMAND, 'use-loon-tui');
-	assert.equal(RESTORE_COMMAND, 'use-default-tui');
-	assert.equal(MENU_COMMAND, 'loon:tui');
+	assert.deepEqual([...pi.commands.keys()], []);
 });
 
 test('installs the header on session start, after the first macrotask', async () => {
@@ -241,9 +231,9 @@ test('the installed header renders the capture and keeps the restore tip', async
 	const rendered = renderHeader(ctx).join('\n');
 	assert.match(rendered, /Pi v/);
 	assert.match(rendered, /Getting started/);
-	assert.match(rendered, /\/use-default-tui/);
-	assert.ok(!rendered.includes('/use-loon-tui'), 'tips must not advertise the reapply command');
-	assert.ok(!rendered.includes('/loon:tui'), 'tips must not advertise the settings command');
+	for (const gone of ['/use-loon-tui', '/use-default-tui', '/loon:tui']) {
+		assert.ok(!rendered.includes(gone), 'the header advertises a command that does not exist: ' + gone);
+	}
 });
 
 test('the tips are fixed once per session, not reshuffled per install', async () => {
@@ -252,35 +242,6 @@ test('the tips are fixed once per session, not reshuffled per install', async ()
 	await wait(500);
 	const renders = headerFactories(ctx).map(() => renderHeader(ctx).join('\n'));
 	for (const rendered of renders) assert.equal(rendered, renders[0]);
-});
-
-test('the restore command clears the header, the widget, the footer and the spinner', async () => {
-	const { pi, ctx, config } = boot();
-	startSession(pi, ctx);
-	await wait(50);
-
-	const restore = pi.commands.get(RESTORE_COMMAND)!;
-	await (restore.handler as (args: string, ctx: FakeContext) => Promise<void>)('', ctx);
-
-	assert.deepEqual(ctx.ui.calls.slice(-4), [
-		['setHeader', undefined],
-		['setWidget', WIDGET_KEY, { content: undefined, options: undefined }],
-		['setFooter', undefined],
-		['setWorkingIndicator', undefined],
-	]);
-	assert.equal(config.writes.at(-1)?.enabled, false, 'turning it off is persisted');
-
-	const afterRestore = ctx.ui.calls.length;
-	await wait(500);
-	assert.equal(ctx.ui.calls.length, afterRestore, 'a pending re-assert reinstalled the header after restore');
-});
-
-test('the reapply command turns the banner on and applies it again', async () => {
-	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, enabled: false, accent: 'banner' } });
-	const look = pi.commands.get(LOOK_COMMAND)!;
-	await (look.handler as (args: string, ctx: FakeContext) => Promise<void>)('', ctx);
-	assert.equal(config.writes.at(-1)?.enabled, true);
-	assert.equal(typeof headerFactories(ctx).at(-1), 'function');
 });
 
 test('nothing is installed when the context has no TUI', async () => {
@@ -355,14 +316,22 @@ test('a live change of source hands the slot over and takes it back', async () =
 	assert.equal(typeof headerFactories(ctx).at(-1), 'function', 'LOON did not come back');
 });
 
-test('the status line reports the source', async () => {
-	const { pi, ctx } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, source: 'off' } });
-	const menu = pi.commands.get(MENU_COMMAND)!;
-	await (menu.handler as (args: string, ctx: FakeContext) => Promise<void>)('status', ctx);
-	assert.match(ctx.ui.notifyQueue.at(-1) ?? '', /source off/);
-});
+test('a settings change takes the header away and gives it back', async () => {
+	// The slot is released and reclaimed from the file alone: no command does it now.
+	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, enabled: true } });
+	startSession(pi, ctx);
+	await wait(50);
+	assert.equal(typeof headerFactories(ctx).at(-1), 'function');
 
-/* S6: off means off — nothing painted, nothing reclaimed. */
+	config.set({ loon: { ...DEFAULT_LOON_SETTINGS, enabled: false } });
+	config.emit();
+	assert.equal(ctx.ui.calls.at(-1)?.[0], 'setHeader');
+	assert.equal(ctx.ui.calls.at(-1)?.[1], undefined, 'the header was not released');
+
+	config.set({ loon: { ...DEFAULT_LOON_SETTINGS, enabled: true } });
+	config.emit();
+	assert.equal(typeof headerFactories(ctx).at(-1), 'function', 'the header did not come back');
+});
 
 test('a disabled banner installs nothing at all', async () => {
 	const { pi, ctx } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, enabled: false, accent: 'banner' } });
@@ -372,19 +341,6 @@ test('a disabled banner installs nothing at all', async () => {
 	assert.deepEqual(headerFactories(ctx), []);
 	assert.deepEqual(widgets(ctx), []);
 });
-
-test('the settings command turns a disabled banner on without a restart', async () => {
-	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, enabled: false, accent: 'banner' } });
-	startSession(pi, ctx);
-	await wait(50);
-
-	const menu = pi.commands.get(MENU_COMMAND)!;
-	await (menu.handler as (args: string, ctx: FakeContext) => Promise<void>)('on', ctx);
-	assert.equal(config.writes.at(-1)?.enabled, true);
-	assert.equal(typeof headerFactories(ctx).at(-1), 'function');
-});
-
-/* S4: the accent override reaches the drawn header. */
 
 test('the accent source decides between the theme and gentle-pi’s colour', async () => {
 	const { pi, ctx, config } = boot({
@@ -421,19 +377,19 @@ test('the mark is drawn by default, whatever gentle-pi’s files say', async () 
 	assert.equal(markRows(renderHeader(ctx)), 4);
 });
 
-test('/loon:tui mark off hides the mark and mark on brings it back', async () => {
+test('mark off hides the mark and mark on brings it back', async () => {
 	const { pi, ctx, config } = boot();
 	startSession(pi, ctx);
 	await wait(50);
-	const menu = pi.commands.get(MENU_COMMAND)!;
-	const run = menu.handler as (args: string, ctx: FakeContext) => Promise<void>;
+	assert.equal(markRows(renderHeader(ctx)), 4);
 
-	await run('mark off', ctx);
-	assert.equal(config.writes.at(-1)?.mark, false);
+	// The menu writes the same key this test writes: nothing else drives the mark.
+	config.set({ loon: { ...DEFAULT_LOON_SETTINGS, mark: false } });
+	config.emit();
 	assert.equal(markRows(renderHeader(ctx)), 0, 'the mark survived mark off');
 
-	await run('mark on', ctx);
-	assert.equal(config.writes.at(-1)?.mark, true);
+	config.set({ loon: { ...DEFAULT_LOON_SETTINGS, mark: true } });
+	config.emit();
 	assert.equal(markRows(renderHeader(ctx)), 4, 'the mark did not come back');
 });
 
@@ -509,26 +465,13 @@ test('accent: banner still paints gentle-pi’s colour while the generated theme
 	const rendered = renderForTheme(ctx, { ...ansiTheme(), name: WALLPAPER_THEME_NAME }).join('\n');
 	assert.ok(rendered.includes('\x1b[38;2;95;210;255m'), 'the gentle-pi colour was not painted');
 });
-test('an unreadable wallpaper accent falls back to the theme and says so', async () => {
+test('an unreadable wallpaper accent falls back to the theme', async () => {
 	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, accent: 'wallpaper' } });
 	config.wallpaperRgb = undefined;
 	startSession(pi, ctx);
 	await wait(50);
 
 	assert.ok(!renderHeader(ctx).join('\n').includes('\x1b[38;2;'), 'the theme accent was overridden by nothing');
-	const menu = pi.commands.get(MENU_COMMAND)!;
-	await (menu.handler as (args: string, ctx: FakeContext) => Promise<void>)('status', ctx);
-	assert.match(ctx.ui.notifyQueue.at(-1) ?? '', /accent wallpaper \(unavailable, theme fallback\)/);
-});
-
-test('status names the wallpaper colour that is in effect', async () => {
-	const { pi, ctx, config } = boot({ loon: { ...DEFAULT_LOON_SETTINGS, accent: 'wallpaper' } });
-	config.wallpaperRgb = [155, 72, 74];
-	startSession(pi, ctx);
-	await wait(50);
-	const menu = pi.commands.get(MENU_COMMAND)!;
-	await (menu.handler as (args: string, ctx: FakeContext) => Promise<void>)('status', ctx);
-	assert.match(ctx.ui.notifyQueue.at(-1) ?? '', /accent wallpaper #9B484A/);
 });
 
 test('a wallpaper change repaints a running session', async () => {
@@ -558,64 +501,6 @@ test('the theme is generated on session start and again when the wallpaper chang
 	config.wallpaperRgb = [30, 144, 255];
 	config.emit();
 	assert.deepEqual(config.themeCalls, [[213, 169, 240], [30, 144, 255]], 'a wallpaper change did not regenerate the theme');
-});
-
-test('status reports the theme file and whether it is active', async () => {
-	const { pi, ctx, config } = boot();
-	config.wallpaperRgb = [213, 169, 240];
-	config.themeResult = 'skipped-foreign';
-	startSession(pi, ctx);
-	await wait(50);
-	const menu = pi.commands.get(MENU_COMMAND)!;
-	const status = menu.handler as (args: string, ctx: FakeContext) => Promise<void>;
-	await status('status', ctx);
-	assert.match(ctx.ui.notifyQueue.at(-1) ?? '', /theme Wallpaper \(LOON\) skipped-foreign/, 'a foreign file must be reported');
-
-	// A wallpaper change regenerates it, and the status follows the active theme.
-	config.themeResult = 'written';
-	ctx.ui.theme = { ...plainTheme(), name: 'Wallpaper (LOON)' } as never;
-	config.wallpaperRgb = [30, 144, 255];
-	config.emit();
-	await status('status', ctx);
-	assert.match(ctx.ui.notifyQueue.at(-1) ?? '', /theme Wallpaper \(LOON\) written, active/);
-});
-
-test('the settings command reports what it is following', async () => {
-	const { pi, ctx } = boot({ gentle: { ...DEFAULT_GENTLE_SETTINGS, density: 'compact', headerPlacement: 'below-input' } });
-	const menu = pi.commands.get(MENU_COMMAND)!;
-	await (menu.handler as (args: string, ctx: FakeContext) => Promise<void>)('status', ctx);
-	const message = ctx.ui.notifyQueue.at(-1) ?? '';
-	assert.match(message, /banner on/);
-	assert.match(message, /density compact/);
-	assert.match(message, /placement below-input/);
-	assert.match(message, /mark on/, 'the status line reports the mark switch');
-});
-
-test('the settings command switches the accent source and repaints', async () => {
-	const { pi, ctx, config } = boot();
-	startSession(pi, ctx);
-	await wait(50);
-
-	const menu = pi.commands.get(MENU_COMMAND)!;
-	const run = menu.handler as (args: string, ctx: FakeContext) => Promise<void>;
-	await run('accent theme', ctx);
-	assert.equal(config.writes.at(-1)?.accent, 'theme');
-	assert.equal(typeof headerFactories(ctx).at(-1), 'function');
-
-	await run('accent banner', ctx);
-	assert.equal(config.writes.at(-1)?.accent, 'banner');
-});
-
-test('the menu toggles the banner and closes', async () => {
-	const { pi, ctx, config } = boot();
-	startSession(pi, ctx);
-	await wait(50);
-
-	ctx.ui.selectQueue.push('Banner:', 'Close');
-	const menu = pi.commands.get(MENU_COMMAND)!;
-	await (menu.handler as (args: string, ctx: FakeContext) => Promise<void>)('', ctx);
-	assert.equal(config.writes.at(-1)?.enabled, false, 'the banner option did not toggle');
-	assert.equal(ctx.ui.selectQueue.length, 0, 'the menu did not consume its answers');
 });
 
 test('the watcher ignores a change that resolves to the same settings', async () => {

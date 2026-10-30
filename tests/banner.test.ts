@@ -14,7 +14,7 @@ import { LOGO_GRID, LOGO_WIDTH, renderLogo } from '../extensions/lib/logo.ts';
 import { resolvePalette } from '../extensions/lib/palette.ts';
 import { ansiTheme, darkTheme, lightTheme, plainTheme, strictTheme } from './support/themes.ts';
 
-const TIPS = ['/use-default-tui', '/model', '/theme', '/compact'];
+const TIPS = ['/model', '/theme', '/compact', '/status'];
 
 
 function bannerInput(overrides: Partial<BannerInput> = {}): BannerInput {
@@ -88,10 +88,10 @@ test('the sidebar keeps the literal order of the capture', () => {
 		// The rule fills the sidebar, stopping one column short of the border.
 		'─'.repeat(headerColumnWidths(78).rightWidth - 1),
 		'Commands',
-		'/use-default-tui',
 		'/model',
 		'/theme',
 		'/compact',
+		'/status',
 	]);
 });
 
@@ -303,7 +303,7 @@ test('compact drops the blank row above the mark and the tagline', () => {
 	// Sidebar: the two headings and the commands, without the short rule.
 	assert.deepEqual(
 		right.map((line) => line.trim()),
-		['Getting started', 'Ask Pi to build it', 'Commands', '/use-default-tui', '/model', '/theme', '/compact'],
+		['Getting started', 'Ask Pi to build it', 'Commands', '/model', '/theme', '/compact', '/status'],
 	);
 	assert.ok(!right.join('\n').includes('─'), 'compact drops the short rule');
 	for (const line of lines) assert.equal(visibleWidth(line), 80);

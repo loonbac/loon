@@ -4,10 +4,10 @@
 │          █████████              │ Ask Pi to build it                         │
 │          ███   ███              │ ────────────────────────────────────────── │
 │          ██████   ███           │ Commands                                   │
-│          ███      ███           │ /use-default-tui                           │
-│                                 │ /model                                     │
-│  Let's build something great    │ /theme                                     │
-│     openai-codex/gpt-5.5 ·      │ /compact                                   │
+│          ███      ███           │ /model                                     │
+│                                 │ /theme                                     │
+│  Let's build something great    │ /compact                                   │
+│     openai-codex/gpt-5.5 ·      │ /status                                    │
 │          high effort            │                                            │
 │        ~/Workspace/mypi         │                                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
