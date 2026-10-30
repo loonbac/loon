@@ -33,7 +33,8 @@
   },
   "pi": {
     "extensions": [
-      "./extensions/loon-startup.ts"
+      "./extensions/loon-startup.ts",
+      "./extensions/inline-work.ts"
     ]
   },
   "peerDependencies": {

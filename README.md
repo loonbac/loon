@@ -289,6 +289,54 @@ reemplazar nada, y guarda una copia de seguridad con marca de tiempo en
 `~/.pi/agent/backups/gentle-pi-banner-patch-*` que `revert` restaura y verifica. Aquí nada
 es obligatorio: sin parche, LOON funciona exactamente como antes.
 
+### El trabajo inline, en el panel de Agents
+
+Cuando el orquestador programa inline —sin lanzar un subagente— ese trabajo no tiene
+tarjeta en el panel de Agents: el panel solo dibuja `TaskRecord`s que produce un proceso
+hijo, y el trabajo inline no tiene hijo. Así que cada llamada de herramienta cae en el
+render principal y empuja hacia arriba el resumen anterior, que es justo lo que se pierde
+cuando el scrollback se corta.
+
+Dos piezas, una de este repositorio y otra de gentle-pi:
+
+- `extensions/inline-work.ts` escribe un registro con la forma de `TaskRecord` (agente
+  `gentle-ai-worker`, modo `inline`) por sesión, en `~/.pi/agent/state/loon-inline/`. Se
+  crea con la primera llamada de herramienta, late cada 20 segundos mientras corre, se
+  cierra como `completed` con la primera línea de la respuesta final cuando el turno
+  termina, y se borra al cerrar la sesión. Es solo presentación: no hay proceso hijo, no
+  hay segunda llamada al modelo, no cambia el conteo de tokens y el registro nunca es
+  autoridad de lanzamiento.
+- `scripts/apply-inline-carrier-patch.mjs` enseña a `visibleTasks()` de gentle-pi, en
+  `extensions/gentle-agents.ts`, a dibujar ese registro. Nada más del paquete cambia.
+
+```sh
+node scripts/apply-inline-carrier-patch.mjs check
+node scripts/apply-inline-carrier-patch.mjs apply
+node scripts/apply-inline-carrier-patch.mjs revert
+```
+
+Igual que el parche del banner: respalda el archivo en
+`~/.pi/agent/backups/loon-inline-carrier-patch-*` antes de escribir, se niega si el ancla
+se movió o aparece dos veces, verifica lo escrito antes de darlo por bueno, y volver a
+aplicarlo es una operación nula que solo comprueba. Un registro que no se puede leer, que
+pertenece a otra sesión, o cuyo pi ya murió, no se dibuja: por eso el registro guarda el
+`pid` de su escritor y late.
+
+Dos guardas más, porque este script edita una instalación viva. Un argumento malformado
+—`--install` o `--backups` sin valor, una opción desconocida, una repetida con otro
+valor, un directorio suelto— falla con salida 1 antes de leer o escribir nada, en vez de
+caer en las rutas por defecto y parchear la instalación real cuando creías apuntar a una
+copia. Y `revert` solo restaura si el archivo en disco es exactamente el que el parche
+escribió: el manifiesto guarda ese `patchedMd5`, y cuando el respaldo es más viejo y no lo
+trae, se recompone desde los bytes respaldados. Si gentle-pi se actualizó, o alguien tocó
+el archivo después, se niega en vez de pisar una versión más nueva y decir que salió bien.
+
+Tres límites que conviene conocer. El panel completo de `/gentle:agents` lee el store de
+gentle-pi directamente y no verá el registro (la tarjeta lateral sí lo hace). Una fila
+terminada desaparece de la tarjeta a los 60 segundos, exactamente como la de un subagente
+real. Y colapsar el render no reduce el contexto: para eso hay que delegar o partir el
+trabajo, que es otra decisión. Apagar todo esto es `LOON_INLINE_WORK=0`.
+
 ### Medir un frame
 
 Cada frame de este repositorio sale de un único script, porque la alternativa es medir
@@ -381,6 +429,11 @@ sobrescrituras, ni la cabecera de hoy.
 Después de actualizar `pi` o gentle-pi, correr `check` antes que `apply`: si el resultado es
 `different-version`, el problema se arregla ahí, no abriendo `pi` y descubriendo que el banner
 no está.
+
+Lo mismo vale para el parche del registro inline: instalar o actualizar gentle-pi lo borra
+(se pierde con el paquete), y se repone con `node scripts/apply-inline-carrier-patch.mjs
+apply`, cuyo `check` dice si hace falta. Sin ese parche LOON sigue escribiendo el registro y
+nada se rompe: lo único que falta es que la tarjeta lo dibuje.
 
 El menú es texto insertado en un paquete ajeno, así que la pregunta es qué pasa cuando
 gentle-pi se actualiza. La respuesta son dos reglas, y la primera es la que importa:
