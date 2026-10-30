@@ -341,7 +341,8 @@ test('every anchor of every target reports where it lives', () => {
  * comments stripped so a comment cannot satisfy it. There is no behavioural mouse test and
  * there cannot be one here - it would need pi's editor, which these tests replace with a
  * double - so what is checked is the pair that can desynchronise, with the numbers spelled
- * out. */
+ * out. The general rule this guard taught: a guard that can pass without reading anything
+ * is not a guard, so the match is asserted before the values are compared. */
 test('the band opens with a row and the mouse shift follows it', () => {
 	const shell = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
 	const prompt = TARGETS.find((target) => target.file === 'lib/shell-prompt.ts')!;
@@ -349,9 +350,16 @@ test('the band opens with a row and the mouse shift follows it', () => {
 	const withoutComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 	const replacements = (target: typeof shell) => target.edits.map((edit) => withoutComments(edit.replacement)).join('\n');
 	const opensWithRow = /floatPromptRow\("", layout, options\.borderColor\),\s*floatPromptRow\(floatPromptHint/.test(replacements(prompt));
-	const shift = /layout\.chrome === "loon" \? (\d) : (\d)/.exec(replacements(shell));
-	const loonShift = shift ? Number(shift[1]) : 1;
-	const floatShift = shift ? Number(shift[2]) : 1;
+	const mouse = replacements(shell);
+	// Two shapes are legitimate: one shift for every chrome, or a chrome-aware pair. Read
+	// from whichever is there - and FAIL when neither is, because a guard that can pass
+	// without reading anything is not a guard. That was the defect here: the numbers fell
+	// back to 1 and 1, which is exactly what this geometry expects.
+	const shared = /y: event\.y - (\d)/.exec(mouse);
+	const perChrome = /const shift = layout\.chrome === "loon" \? (\d) : (\d)/.exec(mouse);
+	assert.ok(shared ?? perChrome, 'the mouse row shift is not in the replacement any more');
+	const loonShift = perChrome !== null ? Number(perChrome[1]) : Number(shared![1]);
+	const floatShift = perChrome !== null ? Number(perChrome[2]) : Number(shared![1]);
 	assert.deepEqual(
 		{ loonShift, floatShift, opensWithRow },
 		{ loonShift: 1, floatShift: 1, opensWithRow: true },
@@ -381,7 +389,12 @@ test('every pinned digest is what the patch produces from the pristine file', ()
 
 /* The other direction, and the reason the lists exist: a digest that already shipped has to
  * keep answering 'patched-v1', or whoever has that build installed is refused instead of
- * upgraded. The record is a fixture; the lists may only grow. */
+ * upgraded. The record is a fixture; the lists may only grow.
+ *
+ * The limit, declared: the recalculation above proves that the patch produces the digest it
+ * declares. The lineage of each LEGACY digest cannot be proven here - it would mean vendoring
+ * the patched output of every historical version - and that is not worth the weight, so a
+ * legacy entry is trusted to the record, not recomputed. */
 test('every digest that shipped is still accepted', () => {
 	const recorded = JSON.parse(readFileSync(join(PRISTINE, '..', 'patch-digests.json'), 'utf8')) as {
 		version: string;
