@@ -411,6 +411,35 @@ Cuatro reglas que hacen esto seguro:
   sesión normal no llega ahí; una sesión muy larga puede, y entonces lo peor que pasa es que un
   mensaje viejo cambie de forma al repintarse.
 
+#### Solo se colapsa el trabajo pesado
+
+Colapsar toda la prosa de un turno esconde algo más que el trabajo: en un turno ligero —mirar un
+estado, responder una pregunta con dos comandos— la narración intermedia **es** la respuesta, y
+mandarla al panel hace que el turno se lea como si el agente hubiera teletrabajado. El resumen
+final ya se lee entero; lo que sobraba era el colapso en turnos que no son trabajo.
+
+Así que el umbral es explícito y vive en el código, no en una variable de entorno:
+
+```ts
+export const INLINE_HEAVY_CALLS = 3;
+```
+
+- un turno con **menos de tres** llamadas de herramienta dibuja toda su prosa tal como se escribió;
+- al llegar a la tercera, la narración **posterior** de ese turno se colapsa;
+- un turno conversacional, sin herramientas, no colapsa nada nunca;
+- el contador es **por turno**, no por trabajo: un trabajo largo hecho de turnos ligeros no arrastra
+  el peso del turno anterior.
+
+La decisión se toma **una vez por mensaje**, en el momento del dibujo, y no se revisa hacia atrás:
+lo que ya se dibujó entero se queda entero aunque el turno se vuelva pesado después. Es la misma
+adherencia que ya gobierna la exención de la respuesta, y evita el bug de intentar encoger algo
+que la persona ya está leyendo.
+
+Lo que **no** depende del umbral: la fila de herramienta se colapsa desde la primera llamada en
+cuanto hay sesión viva (eso es exactamente lo que el dueño quería oculto), la respuesta final sigue
+exenta por su `message_end` sin herramienta, y el razonamiento sigue en una línea con su marca y su
+ítem en el panel.
+
 #### Al reanudar, la conversación restaurada es historia, no trabajo
 
 Un reinicio trae una conversación que pi vuelve a dibujar entera, con un proceso nuevo y la

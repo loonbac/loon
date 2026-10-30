@@ -38,17 +38,20 @@ const OTHER = 'Segundo mensaje, con otro contenido distinto del primero.';
 function transformer(options: {
 	mode?: 'summary' | 'off' | 'full';
 	live?: boolean;
+	heavy?: boolean;
 	closing?: string;
 	memory?: number;
 	onThinking?: (text: string, isStreaming: boolean) => void;
 } = {}) {
 	const memory = createTranscriptMemory(options.memory);
 	let live = options.live ?? true;
+	let heavy = options.heavy ?? true;
 	let closing = options.closing;
 	let mode = options.mode ?? 'summary';
 	const built = createTranscriptTransformer({
 		mode,
 		isLive: () => live,
+		isHeavy: () => heavy,
 		closingText: () => closing,
 		memory,
 		...(options.onThinking === undefined ? {} : { onThinking: options.onThinking }),
@@ -58,6 +61,9 @@ function transformer(options: {
 		...built,
 		setLive: (value: boolean): void => {
 			live = value;
+		},
+		setHeavy: (value: boolean): void => {
+			heavy = value;
 		},
 		setClosing: (value: string | undefined): void => {
 			closing = value;
@@ -129,6 +135,14 @@ test('off leaves only the thinking marker, and full leaves the block alone', () 
 	assert.equal(off.transformer(PARAGRAPHS, thinking()), THINKING_SUFFIX);
 	const full = transformer({ mode: 'full', live: true });
 	assert.equal(full.transformer(PARAGRAPHS, thinking()), PARAGRAPHS);
+});
+
+test('a light turn draws its prose whole, and that decision is not revisited when the turn turns heavy', () => {
+	const t = transformer({ live: true, heavy: false });
+	assert.equal(t.transformer(PARAGRAPHS, assistant()), PARAGRAPHS, 'below the threshold nothing is hidden');
+	t.setHeavy(true);
+	assert.equal(t.transformer(PARAGRAPHS, assistant()), PARAGRAPHS, 'what was drawn whole stays whole');
+	assert.notEqual(t.transformer(OTHER, assistant()), OTHER, 'and new prose in a heavy turn collapses');
 });
 
 test('an absence of liveness is not a decision, so the same message collapses once the session works', () => {

@@ -239,6 +239,12 @@ export function createTranscriptTransformer(options: {
 	mode: TranscriptMode;
 	modeOf?: () => TranscriptMode;
 	isLive: () => boolean;
+	/**
+	 * Whether the turn being drawn is heavy work. A light turn - a status check,
+	 * a question and two commands - is a conversation and reads in full; the
+	 * collapse is for turns that really work. Default: always heavy.
+	 */
+	isHeavy?: () => boolean;
 	closingText: () => string | undefined;
 	memory?: TranscriptMemory;
 	thinkingMemory?: TranscriptMemory;
@@ -310,6 +316,14 @@ export function createTranscriptTransformer(options: {
 				// the turn's own prose may be drawn before the card exists.
 				if (!options.isLive()) return markdown;
 				if (modeOf() === 'full') {
+					memory.set(markdown, 'kept');
+					return markdown;
+				}
+				// A light turn is a conversation: its narration is what the person is
+				// reading, not work to be filed. The decision is taken once, when the
+				// message is drawn, and never revisited - so a turn that turns heavy
+				// later never shrinks what was already read in full.
+				if (options.isHeavy !== undefined && !options.isHeavy()) {
 					memory.set(markdown, 'kept');
 					return markdown;
 				}
