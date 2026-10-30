@@ -54,7 +54,7 @@ function scratch(): string {
 
 function sessionContext(): ExtensionContext {
 	return {
-		sessionManager: { getSessionId: () => SESSION_ID },
+		sessionManager: { getSessionId: () => SESSION_ID, getEntries: () => [] },
 		cwd: '/repo',
 		model: { provider: 'anthropic', id: 'claude-opus-4' },
 		thinkingLevel: 'high',
@@ -134,6 +134,20 @@ test('the rebuild after message_end is what pi does, in that order', () => {
 	assert.ok(
 		interactive.includes('this.streamingComponent.updateContent(this.streamingMessage, false)'),
 		'pi still rebuilds the finished assistant message with isStreaming false',
+	);
+});
+
+test('the restored conversation is still drawn after session_start, which is when it is seeded', () => {
+	const session = readFileSync(join(PI_ROOT, 'core', 'agent-session.js'), 'utf8');
+	assert.ok(
+		session.includes('await this._extensionRunner.emit(this._sessionStartEvent)'),
+		'session_start is still emitted from the session initialization',
+	);
+	const interactive = readFileSync(join(PI_ROOT, 'modes', 'interactive', 'interactive-mode.js'), 'utf8');
+	assert.ok(
+		interactive.includes('rebuildChatFromMessages()') &&
+			interactive.includes('this.renderSessionEntries(this.sessionManager.buildContextEntries())'),
+		'and the restored chat is still built by a separate step, after it',
 	);
 });
 

@@ -22,6 +22,7 @@ import {
 	createTranscriptMemory,
 	isClosingMessage,
 	createTranscriptTransformer,
+	restoredDecisions,
 	transcriptMode,
 } from '../extensions/lib/inline-transcript.ts';
 
@@ -220,6 +221,50 @@ test('an empty or blank message is left alone', () => {
 	const t = transformer({ live: true });
 	assert.equal(t.transformer('', assistant()), '');
 	assert.equal(t.transformer('   \n\n ', assistant()), '   \n\n ');
+});
+
+test('a restored conversation is history: its answers exempt, its prose and reasoning kept', () => {
+	const decisions = restoredDecisions([
+		{
+			type: 'message',
+			message: {
+				role: 'assistant',
+				content: [
+					{ type: 'thinking', thinking: 'Pensaba en algo.' },
+					{ type: 'text', text: 'Y esta era la respuesta.' },
+				],
+			},
+		},
+		{
+			type: 'message',
+			message: {
+				role: 'assistant',
+				content: [
+					{ type: 'text', text: 'Trabajo a medias.' },
+					{ type: 'toolCall', name: 'read', input: {} },
+				],
+			},
+		},
+		{ type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'Una pregunta.' }] } },
+		{ type: 'model_change', model: 'anthropic/claude-opus-4' },
+	]);
+	assert.deepEqual(
+		decisions.map((entry) => [entry.kind, entry.decision, entry.text]),
+		[
+			['thinking', 'kept', 'Pensaba en algo.'],
+			['prose', 'exempt', 'Y esta era la respuesta.'],
+			['prose', 'kept', 'Trabajo a medias.'],
+		],
+	);
+});
+
+test('a seeded exemption survives the cap like any other', () => {
+	const t = transformer({ live: true });
+	t.remember('La respuesta de ayer', 'exempt', 'prose');
+	t.remember('El razonamiento de ayer', 'kept', 'thinking');
+	for (let index = 0; index < TRANSCRIPT_MEMORY + 10; index += 1) t.remember('prosa ' + index, 'collapsed');
+	assert.equal(t.transformer('La respuesta de ayer', assistant()), 'La respuesta de ayer', 'the seeded answer is not collapsed');
+	assert.equal(t.transformer('El razonamiento de ayer', thinking()), 'El razonamiento de ayer', 'nor the seeded reasoning');
 });
 
 test('the cap never forgets an exempt answer while there is another decision to forget', () => {

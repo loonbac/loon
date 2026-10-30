@@ -411,6 +411,33 @@ Cuatro reglas que hacen esto seguro:
   sesión normal no llega ahí; una sesión muy larga puede, y entonces lo peor que pasa es que un
   mensaje viejo cambie de forma al repintarse.
 
+#### Al reanudar, la conversación restaurada es historia, no trabajo
+
+Un reinicio trae una conversación que pi vuelve a dibujar entera, con un proceso nuevo y la
+memoria de decisiones **vacía**. Sin nada más, esa historia parece trabajo en curso: cada
+respuesta vieja se colapsa para siempre —aunque el dueño la había leído entera— y **cada bloque
+de razonamiento viejo se captura en el trabajo que acaba de empezar**, que es peor que el ruido
+porque le atribuye a un trabajo el pensamiento de otro.
+
+Así que al `session_start` se siembra la memoria **antes del primer frame**, leyendo lo que pi
+restauró (`ctx.sessionManager.getEntries()`):
+
+- la prosa y el razonamiento restaurados quedan `kept`: se dibujan como se leyeron la primera vez
+  y no se vuelven a decidir;
+- un mensaje restaurado que termina **sin** llamada de herramienta era una respuesta, y queda
+  `exempt` para siempre.
+
+La captura del razonamiento cuelga de esa decisión, no del render: un bloque restaurado ya está
+decidido, así que no se entrega al hilo. Solo lo que este proceso escribe llega al panel.
+
+Que la siembra llegue antes del primer frame no es una suposición: `session_start` se emite
+durante la inicialización de la sesión (`core/agent-session.js:2680`) y el chat restaurado se
+construye en un paso posterior (`interactive-mode.js:3417`, `rebuildChatFromMessages`).
+
+Si pi no puede entregar los entries —lanza, o no existe el método—, no se decide **nada** hasta
+que este proceso termina su primer mensaje: no se puede distinguir «esto lo acabo de escribir» de
+«esto lo cargué del disco», y adivinar sería exactamente el defecto que esto evita.
+
 #### El otro orden: el mensaje ya está dibujado
 
 Hay un segundo orden que este colapso depende de respetar, y no es el de los renderers de

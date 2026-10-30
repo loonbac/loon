@@ -175,6 +175,59 @@ export interface TranscriptCollapse {
 	transformer: MarkdownTransformer;
 	/** Mark a text as the answer of a turn: it renders in full, for good. */
 	exempt(text: string): void;
+	/** Remember a decision taken elsewhere, such as the ones a resume seeds. */
+	remember(text: string, decision: Decision, kind?: DecisionKind): void;
+}
+
+/** Which memory a seeded decision belongs to. */
+export type DecisionKind = 'prose' | 'thinking';
+
+export interface RestoredDecision {
+	text: string;
+	decision: Decision;
+	kind: DecisionKind;
+}
+
+/**
+ * The decisions a resumed conversation was already given, read from the session
+ * entries pi restored.
+ *
+ * A resume renders the whole restored conversation through the transformers
+ * again, in a fresh process with an empty memory. Without this the history looks
+ * like work in progress: every old answer would be collapsed for good and every
+ * old reasoning block would be captured into the job that just started, which
+ * credits one job with another job's thinking.
+ *
+ * So the restored conversation is seeded as history: prose and reasoning stay as
+ * they were read (kept), and a message that ends without a tool call was an
+ * answer, which is exempt for good.
+ * @param {unknown} entries pi's session entries
+ * @returns {RestoredDecision[]}
+ */
+export function restoredDecisions(entries: unknown): RestoredDecision[] {
+	const list = Array.isArray(entries) ? entries : [];
+	const out: RestoredDecision[] = [];
+	const put = (text: string, decision: Decision, kind: DecisionKind): void => {
+		const trimmed = text.trim();
+		if (trimmed.length === 0) return;
+		if (out.some((entry) => entry.text === trimmed && entry.kind === kind)) return;
+		out.push({ text: trimmed, decision, kind });
+	};
+	for (const entry of list) {
+		const candidate = entry as { type?: unknown; message?: unknown } | undefined;
+		if (candidate?.type !== 'message') continue;
+		const message = candidate.message as { role?: unknown; content?: unknown } | undefined;
+		if (message === null || typeof message !== 'object' || message.role !== 'assistant') continue;
+		const content = message.content;
+		if (!Array.isArray(content)) continue;
+		const answer = !content.some((part) => (part as { type?: unknown } | undefined)?.type === 'toolCall');
+		for (const part of content) {
+			const block = part as { type?: unknown; text?: unknown; thinking?: unknown } | undefined;
+			if (block?.type === 'thinking' && typeof block.thinking === 'string') put(block.thinking, 'kept', 'thinking');
+			if (block?.type === 'text' && typeof block.text === 'string') put(block.text, answer ? 'exempt' : 'kept', 'prose');
+		}
+	}
+	return out;
 }
 
 /**
@@ -208,11 +261,17 @@ export function createTranscriptTransformer(options: {
 	const reasoning = (markdown: string, context: MarkdownTransformContext): string => {
 		const streaming = context?.isStreaming === true;
 		if (markdown.trim().length === 0) return markdown;
-		// Every frame is handed over, not only the last one: pi may finish a block
-		// without drawing it again, and a block that was read must not be lost.
-		// Whoever keeps the panel decides whether a frame grows its item or starts one.
-		options.onThinking?.(markdown, streaming);
 		const decided = thinkingMemory.get(markdown);
+		// Only what this process is writing is captured. A block already decided is
+		// either restored history or a block already given to the panel, and a resume
+		// renders the whole conversation again: capturing there would credit the job
+		// that just started with another job's thinking.
+		if (decided !== 'kept' && decided !== 'exempt') {
+			// Every frame is handed over, not only the last one: pi may finish a block
+			// without drawing it again, and a block that was read must not be lost.
+			// Whoever keeps the panel decides whether a frame grows its item.
+			options.onThinking?.(markdown, streaming);
+		}
 		if (decided === 'kept' || decided === 'exempt') return markdown;
 		if (decided === 'collapsed') return collapseMarker(markdown, modeOf(), THINKING_SUFFIX);
 		// No liveness is not a decision: without a live session there is nobody to
@@ -230,6 +289,10 @@ export function createTranscriptTransformer(options: {
 	return {
 		exempt(text: string): void {
 			if (text.trim().length > 0) memory.set(text, 'exempt');
+		},
+		remember(text: string, decision: Decision, kind: DecisionKind = 'prose'): void {
+			if (text.trim().length === 0) return;
+			(kind === 'thinking' ? thinkingMemory : memory).set(text, decision);
 		},
 		transformer(markdown: string, context: MarkdownTransformContext): string {
 			try {
