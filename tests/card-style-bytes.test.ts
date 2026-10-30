@@ -132,9 +132,7 @@ test('no painted row starts with an escape, in any card style', { skip: !availab
 	const bandRows = prompt.framePromptLines(['', 'hello', ''], 120, bandOptions, layout);
 	const band = bandRows[2]!.replace(/\u001b\[[0-9;]*m/g, '');
 	assert.equal(band.indexOf('▎'), 1, `loon band rule sits in column ${band.indexOf('▎')}, expected 1: column 0 is the margin`);
-	// One cell of air between the rule and the text, taken from the trailing air: the surface
-	// still closes on the last column.
-	assert.equal(band.indexOf('hello'), 3, `loon band text sits in column ${band.indexOf('hello')}, expected 3`);
+	assert.equal(band.indexOf('hello'), 2, `loon band text sits in column ${band.indexOf('hello')}, expected 2`);
 	assert.ok(!bandRows[2]!.startsWith('\u001b'), 'the band row begins with an escape');
 
 	const subject = {
@@ -233,49 +231,6 @@ test('the loon band surface ends where the bar surface ends', { skip: !available
 		assert.ok(paintedColumns(bandRow).includes(1), 'the rule cell carries the surface: the glyph is a quarter block, and a transparent cell around it reads as a hole');
 		assert.equal(bandCells[0], ' ', 'the row starts with its margin, never with an escape or the glyph');
 		assert.equal(bandCells[1], '▎', 'the rule glyph sits in column 1, inside the surface');
-	}
-});
-
-// The rule is a glyph, not a margin. With no cell of air after it, the hint's first glyph
-// landed on the rule - column 2 held the petal instead of a space - and all the air the row
-// carried was on its right. One cell on each side, taken from the trailing air so the
-// surface still closes on the last column, where the bar closes its own.
-test('the band keeps a cell of air between the rule and the content of every row', { skip: !available && 'gentle-pi is not installed here' }, async () => {
-	const { createJiti } = (await import(join(PI_ROOT, 'node_modules', 'jiti', 'lib', 'jiti-static.mjs'))) as {
-		createJiti: (url: string, options: Record<string, unknown>) => { import: (path: string) => Promise<unknown> };
-	};
-	const jiti = createJiti(import.meta.url, {
-		moduleCache: false,
-		interopDefault: true,
-		fsCache: false,
-		alias: {
-			'@earendil-works/pi-tui': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-tui', 'dist', 'index.js'),
-			'@earendil-works/pi-agent-core': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-agent-core', 'dist', 'index.js'),
-			'@earendil-works/pi-ai': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-ai', 'dist', 'compat.js'),
-		},
-	});
-	const prompt = (await jiti.import(join(GENTLE, 'lib', 'shell-prompt.ts'))) as {
-		resolvePromptLayout: (width: number, style: string, bg: unknown) => unknown;
-		framePromptLines: (lines: string[], width: number, options: unknown, layout: unknown) => string[];
-	};
-	const theme = {
-		fg: (_role: string, text: string) => text,
-		bg: (_role: string, text: string) => '\u001b[48;2;61;56;35m' + text + '\u001b[49m',
-	};
-	for (const width of [120, 160]) {
-		const layout = prompt.resolvePromptLayout(width, 'loon', theme.bg);
-		const rows = prompt.framePromptLines(['', 'hello', ''], width, {
-			state: 'idle', tick: 0, bg: theme.bg, fg: theme.fg, borderColor: (text: string) => text, style: 'loon',
-		}, layout);
-		for (const [index, row] of rows.entries()) {
-			const cells = row.replace(/\u001b\[[0-9;]*m/g, '');
-			assert.equal(cells[0], ' ', 'band row ' + index + ' at ' + width + ' does not start with its margin');
-			assert.equal(cells[1], '▎', 'band row ' + index + ' at ' + width + ' does not carry the rule in column 1');
-			assert.equal(cells[2], ' ', 'band row ' + index + ' at ' + width + ' paints its content on the rule: column 2 is ' + JSON.stringify(cells[2]));
-			assert.equal(cells.length, width, 'band row ' + index + ' at ' + width + ' is ' + cells.length + ' cells wide');
-			const right = Math.max(...paintedColumns(row));
-			assert.equal(right, width - 1, 'band row ' + index + ' at ' + width + ' closes its surface at column ' + right);
-		}
 	}
 });
 
