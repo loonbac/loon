@@ -156,6 +156,14 @@ function sessionContext(): ExtensionContext {
 }
 
 /** An extension with a carrier already open, which is the state a unit runs in. */
+/** A session that started and has not yet done anything: no card exists. */
+function idleSession(agentHome: string, env: Record<string, string> = {}): FakePi {
+	const pi = fakePi();
+	createInlineWork(pi.api, { env, agentHome, heartbeatMs: 0 });
+	pi.fire('session_start', { type: 'session_start' }, sessionContext());
+	return pi;
+}
+
 function runningUnit(agentHome: string, env: Record<string, string> = {}): FakePi {
 	const pi = fakePi();
 	createInlineWork(pi.api, { env, agentHome, heartbeatMs: 0 });
@@ -478,6 +486,78 @@ test('a thinking block collapses to one line and its text reaches the panel', ()
 			thread: { items: Array<{ kind: string; text?: string }> };
 		};
 		assert.equal(again.thread.items.filter((item) => item.kind === 'thinking').length, 1, 'one block, one item');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('the first prose and the first reasoning of a turn collapse before any tool call opened the card', () => {
+	const agentHome = scratch();
+	try {
+		const pi = idleSession(agentHome);
+		const prose = 'Primera prosa del turno, antes de cualquier herramienta.\n\nCon dos líneas.';
+		assert.equal(pi.transform(prose).split('\n').length, 1, 'the carrier does not exist yet, and the session does');
+		const reasoning = 'Primer bloque de razonamiento del turno, antes de la herramienta.';
+		const collapsed = pi.transform(reasoning, { messageType: 'assistant-thinking' });
+		assert.equal(collapsed.split('\n').length, 1);
+		assert.ok(collapsed.includes(THINKING_SUFFIX), collapsed);
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('the reasoning captured before the card exists is in the thread once the work starts', () => {
+	const agentHome = scratch();
+	try {
+		const pi = idleSession(agentHome);
+		const first = 'Razonamiento previo a la primera herramienta.';
+		pi.transform(first, { messageType: 'assistant-thinking', isStreaming: true });
+		pi.transform(first, { messageType: 'assistant-thinking', isStreaming: false });
+		// The work starts now: the card is created, and its thread already has the block.
+		pi.fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path: 'README.md' } }, sessionContext());
+		pi.transform('Un segundo bloque, ya con la tarjeta abierta.', { messageType: 'assistant-thinking' });
+		const live = JSON.parse(readFileSync(liveThreadPath(agentHome, SESSION_ID), 'utf8')) as {
+			thread: { items: Array<{ kind: string; text?: string }> };
+		};
+		const thinking = live.thread.items.filter((item) => item.kind === 'thinking');
+		assert.deepEqual(
+			thinking.map((item) => item.text),
+			[first, 'Un segundo bloque, ya con la tarjeta abierta.'],
+			'the block that happened before the card was not lost: ' + JSON.stringify(live.thread.items),
+		);
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('every turn end keeps its own answer legible, and a work message still collapses', () => {
+	const agentHome = scratch();
+	try {
+		const pi = runningUnit(agentHome);
+		const answer = 'Primera respuesta del turno, con dos líneas.\n\nY la segunda.';
+		pi.fire(
+			'message_end',
+			{ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: answer }] } },
+			sessionContext(),
+		);
+		assert.equal(pi.transform(answer), answer, 'the answer of the turn reads in full as soon as its message ends');
+		// The job stays open across turns: another turn must not recolour the first answer.
+		pi.fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path: 'README.md' } }, sessionContext());
+		assert.equal(pi.transform(answer), answer, 'and the next turn does not take it back');
+		// A message that ends with a tool call is work, not an answer.
+		const work = 'Voy a leer el registro y después el README.';
+		pi.fire(
+			'message_end',
+			{
+				type: 'message_end',
+				message: {
+					role: 'assistant',
+					content: [{ type: 'text', text: work }, { type: 'toolCall', name: 'read', input: { path: 'README.md' } }],
+				},
+			},
+			sessionContext(),
+		);
+		assert.equal(pi.transform(work).split('\n').length, 1, 'work prose still leaves the transcript');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}

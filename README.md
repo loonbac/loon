@@ -375,27 +375,38 @@ La única excepción es la configuración que **oculta** los bloques de razonami
 dibuja una etiqueta sin Markdown, el transformador no corre y el panel tampoco recibe el bloque.
 
 Y colapsar no es perder: un transformador de Markdown no se puede volver a abrir con `Ctrl+O`, así
-que cada bloque terminado se guarda en el hilo del trabajo como un ítem propio
-(`kind: "thinking"`), que el panel rotula **Thinking**. Se registra cuando deja de transmitirse
-—una instantánea intermedia es un prefijo del bloque, no un bloque—, se recorta a 4000 caracteres,
-y un repintado del mismo mensaje no lo duplica. Si el razonamiento no se fuera al panel, este
-cambio sería peor que el ruido que quita.
+que cada bloque va al hilo del trabajo como un ítem propio (`kind: "thinking"`), que el panel
+rotula **Thinking**. Se registra **en cada fotograma**, no solo en el último: pi puede terminar un
+bloque sin volver a dibujarlo, y entonces el bloque que la persona leyó no llegaría nunca al
+panel. El ítem abierto se reescribe en su sitio, así que los fotogramas son un solo ítem que
+crece; al sellarse, el siguiente bloque es otro ítem, y un repintado del mismo bloque no lo
+duplica. Se recorta a 4000 caracteres. Si el razonamiento no se fuera al panel, este cambio sería
+peor que el ruido que quita.
 
 Cuatro reglas que hacen esto seguro:
 
 - Solo se transforma un mensaje **del asistente** o un bloque de **razonamiento**, y solo
-  mientras la sesión trabaja inline. Los mensajes del usuario y cualquier mensaje de una sesión
-  sin trabajo inline se dibujan byte por byte como antes.
+  mientras la sesión está viva. Los mensajes del usuario y cualquier mensaje de una sesión
+  cerrada se dibujan byte por byte como antes.
+- **La puerta es la sesión, no la tarjeta.** El trabajo se abre con la primera llamada de
+  herramienta del turno, y el razonamiento —y la primera prosa— ocurren **antes**: atarlos a la
+  existencia de la tarjeta dejaría medio turno entero en el transcript para siempre, porque una
+  decisión es pegajosa. Y la ausencia de tarjeta **no es una decisión**: sin sesión viva no se
+  recuerda nada, de modo que el mismo mensaje se decide cuando la sesión empieza a trabajar.
 - **La primera decisión es la que queda**, en las dos direcciones. Un mensaje —o un bloque de
   razonamiento— que se colapsó mientras la unidad corría sigue colapsado al repintarse, y uno que
   ya era historia, o que se dibujó con `full`, se queda entero aunque el modo cambie después: por
   eso el transcript no se rellena ni se vacía hacia atrás mientras lees.
-- **El cierre del turno se queda legible entero, para siempre.** Al cerrar la unidad se guarda
-  el texto exacto de la respuesta y se exime; se reconoce por su texto (o por su arranque, si un
-  repintado normaliza los bordes), y se pide un repintado para que aparezca sin tocar una tecla.
-  Una respuesta que solo existiera en el panel sería peor que la prosa que se quería esconder.
+- **La respuesta se queda legible entera, para siempre.** Se exime en **cada `message_end`**, no
+  al cerrar el trabajo: un trabajo abarca varios turnos, así que esperar al cierre dejaba
+  colapsada la respuesta de todos los turnos intermedios. Un mensaje que termina con una llamada
+  de herramienta es trabajo y se colapsa; uno que termina sin ella es la respuesta, y se exime.
+  pi avisa primero a las extensiones y después reconstruye el mensaje terminado, así que la
+  exención ya está puesta cuando se dibuja por última vez. Y una respuesta exenta lo está para
+  siempre: el tope de memoria olvida primero cualquier decisión que **no** sea una exención.
 - **La memoria está acotada**: 500 decisiones por cada clase de mensaje (prosa y razonamiento
-  llevan memorias separadas). Al llegar al tope se olvida la más antigua, y ese
+  llevan memorias separadas). Al llegar al tope se olvida la más antigua que no sea una
+  exención, y ese
   mensaje se vuelve a decidir en su siguiente repintado —colapsado si la unidad sigue viva. Una
   sesión normal no llega ahí; una sesión muy larga puede, y entonces lo peor que pasa es que un
   mensaje viejo cambie de forma al repintarse.

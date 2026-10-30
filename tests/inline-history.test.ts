@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { IDLE_CLOSE_MS, createInlineWork } from '../extensions/inline-work.ts';
 import { carrierDirectory, carrierPath, closeRequestPath } from '../extensions/lib/inline-carrier.ts';
-import { INLINE_THINKING_MAX, addThinking, emptyUnitThread } from '../extensions/lib/inline-history.ts';
+import { INLINE_THINKING_MAX, addThinking, emptyUnitThread, upsertThinking } from '../extensions/lib/inline-history.ts';
 
 const SESSION_ID = 'sess-hist-1';
 /** The first job of the session: a job is the work, so it carries its own number. */
@@ -318,6 +318,24 @@ test('reasoning is a thinking item of its own, and a long one is truncated', () 
 	assert.equal(thread.items[1]?.kind, 'thinking');
 	assert.ok((thread.items[1]?.text ?? '').length <= INLINE_THINKING_MAX, 'bounded, like every other item');
 	assert.equal(addThinking(thread, '   ').items.length, 2, 'blank reasoning is not an item');
+});
+
+test('a streaming block is one item that grows, and sealing it does not make a second', () => {
+	let thread = emptyUnitThread();
+	thread = upsertThinking(thread, 'Pienso', true);
+	thread = upsertThinking(thread, 'Pienso un poco más', true);
+	thread = upsertThinking(thread, 'Pienso un poco más, y termino', false);
+	assert.equal(thread.items.length, 1, 'one block, one item: ' + JSON.stringify(thread.items));
+	const first = thread.items[0] as { text?: string; streaming?: boolean };
+	assert.equal(first.text, 'Pienso un poco más, y termino');
+	assert.equal(first.streaming, undefined, 'the finished item is sealed');
+	// A repaint of the finished block is not a second block.
+	thread = upsertThinking(thread, 'Pienso un poco más, y termino', false);
+	assert.equal(thread.items.length, 1, 'a repaint must not append the same block again');
+	// The next block is its own item.
+	thread = upsertThinking(thread, 'Otro bloque, distinto del primero', true);
+	assert.equal(thread.items.length, 2);
+	assert.equal(thread.items[1]?.kind, 'thinking');
 });
 
 test('a job never shows completed between its turns, not for a moment', () => {

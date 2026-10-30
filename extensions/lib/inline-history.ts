@@ -76,6 +76,8 @@ export interface UnitTextItem {
 export interface UnitThinkingItem {
 	kind: 'thinking';
 	text: string;
+	/** Set while the block is still being written: the item is rewritten, not appended. */
+	streaming?: boolean;
 }
 
 /** A divider: where one stretch of work ended and the next request began. */
@@ -195,9 +197,43 @@ export function addNote(thread: UnitThread, text: string): UnitThread {
  * @returns {UnitThread}
  */
 export function addThinking(thread: UnitThread, raw: string): UnitThread {
+	return upsertThinking(thread, raw, false);
+}
+
+/**
+ * Write a reasoning block, frame by frame.
+ *
+ * The transcript renders a block repeatedly while it streams, and pi may finish
+ * a block without ever rendering it again: capturing only the final render
+ * loses the blocks the person actually saw. So every frame lands here, and the
+ * open item is rewritten in place. A frame after the block was sealed starts a
+ * new item, unless its text is the same block again, which is what a repaint is.
+ * @param {UnitThread} thread
+ * @param {string} raw
+ * @param {boolean} [streaming] whether the block is still being written
+ * @returns {UnitThread}
+ */
+export function upsertThinking(thread: UnitThread, raw: string, streaming = false): UnitThread {
 	const text = keepTail(clean(raw), INLINE_THINKING_MAX);
 	if (text.trim().length === 0) return thread;
-	return push(thread, { kind: 'thinking', text });
+	const last = thread.items[thread.items.length - 1];
+	if (last !== undefined && last.kind === 'thinking') {
+		if (last.text === text) return thread;
+		// Only an open block is rewritten. A sealed one was finished, so what follows
+		// it is another thought even if its first frame says otherwise.
+		if (last.streaming === true) {
+			return {
+				...thread,
+				items: [...thread.items.slice(0, -1), thinkingItem(text, streaming)],
+				version: thread.version + 1,
+			};
+		}
+	}
+	return push(thread, thinkingItem(text, streaming));
+}
+
+function thinkingItem(text: string, streaming: boolean): UnitThinkingItem {
+	return streaming ? { kind: 'thinking', text, streaming: true } : { kind: 'thinking', text };
 }
 
 export function addText(thread: UnitThread, raw: string): UnitThread {

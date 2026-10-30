@@ -35,11 +35,10 @@ import type {
 } from '@earendil-works/pi-coding-agent';
 import { collapseResolver } from './lib/inline-collapse.ts';
 import { clearLiveThread, installOverlayPanel, writeLiveThread } from './lib/inline-overlay.ts';
-import { createTranscriptTransformer, transcriptMode } from './lib/inline-transcript.ts';
+import { createTranscriptTransformer, transcriptMode, type TranscriptCollapse } from './lib/inline-transcript.ts';
 import {
 	INLINE_RESULT_MAX,
 	addText,
-	addThinking,
 	addToolEnd,
 	addToolStart,
 	boundedArgs,
@@ -49,6 +48,7 @@ import {
 	jobId,
 	nextUnitNumber,
 	toolSummary,
+	upsertThinking,
 	writeUnitHistory,
 	type UnitThread,
 } from './lib/inline-history.ts';
@@ -81,9 +81,6 @@ export const DEFAULT_HEARTBEAT_MS = 20_000;
  * person still remembers asking for it.
  */
 export const IDLE_CLOSE_MS = 10 * 60 * 1000;
-
-/** How many captured reasoning blocks are remembered against a repaint. */
-const THINKING_CAPTURED_MAX = 100;
 
 /** Test seams: nothing here changes behaviour in a real session. */
 export interface InlineWorkDeps {
@@ -156,6 +153,28 @@ export function repaintTranscript(ctx: ExtensionContext | undefined): void {
 		ui?.setWidget?.('loon-inline-prose', undefined);
 	} catch {
 		// A missing frame costs a collapse, never the session.
+	}
+}
+
+/**
+ * Exempt the answer a message carries, if it is one.
+ *
+ * A message that ends with a tool call is work in progress: the prose that
+ * explains it belongs in the panel like the rest of the turn. A message that
+ * ends without one is the answer the person is waiting for, and it stays whole.
+ * @param {Pick<TranscriptCollapse, 'exempt'>} collapse
+ * @param {unknown} message
+ */
+export function exemptAnswer(collapse: Pick<TranscriptCollapse, 'exempt'>, message: unknown): void {
+	if (message === null || typeof message !== 'object') return;
+	const content = (message as { content?: unknown }).content;
+	if (!Array.isArray(content)) return;
+	if (content.some((part) => (part as { type?: unknown } | undefined)?.type === 'toolCall')) return;
+	for (const part of content) {
+		const candidate = part as { type?: unknown; text?: unknown };
+		if (candidate?.type !== 'text' || typeof candidate.text !== 'string') continue;
+		const text = candidate.text.trim();
+		if (text.length > 0) collapse.exempt(text);
 	}
 }
 
@@ -247,6 +266,9 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		let jobOpen = false;
 		let jobClosedBy: 'agent' | 'idle' | 'session' | undefined;
 		let thread: UnitThread = emptyUnitThread();
+		// Reasoning written before the card exists: the first call of the turn opens
+		// the job, and this is what it starts from.
+		let pending: UnitThread = emptyUnitThread();
 		let historyWritten = false;
 		let turnOpen = false;
 		let lastRealActivity = 0;
@@ -254,31 +276,26 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		// The answer of the current turn, untruncated, kept so the transcript can
 		// refuse to collapse it even after the turn is over.
 		let closingFull: string | undefined;
-		// The reasoning blocks already given to the thread in this session. A block is
-		// captured when it stops streaming, and a repaint of the same message is not a
-		// second thought: without this, every repaint would append it again.
-		const thinkingCaptured = new Set<string>();
-
 		const prose = createTranscriptTransformer({
 			mode: proseMode,
-			isLive: () => written && !closed,
+			// The gate is the session, not the carrier. Reasoning and the first prose of
+			// a turn are drawn before its first tool call, and the card only exists after
+			// that call: gating on the card would keep half of every turn in the
+			// transcript forever, because a decision is sticky.
+			isLive: () => sessionId !== undefined && !closed,
 			closingText: () => closingFull,
-			onThinking: (text: string): void => {
+			onThinking: (text: string, streaming: boolean): void => {
 				// Collapsing is not losing: the transcript keeps one line, and the panel
-				// keeps the block. Nothing is captured when no job is open, because there
-				// is no card to show it in.
-				if (!jobOpen) return;
-				const trimmed = text.trim();
-				if (trimmed.length === 0) return;
-				if (thinkingCaptured.has(trimmed)) return;
-				thinkingCaptured.add(trimmed);
-				if (thinkingCaptured.size > THINKING_CAPTURED_MAX) {
-					const oldest = thinkingCaptured.values().next().value;
-					if (oldest !== undefined) thinkingCaptured.delete(oldest);
+				// keeps the block. A block that happens before the card exists is held
+				// here and becomes the first thing the card shows.
+				if (closed || sessionId === undefined) return;
+				if (!jobOpen) {
+					pending = upsertThinking(pending, text, streaming);
+					return;
 				}
-				thread = addThinking(thread, trimmed);
+				thread = upsertThinking(thread, text, streaming);
 				const id = currentId();
-				if (id !== undefined && sessionId !== undefined) writeLiveThread(agentHome, sessionId, id, thread);
+				if (id !== undefined) writeLiveThread(agentHome, sessionId, id, thread);
 			},
 		});
 
@@ -302,7 +319,8 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			jobClosedBy = undefined;
 			historyWritten = false;
 			turnOpen = false;
-			thread = emptyUnitThread();
+			thread = pending;
+			pending = emptyUnitThread();
 			lastResult = null;
 			turns = 0;
 			toolCalls = 0;
@@ -530,6 +548,11 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			if (closed) return;
 			const message = event.message as unknown;
 			if (typeof message !== 'object' || message === null || (message as { role?: unknown }).role !== 'assistant') return;
+			// The answer of the turn is exempt here, not when the job closes: a job spans
+			// many turns, so waiting for the close leaves every answer in between to be
+			// collapsed. Extensions see this event before pi rebuilds the finished
+			// message, so the exemption is already remembered when it is drawn last.
+			exemptAnswer(prose, message);
 			if (!jobOpen) return;
 			const totals = usageTotals(message);
 			tokens += totals.tokens;
