@@ -425,6 +425,21 @@ es lo que este parche escribió, porque entonces lo que hay es de otra persona.
 Sin el parche aplicado LOON funciona igual: lee su archivo, pinta su cabecera y no
 depende de que ese texto esté en el paquete. Lo único que falta entonces es el menú.
 
+## La familia LOON
+
+LOON es un conjunto de paquetes de Pi independientes que comparten nombre y estilo.
+Instalar uno nunca exige otro: la familia es una referencia cruzada, no una dependencia.
+
+| Paquete | Qué hace |
+| --- | --- |
+| `loon` | Esta cabecera de arranque, pintada con el tema activo. |
+| `loon-routing` | Elige proveedor, modelo y esfuerzo con evidencia suficiente para la tarea. |
+| `loon-ghost-tools` | Convierte el nombre de una herramienta inventada en un mensaje accionable. |
+| `loon-jev-context-guard` | Le pregunta a Jev cuándo compactar, abrir sesión nueva o guardar memoria. |
+
+Los addons viven en repositorios privados mientras maduran; sus nombres son los de la
+tabla y cada uno se instala por separado.
+
 ## Convenciones de idioma
 
 - Documentación de usuario (`README.md` y la documentación del proyecto): **español**.
