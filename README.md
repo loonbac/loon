@@ -1,7 +1,7 @@
 # LOON-Pi
 
-A pi package that gives the TUI a **theme-aware startup header**, and nothing
-else: the pi-claude-code-tui box, painted entirely by the theme you already use.
+Un paquete de pi que da a la TUI una **cabecera de arranque que respeta el tema**, y nada
+más: la caja de pi-claude-code-tui, pintada por completo con el tema que ya usas.
 
 ```
 ╭─── Pi v1.4.0 ────────────────────────────────────────────────────────────────╮
@@ -18,78 +18,82 @@ else: the pi-claude-code-tui box, painted entirely by the theme you already use.
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
-## What it does
+## Qué hace
 
-- Draws one rounded box across the terminal width: the `Pi v<version>` label in
-  the top border, then on the left the block Pi mark, `Let's build something
-  great` in bold, the `provider/model · <effort> effort` line and the
-  `~`-shortened cwd, with one accent divider and the tips sidebar on the right.
-- The left section stays square: the divider sits at 42% of the interior but the
-  left half never grows past 40 columns, because ten body rows read square at
-  roughly the mark plus breathing room. At 80 columns that is 32 + 44, at 120 it
-  is 40 + 76, so the mark never floats in an empty band and the sidebar gets
-  enough width for real command names.
-- The short rule under `Ask Pi to build it` fills the sidebar and stops one
-  column short of the border.
-- A model id longer than the half wraps instead of losing its tail: it breaks at
-  `/`, then `-`, then a space, and a single run with no separator left is cut at
-  the width. Nothing is replaced by an ellipsis. `river/deepseek-ai/
-  DeepSeek-V4.1-Flash-1017 · high effort` becomes three centred rows at 32
-  columns, and the box grows a row for each extra line so the sidebar keeps its
-  position. A wrap whose last line would hold a single word is retried one
-  column narrower until two words fit together, down to half the width, because
-  `openai-codex/gpt-5.5 · high` above a lone `effort` reads as a bug.
-- The mark is static and single-coloured: a 4 × 4 grid of three-column cells,
-  12 columns wide and 4 rows tall, drawn in the theme accent. No animation. It
-  starts two rows below the top border, level with `Ask Pi to build it`, with one
-  blank row before the tagline, so the rhythm matches the captured header.
-- Resolves every colour from the active theme through one mapping
-  (`extensions/lib/palette.ts`): box, label, divider, headings and the mark use
-  `accent`, the tagline uses `text` in bold, tips and the model line use `muted`,
-  the cwd uses `dim`. The header emits no SGR colour of its own, so it reads
-  correctly with the three gentle-pi themes, with system/dark/light and with any
-  user theme.
-- When the terminal is too narrow for both columns, the sidebar is dropped and
-  the left half takes the whole width. Below the mark width only the version
-  label is printed.
-- Installs on the next macrotask after `session_start` and then watches the
-  header instead of guessing the boot time. pi calls `render` on the installed
-  component, so a render gap is proof that the header on screen is not ours: the
-  watchdog re-asserts (at most once a second) for up to 10 s and stops as soon as
-  a render follows a reclaim.
-- Fixed delays do not work and are not used: measured in a real start, the TUI
-  begins painting ~1.9 s in and gentle-pi registers its own banner ~2.7 s in
-  (`setTimeout(..., 50)` opened at `gentle-pi/extensions/startup-banner.ts:757`
-  after `await readBannerConfig()` at line 666 — the awaits, not the 50 ms, are
-  what push it that late). Re-asserts at 0/120/400 ms were spent during boot and
-  gentle-pi kept the header; the watchdog reclaims it at ~1.6 s into its watch.
+- Dibuja una caja redondeada a lo ancho de la terminal: la etiqueta `Pi v<version>` en
+  el borde superior, y después, a la izquierda, la marca de Pi en bloque, `Let's build
+  something great` en negrita, la línea `provider/model · <effort> effort` y el cwd
+  abreviado con `~`, con un divisor de acento y la barra lateral de sugerencias a la
+  derecha.
+- La sección izquierda se mantiene cuadrada: el divisor está al 42% del interior, pero
+  la mitad izquierda nunca crece más de 40 columnas, porque diez filas de cuerpo se leen
+  cuadradas con la marca y algo de aire. A 80 columnas son 32 + 44; a 120, 40 + 76, así
+  que la marca nunca flota en una banda vacía y la barra lateral recibe ancho suficiente
+  para nombres de comando reales.
+- La regla corta bajo `Ask Pi to build it` llena la barra lateral y se detiene una
+  columna antes del borde.
+- Un identificador de modelo más largo que la mitad se ajusta en varias líneas en lugar
+  de perder la cola: rompe por `/`, después por `-`, después por un espacio, y un tramo
+  suelto sin separador se corta al ancho. Nada se sustituye por puntos suspensivos.
+  `river/deepseek-ai/ DeepSeek-V4.1-Flash-1017 · high effort` pasa a tres filas
+  centradas a 32 columnas, y la caja gana una fila por cada línea extra para que la
+  barra lateral conserve su posición. Un ajuste cuya última línea quedaría con una sola
+  palabra se reintenta una columna más estrecho hasta que caben dos palabras juntas,
+  hasta la mitad del ancho, porque `openai-codex/gpt-5.5 · high` sobre un `effort`
+  solitario se lee como un error.
+- La marca es estática y de un solo color: una rejilla de 4 × 4 celdas de tres columnas,
+  12 columnas de ancho y 4 filas de alto, dibujada con el acento del tema. Sin animación.
+  Empieza dos filas por debajo del borde superior, a la altura de `Ask Pi to build it`,
+  con una fila en blanco antes del eslogan, para que el ritmo coincida con la cabecera
+  capturada.
+- Resuelve todos los colores del tema activo mediante una única tabla
+  (`extensions/lib/palette.ts`): caja, etiqueta, divisor, encabezados y marca usan
+  `accent`; el eslogan usa `text` en negrita; las sugerencias y la línea del modelo usan
+  `muted`; el cwd usa `dim`. La cabecera no emite ningún color SGR propio, así que se lee
+  bien con los tres temas de gentle-pi, con system/dark/light y con cualquier tema del
+  usuario.
+- Cuando la terminal es demasiado estrecha para las dos columnas, la barra lateral se
+  elimina y la mitad izquierda ocupa todo el ancho. Por debajo del ancho de la marca solo
+  se imprime la etiqueta de versión.
+- Se instala en la siguiente macrotarea después de `session_start` y luego vigila la
+  cabecera en lugar de adivinar el momento del arranque. pi llama a `render` sobre el
+  componente instalado, así que un hueco de render es prueba de que la cabecera en
+  pantalla no es la nuestra: el vigilante vuelve a reclamarla (como máximo una vez por
+  segundo) durante hasta 10 s y se detiene en cuanto un render sigue a una reclamación.
+- Los retrasos fijos no funcionan y no se usan: medido en un arranque real, la TUI empieza
+  a pintar hacia los ~1.9 s y gentle-pi registra su propio banner hacia los ~2.7 s
+  (`setTimeout(..., 50)` abierto en `gentle-pi/extensions/startup-banner.ts:757`
+  después de `await readBannerConfig()` en la línea 666: son los awaits, no los 50 ms,
+  los que lo empujan tan tarde). Las reclamaciones a 0/120/400 ms se gastaron durante el
+  arranque y gentle-pi se quedó con la cabecera; el vigilante la recupera hacia los
+  ~1.6 s de su vigilancia.
 
-## Commands
+## Comandos
 
-| Command | Effect |
+| Comando | Efecto |
 | --- | --- |
-| `/use-loon-tui` | Turn the banner on and reapply it (refreshes model, effort, cwd and tips). |
-| `/use-default-tui` | Turn the banner off and restore pi's own header, footer and spinner. |
-| `/loon:tui` | Banner on/off and accent source; see below. |
+| `/use-loon-tui` | Enciende el banner y lo vuelve a aplicar (refresca modelo, esfuerzo, cwd y sugerencias). |
+| `/use-default-tui` | Apaga el banner y restaura la cabecera, el pie y el spinner propios de pi. |
+| `/loon:tui` | Banner encendido/apagado y origen del acento; ver más abajo. |
 
-## Install
+## Instalación
 
-Load it straight from a checkout:
+Cárgalo directamente desde un checkout:
 
 ```sh
 pi -e /home/loonbac/Proyectos/pi-loon/loon
 ```
 
-Or install it as a package and list it in `packages` in your pi settings:
+O instálalo como paquete y lístalo en `packages` en tus ajustes de pi:
 
 ```sh
 pi install /home/loonbac/Proyectos/pi-loon/loon
 ```
 
-`package.json` declares one extension (`./extensions/loon-startup.ts`) and no
-themes, images or prompts.
+`package.json` declara una extensión (`./extensions/loon-startup.ts`) y ningún tema,
+imagen ni prompt.
 
-## Test
+## Pruebas
 
 ```sh
 npm install   # dev dependencies for the tests and the type checker
@@ -97,64 +101,61 @@ npm test      # node --experimental-strip-types --test
 npm run typecheck
 ```
 
-The tests pin the palette mapping against a stub theme that only knows the roles
-the three gentle-pi themes define, the golden header at 80 and 120 columns, the
-divider position, the mark grid, the literal sidebar order, the vertical rhythm
-of the left column, and the absence of raw colour escapes.
+Las pruebas fijan la tabla de la paleta contra un tema de prueba que solo conoce los
+roles que definen los tres temas de gentle-pi, la cabecera dorada a 80 y 120 columnas, la
+posición del divisor, la rejilla de la marca, el orden literal de la barra lateral, el
+ritmo vertical de la columna izquierda y la ausencia de secuencias de color crudas.
 
-## gentle-pi integration
+## Integración con gentle-pi
 
-LOON reads gentle-pi's own configuration files. It does not import a module of
-gentle-pi and copies no code from it: it parses the two files that extension
-already writes, so what you pick in `/gentle:customization` reaches this header.
+LOON lee los propios archivos de configuración de gentle-pi. No importa ningún módulo de
+gentle-pi ni copia código suyo: analiza los dos archivos que esa extensión ya escribe, de
+modo que lo que elijas en `/gentle:customization` llega a esta cabecera.
 
-| gentle-pi setting | File | Effect here |
+| Ajuste de gentle-pi | Archivo | Efecto aquí |
 | --- | --- | --- |
-| `density: comfortable` | `visual-customization.json` | The captured layout: 12 body rows with the mark, tagline, model and cwd. |
-| `density: compact` | `visual-customization.json` | No blank row above the mark and no tagline: mark, model, cwd; the sidebar loses the short rule. |
-| `density: minimal` | `visual-customization.json` | A three-row box with one row: `provider/model · effort effort`, cut with `…` when it does not fit. No mark, no tagline, no cwd, no sidebar. |
-| `headerPlacement: top` | `visual-customization.json` | LOON keeps the top slot, as it always did. |
-| `headerPlacement: below-input` | `visual-customization.json` | Moves gentle-pi's **own bar** under the editor. The banner is unaffected: it lives in pi's header slot and stays on top. |
-| `color: pink\|cyan\|yellow\|green` | `banner.json` | Overrides the accent: box, divider, headings and mark. `text`, `muted` and `dim` keep coming from the theme. |
-| `showTextLogo` | `banner.json` | **Not applicable.** It hides gentle-pi's ASCII wordmark, which this package does not draw; the Pi mark has its own switch below. Read, validated, ignored. |
-| `showRose` | `banner.json` | **Not applicable.** LOON has no rose. Read, validated, ignored. |
+| `density: comfortable` | `visual-customization.json` | La maquetación capturada: 12 filas de cuerpo con la marca, el eslogan, el modelo y el cwd. |
+| `density: compact` | `visual-customization.json` | Sin fila en blanco sobre la marca y sin eslogan: marca, modelo, cwd; la barra lateral pierde la regla corta. |
+| `density: minimal` | `visual-customization.json` | Una caja de tres filas con una: `provider/model · effort effort`, cortada con `…` cuando no cabe. Sin marca, sin eslogan, sin cwd, sin barra lateral. |
+| `headerPlacement: top` | `visual-customization.json` | LOON conserva el hueco superior, como siempre hizo. |
+| `headerPlacement: below-input` | `visual-customization.json` | Mueve la **barra propia** de gentle-pi bajo el editor. El banner no se ve afectado: vive en el hueco de cabecera de pi y se queda arriba. |
+| `color: pink\|cyan\|yellow\|green` | `banner.json` | Sustituye el acento: caja, divisor, encabezados y marca. `text`, `muted` y `dim` siguen viniendo del tema. |
+| `showTextLogo` | `banner.json` | **No aplica.** Oculta el logotipo ASCII de gentle-pi, que este paquete no dibuja; la marca de Pi tiene su propio interruptor más abajo. Se lee, se valida y se ignora. |
+| `showRose` | `banner.json` | **No aplica.** LOON no tiene rosa. Se lee, se valida y se ignora. |
 
-The two `Not applicable` rows are deliberate. Those flags were written by a menu
-that governs gentle-pi's own banner, not the Pi mark, so honouring them here
-would delete a glyph this package draws and someone sized on purpose.
+Las dos filas de `No aplica` son deliberadas. Esos flags los escribió un menú que gobierna
+el banner propio de gentle-pi, no la marca de Pi, así que respetarlos aquí borraría un
+glifo que este paquete dibuja y que alguien dimensionó a propósito.
 
-Reads are tolerant on purpose. A missing file, malformed JSON, a schema from
-another version, an unknown key or a value that does not validate all fall back
-to the layout above (comfortable, top, mark on, theme accent) — never an error,
-never a different banner. Every change is picked up live: both config homes are
-watched, so editing gentle-pi's settings repaints without restarting pi.
+Las lecturas son tolerantes a propósito. Un archivo ausente, un JSON malformado, un
+esquema de otra versión, una clave desconocida o un valor que no valida caen todos a la
+maquetación de arriba (comfortable, top, marca activada, acento del tema): nunca un error,
+nunca un banner distinto. Cada cambio se recoge en vivo: se vigilan los dos directorios de
+configuración, así que editar los ajustes de gentle-pi repinta sin reiniciar pi.
 
 
+### Acento del fondo de pantalla
 
-### Wallpaper accent
+Con el escritorio ya recoloreándose a partir del fondo de pantalla, el banner puede seguir
+el mismo color. `accent: "wallpaper"` hace que los roles de acento —caja, divisor,
+encabezados y marca— usen el `#RRGGBB` de `~/.config/mpvpaper/accent.txt`; `text`,
+`muted` y `dim` siguen viniendo del tema.
 
-With the desktop already recolouring itself from the wallpaper, the banner can
-follow the same colour. `accent: "wallpaper"` makes the accent roles - box,
-divider, headings and the mark - use the `#RRGGBB` in
-`~/.config/mpvpaper/accent.txt`; `text`, `muted` and `dim` keep coming from the
-theme.
-
-- The file is written atomically (`write · fsync · os.replace`), so its inode
-  changes on every wallpaper. LOON therefore watches the **directory**
-  `~/.config/mpvpaper`, never the file, and a wallpaper change recolours a
-  running session without restarting pi.
-- A missing, unreadable or malformed file falls back to the theme accent - never
-  black, never a crash - and `/loon:tui status` says
-  `accent wallpaper (unavailable, theme fallback)` instead of a colour it does
-  not have.
-- With the patched gentle-pi menu, the choice is a fifth row,
-  `Banner color: wallpaper`, whose preview reads
-  `Wallpaper accent · #9B484A (static)`. Picking any of the four named colours
-  writes `accent: "banner"` in the same write, so going back from the wallpaper
-  colour is never a silent no-op.
-- Nothing is written into `banner.json`: its own `color` key keeps its four-value
-  format. In `source: "rose"` mode gentle-pi's banner reads `banner.json`, so this
-  accent has no effect on it - by design.
+- El archivo se escribe de forma atómica (`write · fsync · os.replace`), así que su inodo
+  cambia con cada fondo de pantalla. Por eso LOON vigila el **directorio**
+  `~/.config/mpvpaper`, nunca el archivo, y un cambio de fondo recolorea una sesión en
+  marcha sin reiniciar pi.
+- Un archivo ausente, ilegible o malformado cae al acento del tema —nunca negro, nunca
+  una caída— y `/loon:tui status` dice
+  `accent wallpaper (unavailable, theme fallback)` en lugar de un color que no tiene.
+- Con el menú de gentle-pi parcheado, la elección es una quinta fila,
+  `Banner color: wallpaper`, cuya vista previa dice
+  `Wallpaper accent · #9B484A (static)`. Elegir cualquiera de los cuatro colores
+  con nombre escribe `accent: "banner"` en la misma escritura, así que volver del color
+  del fondo nunca es una operación silenciosa sin efecto.
+- No se escribe nada en `banner.json`: su propia clave `color` conserva su formato de
+  cuatro valores. En modo `source: "rose"` el banner de gentle-pi lee `banner.json`, así
+  que este acento no le afecta, por diseño.
 
 ```sh
 /loon:tui accent wallpaper   # follow the wallpaper
@@ -163,74 +164,70 @@ theme.
 ```
 
 
-### The wallpaper theme
+### El tema del fondo de pantalla
 
-LOON can install a real pi theme, so choosing it in gentle-pi's Themes list
-recolours the whole interface - not just the banner. It is called
-`Wallpaper (LOON)`: every theme this package ships or generates ends in ` (LOON)`,
-and the file name derives from the name (`Wallpaper (LOON).json` in pi's agent
-`themes/` directory), so the two cannot drift.
+LOON puede instalar un tema real de pi, de modo que elegirlo en la lista Themes de
+gentle-pi recolorea toda la interfaz, no solo el banner. Se llama `Wallpaper (LOON)`:
+cada tema que este paquete incluye o genera termina en ` (LOON)`, y el nombre del archivo
+deriva del nombre (`Wallpaper (LOON).json` en el directorio `themes/` del agente de pi),
+así que los dos no pueden separarse.
 
-- The palette is derived from the wallpaper accent in OKLCH: UI roles stay at very
-  low chroma around that hue, syntax roles are hue rotations with clamped chroma,
-  and the wallpaper colour itself is the accent.
-- The floors are hard and enforced by tests: text on background >= 7:1, muted
-  >= 4.5:1, accent >= 3:1. A wallpaper that cannot reach them keeps its hue and
-  has its lightness pushed until it does, so even black or white yields a valid
-  theme.
-### Contrast, measured
+- La paleta se deriva del acento del fondo de pantalla en OKLCH: los roles de interfaz se
+  quedan en croma muy bajo alrededor de ese matiz, los roles de sintaxis son rotaciones de
+  matiz con croma limitada, y el color del fondo de pantalla es el acento.
+- Los pisos son duros y las pruebas los hacen cumplir: texto sobre fondo >= 7:1, muted
+  >= 4.5:1, acento >= 3:1. Un fondo de pantalla que no los alcanza conserva su matiz y se
+  le empuja la luminosidad hasta que los alcanza, así que incluso negro o blanco producen
+  un tema válido.
+### Contraste, medido
+La paleta se deriva, así que estos números salen de la propia derivación y las pruebas
+afirman los pisos. Dos ejemplos, el acento del fondo de pantalla y uno violeta:
 
-The palette is derived, so these numbers come from the derivation itself and the
-tests assert the floors. Two examples, the wallpaper accent and a violet one:
-
-| pair | `#AB9A5E` | `#D5A9F0` | floor |
+| pareja | `#AB9A5E` | `#D5A9F0` | piso |
 | --- | --- | --- | --- |
-| text / background (`#100D04` / `#100B13`) | 17.32:1 | 17.29:1 | >= 7:1 |
-| muted / background | 8.16:1 | 8.06:1 | >= 4.5:1 |
-| accent / background | 6.95:1 | 9.97:1 | >= 3:1 |
-| text / card surface (`#3D3823` / `#3F3446`) | 10.5:1 | 10.4:1 | >= 7:1 |
-| card surface / background | 1.65:1 | 1.65:1 | 1.65..1.69 |
-| card surface chroma | 0.035 | 0.034 | 0.010..0.035 |
+| texto / fondo (`#100D04` / `#100B13`) | 17.32:1 | 17.29:1 | >= 7:1 |
+| muted / fondo | 8.16:1 | 8.06:1 | >= 4.5:1 |
+| acento / fondo | 6.95:1 | 9.97:1 | >= 3:1 |
+| texto / superficie de tarjeta (`#3D3823` / `#3F3446`) | 10.5:1 | 10.4:1 | >= 7:1 |
+| superficie de tarjeta / fondo | 1.65:1 | 1.65:1 | 1.65..1.69 |
+| croma de la superficie de tarjeta | 0.035 | 0.034 | 0.010..0.035 |
 
-The card surfaces (`toolSuccessBg`, `toolPendingBg`, `toolErrorBg`) are not status
-colours: gentle-pi paints the background of its INFO, SUCCESS, PENDING and ERROR
-cards with them and carries the tone in the border and the title.
+Las superficies de tarjeta (`toolSuccessBg`, `toolPendingBg`, `toolErrorBg`) no son
+colores de estado: gentle-pi pinta con ellas el fondo de sus tarjetas INFO, SUCCESS,
+PENDING y ERROR y lleva el tono en el borde y el título.
 
-They are placed by **contrast against the background**, not by a lightness:
-`CARD_SURFACE_CONTRAST` is 1.65 and the derivation solves the lightness that reaches
-it, so the band reads the same on a gold wallpaper and on a blue one. A fixed
-lightness cannot promise that - one value measured 1.16 against one accent and
-something else against another, which is how the band once came out as a colour cast
-and then vanished.
+Se colocan por **contraste contra el fondo**, no por una luminosidad:
+`CARD_SURFACE_CONTRAST` vale 1.65 y la derivación resuelve la luminosidad que lo alcanza,
+así que la banda se lee igual sobre un fondo dorado y sobre uno azul. Una luminosidad fija
+no puede prometer eso: un valor midió 1.16 contra un acento y otra cosa contra otro, y así
+fue como la banda salió una vez con un tinte y después desapareció.
 
-The three surfaces are one accent surface at three rungs of that ladder: 1.65, 1.69
-and 1.73 (`CARD_SURFACE_STEP` is 0.02 of contrast). The gap is deliberately small,
-and a rung that rounds onto the one below climbs higher instead, because two of them
-collapsed into a single hex once and gentle-pi painted INFO, PENDING and ERROR cards
-in one flat colour.
-- The file is written atomically and only when it is missing, unreadable or older
-  than `accent.txt`; a file with that name whose own `name` is not ours is left
-  untouched and reported as `skipped-foreign`.
-- `/loon:tui status` says which theme was generated, what happened to the file and
-  whether it is the active one.
-- While `Wallpaper (LOON)` is active, the banner follows the wallpaper too, derived
-  at paint time - the settings file is never rewritten for it.
+Las tres superficies son una sola superficie de acento en tres peldaños de esa escalera:
+1.65, 1.69 y 1.73 (`CARD_SURFACE_STEP` vale 0.02 de contraste). El hueco es pequeño a
+propósito, y un peldaño que redondea sobre el de abajo sube más alta en su lugar, porque
+dos de ellas colapsaron una vez en un solo hex y gentle-pi pintó las tarjetas INFO,
+PENDING y ERROR de un único color plano.
+- El archivo se escribe de forma atómica y solo cuando falta, es ilegible o es más viejo
+  que `accent.txt`; un archivo con ese nombre cuyo `name` propio no es el nuestro se deja
+  intacto y se informa como `skipped-foreign`.
+- `/loon:tui status` dice qué tema se generó, qué pasó con el archivo y si es el activo.
+- Mientras `Wallpaper (LOON)` está activo, el banner también sigue el fondo de pantalla,
+  derivado en el momento de pintar: el archivo de ajustes nunca se reescribe por eso.
 
-Nothing about gentle-pi is patched for this: its Themes category is built at
-runtime from the installed themes, so a real theme file produces the row
-`Theme: Wallpaper (LOON)` by itself. Regenerating the file while a session runs
-recolours it, because pi hot-reloads the active theme.
+En gentle-pi no se parchea nada para esto: su categoría Themes se construye en tiempo de
+ejecución a partir de los temas instalados, así que un archivo de tema real produce la
+fila `Theme: Wallpaper (LOON)` por sí solo. Regenerar el archivo con una sesión en marcha
+la recolorea, porque pi recarga en caliente el tema activo.
 
 ```sh
 /gentle:customize   # Themes -> Theme: Wallpaper (LOON)
 ```
+### Quién pinta el banner: el parche opcional de gentle-pi
 
-### Who paints the banner: the optional gentle-pi patch
-
-gentle-pi's menu is the one place a person configures its banner, so LOON can also
-appear *there* — as a third state of a single row, next to gentle-pi's own banner
-and pi's native header. That needs a small, reversible patch of the installed
-package, applied with the tool in this repository:
+El menú de gentle-pi es el único lugar donde una persona configura su banner, así que LOON
+también puede aparecer *ahí*: como un tercer estado de una sola fila, junto al banner
+propio de gentle-pi y a la cabecera nativa de pi. Eso necesita un parche pequeño y
+reversible del paquete instalado, aplicado con la herramienta de este repositorio:
 
 ```sh
 node --experimental-strip-types scripts/gentle-pi-patch.ts check
@@ -238,137 +235,146 @@ node --experimental-strip-types scripts/gentle-pi-patch.ts apply
 node --experimental-strip-types scripts/gentle-pi-patch.ts revert
 ```
 
-What it changes, in gentle-pi 4.5.1 only — four files, each for one reason:
+Qué cambia, solo en gentle-pi 4.5.1: cuatro archivos, cada uno por una razón:
 
-- `extensions/gentle-shell.ts`: `/gentle:customize` gets one row,
-  `Banner: loon` / `Banner: rose` / `Banner: off`, which cycles on select.
-  `Banner rose:` and `Banner text logo:` are gone; the text-logo row stays
-  reachable inside `rose`, where it still means something, and `Banner color:` keeps
-  working in every state (it colours their art in `rose` and this header's accent
-  in `loon`). The wallpaper row reads `Banner color: wallpaper (LOON)`.
-- `extensions/startup-banner.ts`: gentle-pi's banner does not install its header in
-  `loon` or `off`, so nothing fights over the slot.
-- `lib/visual-customize-view.ts`: a row's label is called with the width the row
-  actually has, so a long label can pick a shorter wording instead of being cut
-  mid-word. Without it the view offers no width at all.
-- `lib/shell-bar.ts`: with a theme LOON generated the shell bar drops its brand and
-  stops advertising the usage shortcut. Those themes carry `" (LOON)"` at the end of
-  their name; the header already says which tool this is, and `alt+u` is a shortcut
-  one learns once. Any other theme keeps `✿ Gentle Shell` and `usage · alt+u` exactly
-  where they were, and a theme whose name cannot be read fails open: brand shown, hint
-  shown.
+- `extensions/gentle-shell.ts`: `/gentle:customize` recibe una fila,
+  `Banner: loon` / `Banner: rose` / `Banner: off`, que cicla al seleccionar.
+  `Banner rose:` y `Banner text logo:` desaparecen; la fila del logotipo de texto sigue
+  alcanzable dentro de `rose`, donde todavía significa algo, y `Banner color:` sigue
+  funcionando en todos los estados (colorea su ilustración en `rose` y el acento de esta
+  cabecera en `loon`). La fila del fondo de pantalla dice
+  `Banner color: wallpaper (LOON)`.
+- `extensions/startup-banner.ts`: el banner de gentle-pi no instala su cabecera en `loon`
+  ni en `off`, así que nada se pelea por el hueco.
+- `lib/visual-customize-view.ts`: la etiqueta de una fila se llama con el ancho que la
+  fila realmente tiene, de modo que una etiqueta larga puede elegir una formulación más
+  corta en lugar de quedar cortada a mitad de palabra. Sin esto, la vista no ofrece ningún
+  ancho.
+- `lib/shell-bar.ts`: con un tema generado por LOON, la barra del shell suelta su marca y
+  deja de anunciar el atajo de usage. Esos temas llevan `" (LOON)"` al final del nombre;
+  la cabecera ya dice qué herramienta es esto, y `alt+u` es un atajo que se aprende una
+  vez. Cualquier otro tema conserva `✿ Gentle Shell` y `usage · alt+u` exactamente donde
+  estaban, y un tema cuyo nombre no se puede leer falla abierto: marca visible, pista
+  visible.
 
-  One helper decides "is this a LOON theme", and both decisions read it. Without it,
-  the bar, the header's left stages and its last-resort widths would each test the name
-  on their own. A hidden brand leaves no stray separator and no empty row - the
-  narrowest stage becomes the bare model id - and a hidden usage hint takes the whole
-  segment with it when there is nothing to report: no orphan `usage` with no gauges.
-  Hiding the hint does not unregister the shortcut; `alt+u` still opens the usage
-  panel, it just stops being advertised.
+  Un único helper decide «¿es este un tema LOON?», y las dos decisiones lo leen. Sin él,
+  la barra, las etapas izquierdas de la cabecera y sus anchos de último recurso probarían
+  el nombre cada una por su cuenta. Una marca oculta no deja separadores sueltos ni filas
+  vacías —la etapa más estrecha pasa a ser el identificador de modelo desnudo— y una pista
+  de usage oculta se lleva el segmento entero cuando no hay nada que informar: ningún
+  `usage` huérfano sin medidores. Ocultar la pista no desregistra el atajo; `alt+u` sigue
+  abriendo el panel de usage, solo deja de anunciarse.
 
-The prompt card's band needed no patch in the end: a theme tints its surfaces with
-its accent, so once our palette stopped painting cards green the band followed.
+La banda de la tarjeta del prompt no necesitó parche al final: un tema tiñe sus
+superficies con su acento, así que en cuanto nuestra paleta dejó de pintar las tarjetas
+de verde, la banda la siguió.
 
-The choice is stored as `source` in LOON's own `loon-tui.json`, never in
-`banner.json`: gentle-pi rewrites that file with its three keys and would drop it.
-Semantics:
+La elección se guarda como `source` en el `loon-tui.json` propio de LOON, nunca en
+`banner.json`: gentle-pi reescribe ese archivo con sus tres claves y la perdería.
+Semántica:
 
-| `source` | who paints |
+| `source` | quién pinta |
 | --- | --- |
-| `loon` (default) | this header; gentle-pi stays out when patched, and loses the race when not |
-| `rose` | gentle-pi's banner; LOON releases the slot and never reclaims it |
-| `off` | nobody: pi's own header |
+| `loon` (por defecto) | esta cabecera; gentle-pi se queda fuera cuando está parcheado y pierde la carrera cuando no lo está |
+| `rose` | el banner de gentle-pi; LOON libera el hueco y nunca lo reclama |
+| `off` | nadie: la cabecera propia de pi |
 
-The tool refuses to touch a file that is not the exact 4.5.1 build it was written
-against (md5), checks that each anchor appears exactly once, imports the patched
-copy in a child process with the same loader pi uses *before* replacing anything,
-and keeps a timestamped backup under `~/.pi/agent/backups/gentle-pi-banner-patch-*`
-that `revert` restores and verifies. Nothing here is required: unpatched, LOON
-works exactly as before.
+La herramienta se niega a tocar un archivo que no es exactamente la compilación 4.5.1
+contra la que fue escrita (md5), comprueba que cada ancla aparece exactamente una vez,
+importa la copia parcheada en un proceso hijo con el mismo cargador que usa pi *antes* de
+reemplazar nada, y guarda una copia de seguridad con marca de tiempo en
+`~/.pi/agent/backups/gentle-pi-banner-patch-*` que `revert` restaura y verifica. Aquí nada
+es obligatorio: sin parche, LOON funciona exactamente como antes.
 
-### Measuring a frame
+### Medir un frame
 
-Every frame in this repository comes from one script, because the alternative is
-measuring on top of the person's real configuration:
+Cada frame de este repositorio sale de un único script, porque la alternativa es medir
+encima de la configuración real de la persona:
 
 ```sh
 scripts/probe-frame.sh capture --label brand-stock-120 --width 120 --height 32 --theme Gentle
 ```
 
-It snapshots `settings.json`, `loon-tui.json`, gentle-pi's
-`visual-customization.json` and `banner.json`, plus the themes directory, into a
-state directory under `~/.local/state/loon-probe`; runs pi in tmux against **its own**
-gentle-pi config, never the real one; captures the frame; restores the snapshot; and
-verifies every sha256 against what it recorded. A difference is exit 3, and the restore
-also runs when the capture fails or is interrupted.
+Toma una instantánea de `settings.json`, `loon-tui.json`, el
+`visual-customization.json` y el `banner.json` de gentle-pi, más el directorio de temas, a
+un directorio de estado bajo `~/.local/state/loon-probe`; ejecuta pi en tmux contra **su
+propia** configuración de gentle-pi, nunca la real; captura el frame; restaura la
+instantánea; y verifica cada sha256 contra lo que registró. Una diferencia es la salida 3,
+y la restauración también se ejecuta cuando la captura falla o se interrumpe.
 
-Two details matter. An absent file is restored as absent, and a file that was already
-partial is restored with its exact bytes — never rebuilt from defaults. And the snapshot
-is written before pi starts: if it cannot be written, pi does not start at all.
+Dos detalles importan. Un archivo ausente se restaura como ausente, y un archivo que ya
+estaba parcial se restaura con sus bytes exactos: nunca se reconstruye desde los valores por
+defecto. Y la instantánea se escribe antes de que pi arranque: si no se puede escribir, pi
+no arranca en absoluto.
 
-This exists because earlier hand-rolled scripts wrote and deleted
-`~/.pi/agent/loon-tui.json` without restoring it, which left a one-key file behind and
-made the person's choices look like they kept resetting.
+Esto existe porque scripts anteriores hechos a mano escribían y borraban
+`~/.pi/agent/loon-tui.json` sin restaurarlo, lo que dejaba atrás un archivo de una sola
+clave y hacía parecer que las elecciones de la persona se reiniciaban solas.
 
-### Settings LOON adds
+### Ajustes que añade LOON
 
-gentle-pi's menu has no switch for the banner itself and none for where the
-accent comes from, so LOON keeps its own file, `loon-tui.json` in pi's config
-home (`$PI_CODING_AGENT_DIR`, or `~/.pi/agent`):
+El menú de gentle-pi no tiene interruptor para el banner en sí ni para el origen del
+acento, así que LOON mantiene su propio archivo, `loon-tui.json`, en el directorio de
+configuración de pi (`$PI_CODING_AGENT_DIR`, o `~/.pi/agent`):
 
 ```json
 { "enabled": true, "accent": "banner", "mark": true, "source": "loon" }
 ```
 
-- `enabled` — false means LOON paints nothing and never reclaims the header, so
-  gentle-pi's own banner is free to take the slot.
-- `accent` — `banner` follows gentle-pi's `color`, `theme` keeps the theme's
-  `accent` role, and `wallpaper` follows the wallpaper file (see below). It
-  defaults to `banner`, so a colour already chosen in gentle-pi's menu is honoured
-  out of the box.
-- `mark` — the Pi mark, on by default. This is LOON's switch, not gentle-pi's
-  `showTextLogo`: that flag belongs to a different banner and never reaches this
-  glyph.
-- `source` — who paints the banner: `loon` (default), `rose` or `off`. Written by
-  the patched row in gentle-pi's menu; without the patch it simply stays `loon`.
+- `enabled`: false significa que LOON no pinta nada y nunca reclama la cabecera, así que
+  el banner propio de gentle-pi queda libre para tomar el hueco.
+- `accent`: `banner` sigue el `color` de gentle-pi, `theme` conserva el rol `accent` del
+  tema, y `wallpaper` sigue el archivo del fondo de pantalla (ver más abajo). Por defecto
+  es `banner`, así que un color ya elegido en el menú de gentle-pi se respeta desde el
+  primer momento.
+- `mark`: la marca de Pi, activada por defecto. Este es el interruptor de LOON, no el
+  `showTextLogo` de gentle-pi: ese flag pertenece a otro banner y nunca llega a este
+  glifo.
+- `source`: quién pinta el banner: `loon` (por defecto), `rose` u `off`. Lo escribe la
+  fila parcheada del menú de gentle-pi; sin el parche simplemente se queda en `loon`.
 
-| Command | Effect |
+| Comando | Efecto |
 | --- | --- |
-| `/loon:tui` | Menu: banner on or off, accent from the theme or from `banner.json`, mark on or off. |
-| `/loon:tui status` | One line: banner, accent source, density, placement, mark. |
-| `/loon:tui on\|off` | Same as the menu entry, without the dialog. |
-| `/loon:tui accent theme\|banner\|wallpaper` | Switch the accent source. |
-| `/loon:tui mark on\|off` | Show or hide the Pi mark. |
+| `/loon:tui` | Menú: banner encendido o apagado, acento del tema o de `banner.json`, marca encendida o apagada. |
+| `/loon:tui status` | Una línea: banner, origen del acento, densidad, ubicación, marca. |
+| `/loon:tui on\|off` | Igual que la entrada del menú, sin el diálogo. |
+| `/loon:tui accent theme\|banner\|wallpaper` | Cambia el origen del acento. |
+| `/loon:tui mark on\|off` | Muestra u oculta la marca de Pi. |
 
-Writes are atomic (a temporary file in the same directory, then a rename), and an
-unreadable file means the defaults, never a crash.
+Las escrituras son atómicas (un archivo temporal en el mismo directorio y después un
+renombrado), y un archivo ilegible significa los valores por defecto, nunca una caída.
 
-Two limits worth knowing. Switching `headerPlacement` while pi is running leaves
-pi's built-in header at the top until the next start, because gentle-pi only
-installs its banner at session start; LOON's own banner moves immediately.
-And when gentle-pi is not installed at all, nothing changes: no files, no
-overrides, today's header.
+Dos límites que conviene conocer. Cambiar `headerPlacement` con pi en marcha deja la
+cabecera incorporada de pi arriba hasta el siguiente arranque, porque gentle-pi solo
+instala su banner al iniciar la sesión; el banner propio de LOON se mueve de inmediato.
+Y cuando gentle-pi no está instalado en absoluto, nada cambia: ni archivos, ni
+sobrescrituras, ni la cabecera de hoy.
 
-## What it does NOT do
+## Lo que NO hace
 
-- **No own theme.** There is no `pi.themes` entry and no JSON theme here: the
-  colours come from whichever theme is active.
-- No animation, no working-message verbs (`ctx.ui.setWorkingMessage` is never
-  called), no footer or spinner of its own.
-- No editor, input box or window-title changes.
-- Applying the header touches only `ctx.ui.setHeader`, and it never follows
-  gentle-pi's `headerPlacement`: that setting moves gentle-pi's own bar, and the
-  banner stays in pi's header slot whether the bar is on top or under the editor.
-  Nothing else in pi's UI is replaced; `/use-default-tui` also clears the footer
-  and the spinner, as it always did.
-- **No writes into gentle-pi.** LOON reads `visual-customization.json` and
-  `banner.json`; it never edits them and never adds rows to
-  `/gentle:customization`. The integration only goes one way, by design: that
-  menu stays the single place those files are written from.
+- **No tiene tema propio.** No hay entrada en `pi.themes` ni tema JSON aquí: los colores
+  vienen del tema que esté activo.
+- Sin animación, sin verbos de mensaje de trabajo (nunca se llama a
+  `ctx.ui.setWorkingMessage`), sin pie ni spinner propios.
+- Sin cambios en el editor, la caja de entrada ni el título de la ventana.
+- Aplicar la cabecera toca solo `ctx.ui.setHeader` y nunca sigue el `headerPlacement` de
+  gentle-pi: ese ajuste mueve la barra propia de gentle-pi, y el banner se queda en el
+  hueco de cabecera de pi tanto si la barra va arriba como si va bajo el editor. Nada más
+  de la interfaz de pi se reemplaza; `/use-default-tui` también limpia el pie y el
+  spinner, como siempre hizo.
+- **Sin escrituras en gentle-pi.** LOON lee `visual-customization.json` y `banner.json`;
+  nunca los edita y nunca añade filas a `/gentle:customization`. La integración va solo en
+  un sentido, por diseño: ese menú sigue siendo el único lugar desde el que se escriben
+  esos archivos.
 
-## Licence
+## Convenciones de idioma
 
-MIT. The box layout, the tips sidebar and the width helpers derive from
-[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui) (MIT); the
-static Pi mark is LOON's own. See `NOTICE` for the attribution and the upstream
-licence text.
+- Documentación de usuario y documentos de `odd/tasks/`: **español**.
+- Comentarios de código, identificadores y **mensajes de commit**: **inglés**.
+
+## Licencia
+
+MIT. La maquetación de la caja, la barra lateral de sugerencias y los ayudantes de ancho
+derivan de [pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui) (MIT); la
+marca estática de Pi es propia de LOON. Ver `NOTICE` para la atribución y el texto de la
+licencia original.
