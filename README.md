@@ -388,6 +388,23 @@ una fuga del compositor de la TUI: se revisó y el transcript no contiene ningun
 (ni `└ ✓ Subagent …` ni las filas de herramienta). Ese diagnóstico quedó cerrado; no hay nada que
 parchear por él.
 
+#### El orden que hay que respetar si tocas este renderer
+
+pi resuelve los renderers de una llamada **cuando construye su componente**, y lo construye en
+`message_update`, mientras llega el mensaje del asistente: antes de que la herramienta se ejecute
+y antes de que exista ningún registro nuestro. Cualquier condición que espere a que el trabajo "ya
+haya empezado" llega tarde para la primera llamada, y una unidad hecha a través de `codemode`
+suele ser esa única llamada. Por eso la condición es la sesión y no el portador.
+
+El detalle del host, que es el que hay que tener a mano al extender esto:
+`ToolExecutionComponent.getRenderShell()` devuelve `toolDefinition?.renderShell ?? "default"`
+(`dist/modes/interactive/components/tool-execution.js:71`), el constructor solo añade
+`selfRenderContainer` para ese shell (`:54-56`), y `render()` devuelve `[]` cuando ese
+contenedor no dibuja líneas y no hay imágenes (`:159-168`). `withBuiltInRenderers` solo cubre
+`read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find` y `ls`, así que `codemode`
+llega con lo que devuelva nuestro resolver. Ese mismo orden es el que cerró el diagnóstico de la
+"fuga": lo que aparecía en el transcript era la primera fila sin colapsar, no una fila del panel.
+
 ### El colapso de filas
 
 La tercera pieza no necesita parche. Desde la primera llamada de la sesión,
