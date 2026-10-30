@@ -29,10 +29,24 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 	ToolCallEvent,
+	ToolExecutionEndEvent,
 	ToolRendererResolver,
 	TurnEndEvent,
 } from '@earendil-works/pi-coding-agent';
 import { collapseResolver } from './lib/inline-collapse.ts';
+import {
+	INLINE_RESULT_MAX,
+	addText,
+	addToolEnd,
+	addToolStart,
+	boundedArgs,
+	emptyUnitThread,
+	nextUnitNumber,
+	toolSummary,
+	unitId,
+	writeUnitHistory,
+	type UnitThread,
+} from './lib/inline-history.ts';
 import {
 	INLINE_LABEL_MAX,
 	INLINE_STATUS,
@@ -85,6 +99,24 @@ export function summaryLine(messages: unknown, max: number = INLINE_LABEL_MAX): 
 		}
 	}
 	return undefined;
+}
+
+/**
+ * The closing result as the panel shows it: the assistant's final text, head
+ * kept, bounded. This is what the owner reads in the thread after a reload.
+ */
+export function closingText(messages: unknown, max: number = INLINE_RESULT_MAX): string {
+	if (!Array.isArray(messages)) return '';
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (typeof message !== 'object' || message === null) continue;
+		const candidate = message as { role?: unknown; content?: unknown };
+		if (candidate.role !== 'assistant') continue;
+		const text = messageText(candidate.content).trim();
+		if (text.length === 0) continue;
+		return text.length <= max ? text : text.slice(0, Math.max(0, max - 1)).trimEnd() + '…';
+	}
+	return '';
 }
 
 /** Assistant content is a string or a list of parts; only text parts matter. */
@@ -151,11 +183,30 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		let written = false;
 		let closed = false;
 		let heartbeat: ReturnType<typeof setInterval> | undefined;
+		// The unit's history: which unit this is, what it did, and whether that has
+		// already been written to disk. One file per unit, never per session.
+		let unit = 0;
+		let thread: UnitThread = emptyUnitThread();
+		let historyWritten = false;
+
+		/**
+		 * The unit number and its thread belong to one stretch of work between two
+		 * closing turns. The first tool call after a close starts the next unit, so
+		 * a second unit gets its own id and never overwrites the first.
+		 */
+		const startUnit = (): void => {
+			if (sessionId === undefined || (unit > 0 && !historyWritten && status === INLINE_STATUS.RUNNING)) return;
+			unit = nextUnitNumber(agentHome, sessionId, unit);
+			thread = emptyUnitThread();
+			historyWritten = false;
+		};
+		const currentId = (): string | undefined => (sessionId === undefined || unit === 0 ? undefined : unitId(sessionId, unit));
 
 		const snapshot = (): InlineCarrierRecord | undefined => {
 			if (sessionId === undefined) return undefined;
 			return buildCarrierRecord({
 				sessionId,
+				...(currentId() === undefined ? {} : { id: currentId() as string }),
 				cwd,
 				status,
 				createdAt,
@@ -255,6 +306,9 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			cost = 0;
 			written = false;
 			closed = false;
+			unit = 0;
+			thread = emptyUnitThread();
+			historyWritten = false;
 			stopHeartbeat();
 			if (sessionId !== undefined) {
 				// A resumed session starts its card from its own first step again.
@@ -271,7 +325,26 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			model = current.model;
 			thinking = current.thinking;
 			toolCalls += 1;
+			startUnit();
+			// The thread is the transcription the owner opens in the panel: one item
+			// per top-level call, with the arguments that name it.
+			thread = addToolStart(thread, {
+				callId: event.toolCallId,
+				name: event.toolName,
+				args: boundedArgs((event as { input?: unknown }).input),
+			});
 			begin(stepLabel(event.toolName, (event as { input?: unknown }).input));
+		}));
+
+		pi.on('tool_execution_end', safeHandler((event: ToolExecutionEndEvent): void => {
+			if (closed || !written || unit === 0) return;
+			// A nested call belongs to the step that made it, exactly as above.
+			if (typeof event.parentToolCallId === 'string') return;
+			thread = addToolEnd(thread, {
+				callId: event.toolCallId,
+				output: toolSummary((event as { result?: unknown }).result),
+				isError: event.isError === true,
+			});
 		}));
 
 		pi.on('message_end', safeHandler((event: MessageEndEvent): void => {
@@ -303,12 +376,29 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			if (summary !== undefined) label = summary;
 			stopHeartbeat();
 			persist();
+			// The unit is closed: this is the moment its history can be written, and
+			// the moment it becomes a card that survives a reload. Written once.
+			if (unit === 0 || historyWritten) return;
+			const closing = closingText((event as { messages?: unknown }).messages);
+			if (closing.length > 0) thread = addText(thread, closing);
+			const record = snapshot();
+			if (record === undefined) return;
+			const withResult: InlineCarrierRecord = { ...record, result: closing.length > 0 ? closing : record.result };
+			writeUnitHistory(agentHome, withResult, thread);
+			historyWritten = true;
+			persist();
 		}));
 
+		// The live carrier is display state for a running session and goes with it.
+		// The history is not: a unit that closed stays readable, which is the
+		// whole reason it is written under gentle-pi's own directory.
 		pi.on('session_shutdown', safeHandler((_event: SessionShutdownEvent): void => {
 			closed = true;
 			written = false;
 			stopHeartbeat();
+			thread = emptyUnitThread();
+			unit = 0;
+			historyWritten = false;
 			if (sessionId !== undefined) removeCarrier(agentHome, sessionId);
 		}));
 

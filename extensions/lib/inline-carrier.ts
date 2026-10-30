@@ -88,6 +88,12 @@ export interface InlineCarrierRecord {
 /** What the extension knows about the session at the moment it writes. */
 export interface CarrierState {
 	sessionId: string;
+	/**
+	 * The record's id, when it must not be the session's default one. The live
+	 * card and the persisted history entry share it, so gentle-pi's reader can
+	 * tell they are the same unit and never draws two cards for one.
+	 */
+	id?: string;
 	cwd: string;
 	status: InlineStatus;
 	createdAt: number;
@@ -180,7 +186,7 @@ export function workUnitName(cwd: string): string {
 export function buildCarrierRecord(state: CarrierState): InlineCarrierRecord {
 	const label = inlineText(state.label) || INLINE_MODE;
 	return {
-		id: carrierId(state.sessionId),
+		id: state.id ?? carrierId(state.sessionId),
 		agent: INLINE_AGENT,
 		mode: INLINE_MODE,
 		// There is no launch prompt behind inline work, and pretending there is
