@@ -15,5 +15,10 @@ ad1bfce79b655fc4f7cae71449d05d88  extensions/gentle-shell.ts
 6dccc1c4bf36e217d308a67c5e690c14  lib/shell-prompt.ts
 ```
 
+Both tests are pinned to the build listed here. When the package moves to a new version,
+the fixtures and the digest record are rebuilt **from the unpatched package**, and the
+record's version changes with them; until that happens the version guard fails, so a bump
+cannot silently leave the digests pointing at bytes nobody verified.
+
 gentle-pi is MIT licensed, Copyright (c) the gentle-pi authors. The files are unmodified
 copies kept for verification only; `NOTICE` records the attribution.

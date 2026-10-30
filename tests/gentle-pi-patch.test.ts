@@ -17,6 +17,7 @@ import {
 	anchorsFit,
 	classify,
 	defaultPaths,
+	installedVersion,
 	md5,
 	diagnoseAnchors,
 	patchText,
@@ -382,12 +383,26 @@ test('every pinned digest is what the patch produces from the pristine file', ()
  * keep answering 'patched-v1', or whoever has that build installed is refused instead of
  * upgraded. The record is a fixture; the lists may only grow. */
 test('every digest that shipped is still accepted', () => {
-	const recorded = JSON.parse(readFileSync(join(PRISTINE, '..', 'patch-digests.json'), 'utf8')) as Record<
-		string,
-		{ md5Patched: string; md5PatchedV1: string[] }
-	>;
+	const recorded = JSON.parse(readFileSync(join(PRISTINE, '..', 'patch-digests.json'), 'utf8')) as {
+		version: string;
+		targets: Record<string, { md5Patched: string; md5PatchedV1: string[] }>;
+	};
+	// The record is pinned to the build it was computed against. Bump the package and this
+	// fails: the fixtures and the digests are then rebuilt from the unpatched package, which
+	// is the only moment they may change.
+	assert.equal(recorded.version, GENTLE_PI_VERSION, 'the digest record was computed against gentle-pi ' + recorded.version + ', this patch pins ' + GENTLE_PI_VERSION);
+	// The installed package, not pi: its version is the build those bytes came from. Read
+	// only when the package is there, so the test still runs on a machine without it.
+	const installed = installedVersion(defaultPaths().install);
+	if (installed !== undefined) {
+		assert.equal(
+			installed,
+			recorded.version,
+			'the installed gentle-pi is not the build the digest record was computed against',
+		);
+	}
 	for (const target of TARGETS) {
-		const past = recorded[target.file];
+		const past = recorded.targets[target.file];
 		assert.ok(past, target.file + ' is missing from the digest record');
 		const accepted = new Set<string>([target.md5Patched ?? '', ...(target.md5PatchedV1 ?? [])]);
 		for (const digest of [past.md5Patched, ...past.md5PatchedV1]) {
