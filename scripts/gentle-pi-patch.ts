@@ -137,6 +137,61 @@ const SHELL_BAR_USAGE_REPLACEMENT = [
 	'}',
 ].join('\n');
 
+// loon gives the whole chrome one column of margin, and the bar is the last piece
+// outside it: column 0 stays unpainted, the painted block starts in column 1 and
+// still closes on the last column, exactly like the prompt band.
+const SHELL_BAR_MARGIN_IMPORT_ANCHOR = 'import { CARD_TONE, floatRows, panelInnerWidth, renderCard } from "./shell-card.ts";';
+const SHELL_BAR_MARGIN_IMPORT_REPLACEMENT = 'import { CARD_STYLE, CARD_TONE, cardStyle, floatRows, panelInnerWidth, renderCard } from "./shell-card.ts";';
+
+const SHELL_BAR_MARGIN_ROW_ANCHOR = [
+	'\tconst { inner, open } = painted;',
+	'\t// The background spans the full width: the margin cells are painted too, so',
+	'\t// the bar reaches both edges with no frame on its sides.',
+	'\tconst side = `${open} `;',
+	'\treturn `${side}${inner.slice(open.length, -BG_RESET.length)}${side}${BG_RESET}`;',
+].join('\n');
+const SHELL_BAR_MARGIN_ROW_REPLACEMENT = [
+	'\tconst { inner, open } = painted;',
+	'\tconst body = inner.slice(open.length, -BG_RESET.length);',
+	'\t// loon keeps one column of margin across the whole chrome, so its bar starts in',
+	'\t// column 1 like the prompt band and the cards, and still closes on the last column.',
+	'\t// The content width is the same either way, so the bar cascade does not move.',
+	'\tif (cardStyle() === CARD_STYLE.LOON) return ` ${open}${body}${open} ${BG_RESET}`;',
+	'\t// The background spans the full width: the margin cells are painted too, so',
+	'\t// the bar reaches both edges with no frame on its sides.',
+	'\tconst side = `${open} `;',
+	'\treturn `${side}${body}${side}${BG_RESET}`;',
+].join('\n');
+
+const SHELL_BAR_MARGIN_PADDING_ANCHOR = [
+	'\tconst padding = `${painted.open}${" ".repeat(targetWidth)}${BG_RESET}`;',
+	'\tif (presentation?.headerPlacement === "below-input") {',
+	'\t\t// A lower one-eighth block hugs the painted padding in the next row.',
+	'\t\tconst upperEdge = theme.fg(HEADER_RULE_ROLE, "▁".repeat(targetWidth));',
+].join('\n');
+const SHELL_BAR_MARGIN_PADDING_REPLACEMENT = [
+	'\t// The padding rows and the edge line are part of the bar, so under loon they take',
+	'\t// the same margin as its content row rather than starting in column 0.',
+	'\tconst margin = cardStyle() === CARD_STYLE.LOON ? " " : "";',
+	'\tconst blockWidth = Math.max(0, targetWidth - margin.length);',
+	'\tconst padding = `${margin}${painted.open}${" ".repeat(blockWidth)}${BG_RESET}`;',
+	'\tif (presentation?.headerPlacement === "below-input") {',
+	'\t\t// A lower one-eighth block hugs the painted padding in the next row.',
+	'\t\tconst upperEdge = `${margin}${theme.fg(HEADER_RULE_ROLE, "▁".repeat(blockWidth))}`;',
+].join('\n');
+
+const SHELL_BAR_MARGIN_RULE_ANCHOR = [
+	'\tif (floatHeaderPaint(theme, targetWidth, () => "") !== undefined) return theme.fg(HEADER_RULE_ROLE, HEADER_EDGE_CHAR.repeat(targetWidth));',
+	'\treturn theme.fg(HEADER_RULE_ROLE, HEADER_RULE_CHAR.repeat(targetWidth));',
+].join('\n');
+const SHELL_BAR_MARGIN_RULE_REPLACEMENT = [
+	'\t// Under loon the rule row keeps the chrome one-column margin too.',
+	'\tconst margin = cardStyle() === CARD_STYLE.LOON ? " " : "";',
+	'\tconst blockWidth = Math.max(0, targetWidth - margin.length);',
+	'\tif (floatHeaderPaint(theme, targetWidth, () => "") !== undefined) return `${margin}${theme.fg(HEADER_RULE_ROLE, HEADER_EDGE_CHAR.repeat(blockWidth))}`;',
+	'\treturn `${margin}${theme.fg(HEADER_RULE_ROLE, HEADER_RULE_CHAR.repeat(blockWidth))}`;',
+].join('\n');
+
 // The one-line bar paints its own brand text under a different constant.
 const SHELL_BAR_MINIMAL_ANCHOR =
 	'\t\t...(presentation?.density === "minimal" ? [] : [theme.fg(ROLE.BRAND, SHELL_BAR_BRAND)]),';
@@ -254,6 +309,10 @@ export const ANCHORS = {
 	shellBarCallsite: SHELL_BAR_CALLSITE_ANCHOR,
 	shellBarFallback: SHELL_BAR_FALLBACK_ANCHOR,
 	shellBarUsage: SHELL_BAR_USAGE_ANCHOR,
+	shellBarMarginImport: SHELL_BAR_MARGIN_IMPORT_ANCHOR,
+	shellBarMarginRow: SHELL_BAR_MARGIN_ROW_ANCHOR,
+	shellBarMarginPadding: SHELL_BAR_MARGIN_PADDING_ANCHOR,
+	shellBarMarginRule: SHELL_BAR_MARGIN_RULE_ANCHOR,
 	shellcard1: SHELL_CARD_1_ANCHOR,
 	shellcard2: SHELL_CARD_2_ANCHOR,
 	shellcard3: SHELL_CARD_3_ANCHOR,
@@ -308,7 +367,8 @@ export const TARGETS: TargetSpec[] = [
 		// brand gives way to it. Stock themes keep the bar exactly as it was.
 		file: 'lib/shell-bar.ts',
 		md5: 'c5b3819241a587f960834409312a72a0',
-		md5Patched: '36afe7b323c27f7c2753a22d08cb57fa',
+		md5Patched: '5b43e3127eae0024d45b21eec34b1a95',
+		md5PatchedV1: ['36afe7b323c27f7c2753a22d08cb57fa'],
 		edits: [
 			{ anchor: SHELL_BAR_BRAND_ANCHOR, replacement: SHELL_BAR_BRAND_ANCHOR + '\n\n' + SHELL_BAR_BRAND_ADDITION },
 			{ anchor: SHELL_BAR_MINIMAL_ANCHOR, replacement: SHELL_BAR_MINIMAL_REPLACEMENT },
@@ -317,6 +377,10 @@ export const TARGETS: TargetSpec[] = [
 			{ anchor: SHELL_BAR_CALLSITE_ANCHOR, replacement: SHELL_BAR_CALLSITE_REPLACEMENT },
 			{ anchor: SHELL_BAR_FALLBACK_ANCHOR, replacement: SHELL_BAR_FALLBACK_REPLACEMENT },
 			{ anchor: SHELL_BAR_USAGE_ANCHOR, replacement: SHELL_BAR_USAGE_REPLACEMENT },
+			{ anchor: SHELL_BAR_MARGIN_IMPORT_ANCHOR, replacement: SHELL_BAR_MARGIN_IMPORT_REPLACEMENT },
+			{ anchor: SHELL_BAR_MARGIN_ROW_ANCHOR, replacement: SHELL_BAR_MARGIN_ROW_REPLACEMENT },
+			{ anchor: SHELL_BAR_MARGIN_PADDING_ANCHOR, replacement: SHELL_BAR_MARGIN_PADDING_REPLACEMENT },
+			{ anchor: SHELL_BAR_MARGIN_RULE_ANCHOR, replacement: SHELL_BAR_MARGIN_RULE_REPLACEMENT },
 		],
 	},
 	{

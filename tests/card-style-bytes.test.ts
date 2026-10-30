@@ -135,7 +135,7 @@ test('the loon band surface ends where the bar surface ends', { skip: !available
 		framePromptLines: (lines: string[], width: number, options: unknown, layout: unknown) => string[];
 	};
 	const shellBar = (await jiti.import(join(GENTLE, 'lib', 'shell-bar.ts'))) as {
-		renderShellBelowInputFloat: (model: unknown, theme: unknown, width: number, usageHint: unknown, presentation: unknown) => { rows: string[] } | undefined;
+		renderShellBelowInputFloat: (model: unknown, theme: unknown, width: number, usageHint: unknown, presentation: unknown) => { rows: string[]; headerRow: number } | undefined;
 	};
 	const OPEN = '\u001b[48;2;61;56;35m';
 	const CLOSE = '\u001b[49m';
@@ -183,8 +183,11 @@ test('the loon band surface ends where the bar surface ends', { skip: !available
 		const chrome = shellBar.renderShellBelowInputFloat(model, theme, width, undefined, presentation);
 		assert.ok(chrome, 'the bar did not render at ' + width + ' columns');
 		const bandRight = Math.max(...painted(bandRow));
-		const barRight = Math.max(...painted(chrome.rows[1]!));
+		const barRow = chrome.rows[chrome.headerRow]!;
+		const barRight = Math.max(...painted(barRow));
 		assert.equal(bandRight, barRight, 'at ' + width + ' columns the band surface ends at ' + bandRight + ' and the bar at ' + barRight);
+		assert.equal(Math.min(...painted(barRow)), 1, 'the bar surface starts in column 1, where the band starts: one margin for the whole chrome');
+		assert.ok(!painted(barRow).includes(0), 'column 0 is a margin for the bar too: it carries no surface');
 		assert.equal(bandRight, width - 1, 'the surface reaches the last column at ' + width);
 		const bandCells = bandRow.replace(/\u001b\[[0-9;]*m/g, '');
 		assert.equal(Math.min(...painted(bandRow)), 1, 'the band surface starts in column 1');
