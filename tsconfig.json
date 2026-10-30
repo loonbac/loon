@@ -7,6 +7,7 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "allowImportingTsExtensions": true,
+    "allowJs": true,
     "noEmit": true,
     "strict": true,
     "exactOptionalPropertyTypes": true,
