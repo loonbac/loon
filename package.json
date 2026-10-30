@@ -29,7 +29,8 @@
   ],
   "scripts": {
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "inline-job": "node scripts/inline-job.mjs"
   },
   "pi": {
     "extensions": [

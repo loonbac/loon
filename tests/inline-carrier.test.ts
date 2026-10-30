@@ -203,18 +203,24 @@ test('a work unit starts with its first tool call and closes with a summary', ()
 	clock = 9_000;
 	pi.fire('turn_end', { type: 'turn_end', turnIndex: 0 }, ctx);
 	pi.fire('agent_end', { type: 'agent_end', messages: [{ role: 'assistant', content: [{ type: 'text', text: '## Summary\nCarrier record written.' }] }] }, ctx);
-	const finished = readCarrier(agentHome);
-	assert.equal(finished.status, 'completed');
-	assert.equal(finished.endedAt, 9_000);
-	assert.equal(finished.turns, 1);
-	assert.equal(finished.label, 'Summary', 'the closing line is the first line of the final answer');
+	// A turn ending is not the work ending: the card stays running.
+	const afterTurn = readCarrier(agentHome);
+	assert.equal(afterTurn.status, 'running', 'a turn ending must not finish the job');
+	assert.equal(afterTurn.endedAt, null);
+	assert.equal(afterTurn.turns, 1);
+	assert.equal(afterTurn.label, 'Summary', 'the closing line is the first line of the final answer');
 
 	pi.fire('session_shutdown', { type: 'session_shutdown', reason: 'quit' }, ctx);
 	assert.equal(existsSync(carrierPath(agentHome, SESSION_ID)), false, 'the carrier never outlives its session');
+	const stored = JSON.parse(readFileSync(join(agentHome, 'gentle-agents', 'tasks', 'loon-inline-' + SESSION_ID + '-1.json'), 'utf8')) as {
+		task: { status: string; closedBy?: string };
+	};
+	assert.equal(stored.task.status, 'completed', 'a job still open at shutdown is closed, not left running');
+	assert.equal(stored.task.closedBy, 'session');
 	rmSync(agentHome, { recursive: true, force: true });
 });
 
-test('a new step reopens a finished card instead of leaving it closed', () => {
+test('the next turn continues the same job, and the card keeps its start', () => {
 	const agentHome = scratch();
 	let clock = 1_000;
 	const pi = fakePi();
@@ -223,15 +229,15 @@ test('a new step reopens a finished card instead of leaving it closed', () => {
 	pi.fire('session_start', { type: 'session_start', reason: 'startup' }, ctx);
 	pi.fire('tool_call', { type: 'tool_call', toolCallId: 'c1', toolName: 'read', input: { path: 'a.ts' } }, ctx);
 	pi.fire('agent_end', { type: 'agent_end', messages: [] }, ctx);
-	assert.equal(readCarrier(agentHome).status, 'completed');
+	assert.equal(readCarrier(agentHome).status, 'running', 'the work is not over because the turn is');
 
 	clock = 20_000;
 	pi.fire('tool_call', { type: 'tool_call', toolCallId: 'c2', toolName: 'write', input: { path: 'b.ts' } }, ctx);
-	const reopened = readCarrier(agentHome);
-	assert.equal(reopened.status, 'running');
-	assert.equal(reopened.endedAt, null, 'a running card has to tick again');
-	assert.equal(reopened.toolCalls, 2);
-	assert.equal(reopened.startedAt, 1_000, 'the unit keeps its start');
+	const continued = readCarrier(agentHome);
+	assert.equal(continued.status, 'running');
+	assert.equal(continued.endedAt, null);
+	assert.equal(continued.toolCalls, 2);
+	assert.equal(continued.startedAt, 1_000, 'the job keeps its start across turns');
 	rmSync(agentHome, { recursive: true, force: true });
 });
 

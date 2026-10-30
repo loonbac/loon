@@ -84,8 +84,8 @@ function buildHarness(): Promise<Harness> {
 				mkdirSync(join(agentHome, 'state', 'loon-inline'), { recursive: true });
 				mkdirSync(join(agentHome, 'gentle-agents', 'tasks'), { recursive: true });
 				mkdirSync(join(agentHome, 'gentle-agents', 'presence'), { recursive: true });
-				// One session is one job, so the card id is the job id.
-				const id = 'loon-inline-' + SESSION;
+				// A job carries its own number, and the card id is that job.
+				const id = 'loon-inline-' + SESSION + '-1';
 				const record = (status: string, label: string, result: string | null) => ({
 					id,
 					agent: 'gentle-ai-worker',
@@ -210,7 +210,7 @@ test('when the unit closes the same card flips, and does not double', { skip: !a
 test('a unit the store already restored is still one card', { skip: !available && 'gentle-pi is not installed here' }, async () => {
 	const rendered = await (await buildHarness()).render({ closed: true });
 	try {
-		rendered.restore('loon-inline-' + SESSION);
+		rendered.restore('loon-inline-' + SESSION + '-1');
 		const lines = rendered.lines;
 		assert.equal(cards(lines), 1, 'the restore must not add a second card for the same unit');
 	} finally {

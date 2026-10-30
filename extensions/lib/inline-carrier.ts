@@ -12,7 +12,7 @@
  * that cannot be written costs a card; an exception thrown into pi costs the
  * terminal.
  */
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
@@ -83,6 +83,12 @@ export interface InlineCarrierRecord {
 	 * pruned instead of posing as live work.
 	 */
 	pid: number;
+	/**
+	 * Who ended the job: `agent` for the explicit signal, `idle` for the
+	 * fallback, `session` for a shutdown. Not part of TaskRecord; gentle-pi
+	 * ignores it, and it is what tells a reader why a card is finished.
+	 */
+	closedBy?: string;
 }
 
 /** What the extension knows about the session at the moment it writes. */
@@ -132,6 +138,35 @@ export function agentHomeDirectory(env: NodeJS.ProcessEnv = process.env, home: s
 
 export function carrierDirectory(agentHome: string): string {
 	return join(agentHome, 'state', INLINE_DIR_NAME);
+}
+
+/**
+ * Where the explicit completion signal lands: a file the agent writes through
+ * `scripts/inline-job.mjs`, which this extension consumes on its next event.
+ * @param {string} agentHome
+ * @param {string} sessionId
+ * @returns {string}
+ */
+export function closeRequestPath(agentHome: string, sessionId: string): string {
+	return join(carrierDirectory(agentHome), sessionId + '.close.json');
+}
+
+/**
+ * Consume the agent's completion signal. Reading it removes it, so one signal
+ * closes one job and the next request opens the next card.
+ * @param {string} agentHome
+ * @param {string} sessionId
+ * @returns {boolean} whether there was a signal to consume
+ */
+export function takeCloseRequest(agentHome: string, sessionId: string): boolean {
+	try {
+		const path = closeRequestPath(agentHome, sessionId);
+		if (!existsSync(path)) return false;
+		unlinkSync(path);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 export function carrierPath(agentHome: string, sessionId: string): string {
