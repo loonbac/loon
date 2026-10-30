@@ -9,13 +9,21 @@ import {
 	ANCHOR,
 	BACKUP_PREFIX,
 	PATCH_MARKER,
+	TARGETS,
 	TARGET_FILE,
+	VIEW_FILE,
+	VIEW_LIST_ANCHOR,
+	VIEW_PATCH_MARKER,
+	VIEW_THREAD_ANCHOR,
 	classify,
+	classifyTarget,
 	md5,
+	patchTargetText,
 	patchText,
 	replacementBalanced,
 	run,
 	verifyPatched,
+	verifyViewPatched,
 } from '../scripts/apply-inline-carrier-patch.mjs';
 
 const SCRIPT = fileURLToPath(new URL('../scripts/apply-inline-carrier-patch.mjs', import.meta.url));
@@ -41,6 +49,24 @@ function fixture(options: { anchor?: boolean | 'twice' } = {}): string {
 	return lines.join('\n');
 }
 
+/**
+ * A file shaped like the part of lib/agents-view.ts the panel patch lives in: the
+ * class method that lists tasks, and the one that draws a task's thread.
+ */
+function viewFixture(options: { list?: boolean | 'twice'; thread?: boolean | 'twice' } = {}): string {
+	const lines = [
+		'export class AgentsView {',
+		'\tprivate refreshTasks(): void {',
+	];
+	if (options.list === 'twice') lines.push(VIEW_LIST_ANCHOR, VIEW_LIST_ANCHOR);
+	else if (options.list !== false) lines.push(VIEW_LIST_ANCHOR);
+	lines.push('\t\tconst active = local.filter((task: TaskRecord) => task.status === "running");', '\t}', '', '\tprivate threadWindow(rows: number, width: number): string[] {');
+	if (options.thread === 'twice') lines.push(VIEW_THREAD_ANCHOR, VIEW_THREAD_ANCHOR);
+	else if (options.thread !== false) lines.push(VIEW_THREAD_ANCHOR);
+	lines.push('\t\treturn lines;', '\t}', '}', '');
+	return lines.join('\n');
+}
+
 interface Paths {
 	install: string;
 	backups: string;
@@ -51,16 +77,23 @@ function scratch(): Paths {
 	const install = join(root, 'gentle-pi');
 	const backups = join(root, 'backups');
 	mkdirSync(dirname(join(install, TARGET_FILE)), { recursive: true });
+	mkdirSync(dirname(join(install, VIEW_FILE)), { recursive: true });
 	mkdirSync(backups, { recursive: true });
 	return { install, backups };
 }
 
-function writeTarget(paths: Paths, text: string): void {
+/** Both files the patch owns, because a patch that half-applies is the failure. */
+function writeTarget(paths: Paths, text: string, view: string = viewFixture()): void {
 	writeFileSync(join(paths.install, TARGET_FILE), text);
+	writeFileSync(join(paths.install, VIEW_FILE), view);
 }
 
 function readTarget(paths: Paths): string {
 	return readFileSync(join(paths.install, TARGET_FILE), 'utf8');
+}
+
+function readView(paths: Paths): string {
+	return readFileSync(join(paths.install, VIEW_FILE), 'utf8');
 }
 
 function backupDirs(paths: Paths): string[] {
@@ -118,7 +151,7 @@ test('applying twice changes nothing the second time', () => {
 test('a moved or duplicated anchor fails loudly instead of half-patching', () => {
 	const moved = patchText(fixture({ anchor: false }));
 	assert.ok(!moved.ok, 'a moved anchor must be refused');
-	assert.match(moved.reason, /the anchor moved/);
+	assert.match(moved.reason, /the anchor for visibleTasks moved/);
 	assert.match(moved.reason, /Update scripts\/apply-inline-carrier-patch\.mjs/);
 
 	const twice = patchText(fixture({ anchor: 'twice' }));
@@ -190,7 +223,7 @@ test('apply refuses a file whose anchor moved, and leaves everything alone', asy
 	writeTarget(paths, moved);
 	const result = await run('apply', paths);
 	assert.equal(result.ok, false);
-	assert.match(result.ok ? '' : result.reason, /the anchor moved/);
+	assert.match(result.ok ? '' : result.reason, /the anchor for visibleTasks moved/);
 	assert.equal(readTarget(paths), moved, 'the file must not be touched');
 	assert.equal(backupDirs(paths).length, 0, 'a refusal must not leave a backup of nothing');
 	rmSync(join(paths.backups, '..'), { recursive: true, force: true });
@@ -283,6 +316,86 @@ test('revert refuses a file that is no longer the one the backup recorded', asyn
 	const restored = await run('revert', paths);
 	assert.ok(restored.ok, restored.ok ? '' : restored.reason);
 	assert.equal(readTarget(paths), fixture());
+	rmSync(join(paths.backups, '..'), { recursive: true, force: true });
+});
+
+test('the panel is patched in two places, and the store stays in front', () => {
+	const original = viewFixture();
+	const patched = patchTargetText(TARGETS[1], original);
+	assert.ok(patched.ok, patched.ok ? '' : patched.reason);
+	assert.equal(patched.changed, true);
+	assert.equal(original.includes(VIEW_PATCH_MARKER), false);
+	assert.equal(patched.text.includes(VIEW_PATCH_MARKER), true);
+	assert.equal(patched.text.includes(VIEW_LIST_ANCHOR), true, 'the list statement survives byte for byte');
+	assert.equal(patched.text.includes('loonPanel?.tasks?.(this.deps.sessionId'), true);
+	assert.equal(patched.text.includes(VIEW_THREAD_ANCHOR), false, 'the detail line is replaced, not supplemented');
+	assert.equal(patched.text.includes('loonThread?.thread?.(task.id) ?? this.deps.store.thread(task.id)'), true);
+	assert.deepEqual(verifyViewPatched(patched.text), { ok: true });
+
+	// Applying it twice is the same file: the marker is the whole test.
+	const again = patchTargetText(TARGETS[1], patched.text);
+	assert.ok(again.ok);
+	assert.equal(again.changed, false);
+	assert.equal(again.text, patched.text);
+});
+
+test('a panel anchor that moved or repeated is refused, and nothing is written', async () => {
+	const paths = scratch();
+	const moved = fixture();
+	const view = viewFixture({ thread: false });
+	writeTarget(paths, moved, view);
+	const refused = await run('apply', paths);
+	assert.equal(refused.ok, false);
+	assert.match(refused.ok ? '' : refused.reason, /lib\/agents-view\.ts/);
+	assert.match(refused.ok ? '' : refused.reason, /threadWindow detail moved/);
+	assert.match(refused.ok ? '' : refused.reason, /nothing was written/);
+	assert.equal(readTarget(paths), moved, 'the other file must not be patched either');
+	assert.equal(readView(paths), view);
+	assert.equal(backupDirs(paths).length, 0, 'a refusal leaves no backup behind');
+
+	const repeated = await run('apply', { install: paths.install, backups: paths.backups });
+	assert.equal(repeated.ok, false);
+	writeTarget(paths, moved, viewFixture({ list: 'twice' }));
+	const twice = await run('apply', paths);
+	assert.equal(twice.ok, false);
+	assert.match(twice.ok ? '' : twice.reason, /refreshTasks list appears 2 times/);
+	assert.equal(readTarget(paths), moved);
+	rmSync(join(paths.backups, '..'), { recursive: true, force: true });
+});
+
+test('check answers for both files, and revert restores both', async () => {
+	const paths = scratch();
+	const card = fixture();
+	const view = viewFixture();
+	writeTarget(paths, card, view);
+
+	const applied = await run('apply', paths);
+	assert.ok(applied.ok, applied.ok ? '' : applied.reason);
+	assert.match(applied.ok ? applied.message : '', /extensions\/gentle-agents\.ts/);
+	assert.match(applied.ok ? applied.message : '', /lib\/agents-view\.ts/);
+	assert.equal(classifyTarget(TARGETS[1], readView(paths)), 'patched');
+
+	// One file losing its patch is a failed check for the whole install, and the
+	// report has to say which file it is.
+	writeFileSync(join(paths.install, VIEW_FILE), view);
+	const half = await run('check', paths);
+	assert.equal(half.ok, false);
+	assert.match(half.ok ? '' : half.reason, /lib\/agents-view\.ts is not patched/);
+
+	// A file that already lost its patch on its own is left alone, and the file
+	// that still carries it comes back from its own backup: reverting finishes the
+	// job instead of stopping halfway.
+	writeFileSync(join(paths.install, TARGET_FILE), card);
+	const oneSided = await run('revert', paths);
+	assert.ok(oneSided.ok, oneSided.ok ? '' : oneSided.reason);
+	assert.equal(readTarget(paths), card, 'a clean file is not rewritten');
+	assert.equal(readView(paths), view, 'the patched file is restored from its backup');
+
+	// And the pair comes back together when both are patched.
+	assert.ok((await run('apply', paths)).ok, 'apply patches the half that was missing');
+	assert.ok((await run('revert', paths)).ok);
+	assert.equal(readTarget(paths), card);
+	assert.equal(readView(paths), view);
 	rmSync(join(paths.backups, '..'), { recursive: true, force: true });
 });
 

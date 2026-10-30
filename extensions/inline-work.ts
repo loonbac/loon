@@ -34,6 +34,7 @@ import type {
 	TurnEndEvent,
 } from '@earendil-works/pi-coding-agent';
 import { collapseResolver } from './lib/inline-collapse.ts';
+import { clearLiveThread, installOverlayPanel, writeLiveThread } from './lib/inline-overlay.ts';
 import {
 	INLINE_RESULT_MAX,
 	addText,
@@ -315,6 +316,10 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 				removeCarrier(agentHome, sessionId);
 			}
 			pruneDeadCarriers(agentHome, sessionId);
+			// The panel finds the inline units through this provider. Publishing it is
+			// what makes a unit appear while it runs, without a restart; withdrawing
+			// it at shutdown leaves the panel exactly as gentle-pi ships it.
+			installOverlayPanel({ agentHome });
 		}));
 
 		pi.on('tool_call', safeHandler((event: ToolCallEvent, ctx: ExtensionContext): void => {
@@ -334,6 +339,10 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 				args: boundedArgs((event as { input?: unknown }).input),
 			});
 			begin(stepLabel(event.toolName, (event as { input?: unknown }).input));
+			// The running unit's transcript, next to its carrier, so the panel can
+			// open work that has not finished yet.
+			const startedId = currentId();
+			if (startedId !== undefined && sessionId !== undefined) writeLiveThread(agentHome, sessionId, startedId, thread);
 		}));
 
 		pi.on('tool_execution_end', safeHandler((event: ToolExecutionEndEvent): void => {
@@ -345,6 +354,8 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 				output: toolSummary((event as { result?: unknown }).result),
 				isError: event.isError === true,
 			});
+			const endedId = currentId();
+			if (endedId !== undefined && sessionId !== undefined) writeLiveThread(agentHome, sessionId, endedId, thread);
 		}));
 
 		pi.on('message_end', safeHandler((event: MessageEndEvent): void => {
@@ -386,6 +397,8 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			const withResult: InlineCarrierRecord = { ...record, result: closing.length > 0 ? closing : record.result };
 			writeUnitHistory(agentHome, withResult, thread);
 			historyWritten = true;
+			const closedId = currentId();
+			if (closedId !== undefined && sessionId !== undefined) writeLiveThread(agentHome, sessionId, closedId, thread);
 			persist();
 		}));
 
@@ -399,7 +412,11 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			thread = emptyUnitThread();
 			unit = 0;
 			historyWritten = false;
-			if (sessionId !== undefined) removeCarrier(agentHome, sessionId);
+			if (sessionId !== undefined) {
+				removeCarrier(agentHome, sessionId);
+				clearLiveThread(agentHome, sessionId);
+			}
+			installOverlayPanel(undefined);
 		}));
 
 		// The other half of the feature: while this session has a carrier, its own
