@@ -405,7 +405,7 @@ gentle-pi se actualiza. La respuesta son dos reglas, y la primera es la que impo
 
 Un ancla que aparece dos veces también rompe el parche, por ambigüedad: sustituir la
 primera cuando hay dos sería adivinar. Y el resultado se verifica antes de escribirlo: cada
-reemplazo tiene que haber caído exactamente una vez y el marcador tiene que estar.
+reemplazo tiene que haber caído exactamente una vez.
 
 `check` dice lo mismo antes de intentar nada:
 
