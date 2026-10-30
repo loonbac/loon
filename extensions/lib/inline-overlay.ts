@@ -103,11 +103,6 @@ function asThread(value: unknown): OverlayThread | undefined {
 	};
 }
 
-/** When a record last said something happened, for picking the truest one. */
-function activity(task: OverlayTask): number {
-	return typeof task.lastActivityAt === 'number' ? task.lastActivityAt : 0;
-}
-
 function fresh(task: OverlayTask, now: number): boolean {
 	const seen = typeof task.lastActivityAt === 'number' ? task.lastActivityAt : 0;
 	const age = now - seen;
@@ -170,10 +165,12 @@ export function overlayTasks(agentHome: string, sessionId: string, known: string
 		}
 		const live = liveCarrier(agentHome, sessionId, now);
 		if (live !== undefined && !knownIds.has(live.id)) {
-			const seen = byId.get(live.id);
-			// A tie goes to the persisted record: when a job closes, both describe the
-			// same moment and the history file is the one that survives.
-			if (seen === undefined || activity(live) > activity(seen)) byId.set(live.id, live);
+			// The carrier is the authority for its own job while this process owns it:
+			// it is rewritten on every event, so a persisted record with the same id
+			// can only be older. Comparing timestamps here would let a finished record
+			// win a repaint and tell the person the work was over while it was still
+			// running - the flicker this replaces.
+			byId.set(live.id, live);
 		}
 		return [...byId.values()].sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 	} catch {
