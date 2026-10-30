@@ -378,6 +378,16 @@ Cuatro reglas que hacen esto seguro:
   sesión normal no llega ahí; una sesión muy larga puede, y entonces lo peor que pasa es que un
   mensaje viejo cambie de forma al repintarse.
 
+#### Lo que el hilo del panel duplica, y por qué no es una fuga
+
+El hilo de una tarjeta guarda la prosa del asistente tal cual: esa es la transcripción del trabajo.
+Con el colapso de prosa activo esa prosa ya no se dibuja en el transcript, así que a la vista no
+hay nada duplicado; con `LOON_INLINE_TRANSCRIPT=full`, o con el colapso apagado, el mismo párrafo
+aparece en los dos sitios. Eso es **duplicación por diseño** —los dos leen la misma fuente— y no
+una fuga del compositor de la TUI: se revisó y el transcript no contiene ninguna fila del panel
+(ni `└ ✓ Subagent …` ni las filas de herramienta). Ese diagnóstico quedó cerrado; no hay nada que
+parchear por él.
+
 ### El colapso de filas
 
 La tercera pieza no necesita parche. Desde la primera llamada de la sesión,
