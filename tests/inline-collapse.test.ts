@@ -22,6 +22,8 @@ import type {
 import { createInlineWork } from '../extensions/inline-work.ts';
 import { COLLAPSED_TOOL_NAMES } from '../extensions/lib/inline-collapse.ts';
 import { carrierPath, type InlineCarrierRecord } from '../extensions/lib/inline-carrier.ts';
+import { liveThreadPath } from '../extensions/lib/inline-overlay.ts';
+import { THINKING_SUFFIX } from '../extensions/lib/inline-transcript.ts';
 
 const SESSION_ID = 'sess-abc123';
 /** The subagent tools: the collapse must never touch them. */
@@ -442,13 +444,40 @@ test('the prose of a live turn collapses to one line, and the answer does not', 
 	}
 });
 
-test('a user message and the thinking text are never transformed', () => {
+test('a user message is never transformed', () => {
 	const agentHome = scratch();
 	try {
 		const pi = runningUnit(agentHome);
 		const prose = 'Una pregunta del dueño, en dos líneas.\n\nCon contexto.';
 		assert.equal(pi.transform(prose, { messageType: 'user' }), prose);
-		assert.equal(pi.transform(prose, { messageType: 'assistant-thinking' }), prose);
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a thinking block collapses to one line and its text reaches the panel', () => {
+	const agentHome = scratch();
+	try {
+		const pi = runningUnit(agentHome);
+		const reasoning = 'El dueño quiere el razonamiento fuera del transcript.\n\nPero sin perderlo: el panel lo muestra.';
+		const collapsed = pi.transform(reasoning, { messageType: 'assistant-thinking' });
+		assert.equal(collapsed.split('\n').length, 1, 'the reasoning leaves the transcript: ' + collapsed);
+		assert.ok(collapsed.includes(THINKING_SUFFIX), collapsed);
+
+		// Collapsing is not losing: the panel gets the whole text, as its own kind.
+		const live = JSON.parse(readFileSync(liveThreadPath(agentHome, SESSION_ID), 'utf8')) as {
+			thread: { items: Array<{ kind: string; text?: string }> };
+		};
+		const thinkingItems = live.thread.items.filter((item) => item.kind === 'thinking');
+		assert.equal(thinkingItems.length, 1, 'the reasoning is in the thread: ' + JSON.stringify(live.thread.items));
+		assert.equal(thinkingItems[0]?.text, reasoning);
+
+		// A repaint of the same block must not append it again.
+		pi.transform(reasoning, { messageType: 'assistant-thinking' });
+		const again = JSON.parse(readFileSync(liveThreadPath(agentHome, SESSION_ID), 'utf8')) as {
+			thread: { items: Array<{ kind: string; text?: string }> };
+		};
+		assert.equal(again.thread.items.filter((item) => item.kind === 'thinking').length, 1, 'one block, one item');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}

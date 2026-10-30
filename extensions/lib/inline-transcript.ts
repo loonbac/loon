@@ -40,6 +40,13 @@ export const MARKER_SUFFIX = '· inline · /gentle:agents';
 export const EXCERPT_MAX = 80;
 
 /**
+ * What a collapsed reasoning block says. Its own marker: the reasoning of a
+ * turn is not inline work, and a person reading one line should know which of
+ * the two they are looking at.
+ */
+export const THINKING_SUFFIX = '· pensamiento · /gentle:agents';
+
+/**
  * How many decisions are remembered. A long session is a few hundred messages;
  * at the cap the oldest decision is forgotten, and only then can a repaint
  * change it - so the cap is stated here and in the README rather than guessed.
@@ -109,12 +116,13 @@ export function firstLine(markdown: string): string {
  * The one-line replacement for a collapsed message.
  * @param {string} markdown
  * @param {TranscriptMode} mode
+ * @param {string} [suffix]
  * @returns {string}
  */
-export function collapseMarker(markdown: string, mode: TranscriptMode): string {
-	if (mode === 'off') return MARKER_SUFFIX;
+export function collapseMarker(markdown: string, mode: TranscriptMode, suffix: string = MARKER_SUFFIX): string {
+	if (mode === 'off') return suffix;
 	const excerpt = firstLine(markdown);
-	return excerpt.length > 0 ? '▸ ' + excerpt + ' ' + MARKER_SUFFIX : MARKER_SUFFIX;
+	return excerpt.length > 0 ? '▸ ' + excerpt + ' ' + suffix : suffix;
 }
 
 /** The bounded memory of what was decided about which message. */
@@ -166,23 +174,57 @@ export interface TranscriptCollapse {
  */
 export function createTranscriptTransformer(options: {
 	mode: TranscriptMode;
+	modeOf?: () => TranscriptMode;
 	isLive: () => boolean;
 	closingText: () => string | undefined;
 	memory?: TranscriptMemory;
+	thinkingMemory?: TranscriptMemory;
+	onThinking?: (text: string, isStreaming: boolean) => void;
 }): TranscriptCollapse {
 	const memory = options.memory ?? createTranscriptMemory();
+	const thinkingMemory = options.thinkingMemory ?? createTranscriptMemory();
+	const modeOf = options.modeOf ?? ((): TranscriptMode => options.mode);
+
+	/**
+	 * The reasoning path: the same knob, a different marker.
+	 *
+	 * A collapsed markdown transform cannot be opened again with the expand key,
+	 * so the whole block is handed to the panel *before* any decision is taken.
+	 * Losing the reasoning would be a worse trade than the noise it replaces.
+	 * @param {string} markdown
+	 * @param {MarkdownTransformContext} context
+	 * @returns {string}
+	 */
+	const reasoning = (markdown: string, context: MarkdownTransformContext): string => {
+		const streaming = context?.isStreaming === true;
+		if (markdown.trim().length === 0) return markdown;
+		// A streaming frame is a growing prefix of the block, not a block: recording
+		// it would fill the panel with every intermediate state of one thought.
+		if (!streaming) options.onThinking?.(markdown, false);
+		const decided = thinkingMemory.get(markdown);
+		if (decided === 'kept' || decided === 'exempt') return markdown;
+		if (decided === 'collapsed') return collapseMarker(markdown, modeOf(), THINKING_SUFFIX);
+		if (modeOf() === 'full' || !options.isLive()) {
+			if (!streaming) thinkingMemory.set(markdown, 'kept');
+			return markdown;
+		}
+		if (!streaming) thinkingMemory.set(markdown, 'collapsed');
+		return collapseMarker(markdown, modeOf(), THINKING_SUFFIX);
+	};
+
 	return {
 		exempt(text: string): void {
 			if (text.trim().length > 0) memory.set(text, 'exempt');
 		},
 		transformer(markdown: string, context: MarkdownTransformContext): string {
 			try {
-				if (options.mode === 'full') return markdown;
+				if (context?.messageType === 'assistant-thinking') return reasoning(markdown, context);
+				if (modeOf() === 'full') return markdown;
 				if (context?.messageType !== 'assistant') return markdown;
 				if (markdown.trim().length === 0) return markdown;
 				const decided = memory.get(markdown);
 				if (decided === 'exempt') return markdown;
-				if (decided === 'collapsed') return collapseMarker(markdown, options.mode);
+				if (decided === 'collapsed') return collapseMarker(markdown, modeOf());
 				if (decided === 'kept') return markdown;
 				if (isClosingMessage(markdown, options.closingText())) {
 					memory.set(markdown, 'exempt');
@@ -193,7 +235,7 @@ export function createTranscriptTransformer(options: {
 					return markdown;
 				}
 				memory.set(markdown, 'collapsed');
-				return collapseMarker(markdown, options.mode);
+				return collapseMarker(markdown, modeOf());
 			} catch {
 				// A transformer that throws would break the transcript: show the message.
 				return markdown;
