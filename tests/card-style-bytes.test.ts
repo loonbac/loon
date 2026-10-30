@@ -69,18 +69,102 @@ function createRecordingTheme() {
 }
 
 /**
- * Closed-set guardian: every `\u001b[...m` escape sequence in a row must belong to the closed set
- * of parameters the theme emitted (plus plain resets `''` and `'0'`). If any unexpected escape
- * appears (such as a hardcoded `\u001b[31m` or an unrecorded background/weight), it is reported
- * with the offending sequence and a prefix of the containing row.
+ * Sequences that are not SGR and are still allowed to appear in a painted row.
+ *
+ * Empty on purpose: a guardian that cannot see a whole family of escapes is not a closed set,
+ * and an allow-list that grows quietly is how such a guardian starts lying. Adding one here is
+ * a decision with its own line, reviewed on its own merits - never a way to make a failing test
+ * pass.
  */
-function strayEscapes(rows: readonly string[], allowed: ReadonlySet<string>): string[] {
+const ALLOWED_NON_SGR: ReadonlySet<string> = new Set<string>();
+
+/** Parameter bytes (0x30-0x3F) and intermediate bytes (0x20-0x2F) of a control sequence. */
+function isParameterOrIntermediate(character: string): boolean {
+	return (character >= '\u0030' && character <= '\u003f') || (character >= '\u0020' && character <= '\u002f');
+}
+
+/** Bytes that end an escape sequence other than a control sequence final byte. */
+function isFinalByte(character: string): boolean {
+	return character >= '\u0040' && character <= '\u007e';
+}
+
+/**
+ * Closed-set guardian over every escape family, not only SGR.
+ *
+ * An SGR sequence (`\u001b[...m`) is allowed only when its parameters were emitted by the theme
+ * (plus plain resets `''` and `'0'`). Every other sequence - OSC (`\u001b]...BEL` or
+ * `\u001b]...\u001b\\`), charset designation (`\u001b(B`, `\u001b(0`), a CSI whose final byte is
+ * not `m` (`\u001b[2J`), or any two-byte escape - is reported unless it appears literally in
+ * `ALLOWED_NON_SGR`. A sequence left unterminated at the end of a row is reported too: the
+ * guardian cannot be satisfied by leaving one open.
+ */
+function strayEscapes(
+	rows: readonly string[],
+	allowed: ReadonlySet<string>,
+	allowedNonSgr: ReadonlySet<string> = ALLOWED_NON_SGR,
+): string[] {
 	const offenders: string[] = [];
 	for (const row of rows) {
-		for (const match of row.matchAll(/\u001b\[([0-9;]*)m/g)) {
-			const param = match[1] ?? '';
-			if (param === '' || param === '0' || allowed.has(param)) continue;
-			offenders.push(`${match[0]} in ${row.slice(0, 40)}`);
+		const report = (sequence: string, why: string) => {
+			offenders.push(`${JSON.stringify(sequence)} (${why}) in ${row.slice(0, 40)}`);
+		};
+		let index = 0;
+		while (index < row.length) {
+			const start = row.indexOf('\u001b', index);
+			if (start === -1) break;
+			const kind = row[start + 1];
+			if (kind === undefined) {
+				report(row.slice(start), 'unterminated escape at the end of the row');
+				break;
+			}
+			if (kind === '[') {
+				let cursor = start + 2;
+				while (cursor < row.length && isParameterOrIntermediate(row[cursor]!)) cursor += 1;
+				const final = row[cursor];
+				if (final === undefined || !isFinalByte(final)) {
+					report(row.slice(start), 'unterminated control sequence');
+					break;
+				}
+				const sequence = row.slice(start, cursor + 1);
+				if (final === 'm') {
+					const parameters = row.slice(start + 2, cursor);
+					if (parameters !== '' && parameters !== '0' && !allowed.has(parameters)) {
+						report(sequence, 'SGR the theme did not emit');
+					}
+				} else if (!allowedNonSgr.has(sequence)) {
+					report(sequence, 'control sequence outside the closed set');
+				}
+				index = cursor + 1;
+				continue;
+			}
+			if (kind === ']') {
+				let cursor = start + 2;
+				let end = -1;
+				while (cursor < row.length) {
+					if (row[cursor] === '\u0007') {
+						end = cursor + 1;
+						break;
+					}
+					if (row[cursor] === '\u001b' && row[cursor + 1] === '\\') {
+						end = cursor + 2;
+						break;
+					}
+					cursor += 1;
+				}
+				if (end === -1) {
+					report(row.slice(start), 'unterminated operating system command');
+					break;
+				}
+				const sequence = row.slice(start, end);
+				if (!allowedNonSgr.has(sequence)) report(sequence, 'operating system command outside the closed set');
+				index = end;
+				continue;
+			}
+			// Any other escape: a two-byte escape, or a three-byte charset designation such as ESC ( B.
+			const length = kind === '(' || kind === ')' || kind === '*' || kind === '+' || kind === '-' || kind === '.' || kind === '/' ? 3 : 2;
+			const sequence = row.slice(start, start + length);
+			if (!allowedNonSgr.has(sequence)) report(sequence, 'escape outside the closed set');
+			index = start + length;
 		}
 	}
 	return offenders;
@@ -332,5 +416,42 @@ test('the guardian catches raw escapes that bareBackground misses', { skip: !ava
 	// The closed set checks all escapes against what the theme emitted, reporting the stray escape:
 	const offenders = strayEscapes([tampered], allowed);
 	assert.equal(offenders.length, 1, 'strayEscapes must report the injected escape');
-	assert.ok(offenders[0]!.includes('\u001b[31m'), 'offender must identify the offending escape');
+	assert.ok(offenders[0]!.includes(JSON.stringify('\u001b[31m')), 'offender must identify the offending escape');
+});
+
+/* The rule this one carries: the guardian is closed over every escape family, not only SGR.
+ * A family it cannot see is a family that can paint anything, and an unterminated sequence is
+ * the same hole at the end of a row. Each case below injects one escape into an otherwise clean
+ * painted row and expects exactly one offender naming that escape. */
+test('the escape guardian reports every family, not only SGR', () => {
+	const clean = '\u001b[48;2;61;56;35m  card  \u001b[49m';
+	// The parameters the recording theme emits, so only the injected family can trip the guardian.
+	// The set records on use, exactly as rendering does, so the callbacks are exercised once here.
+	const { theme, allowed } = createRecordingTheme();
+	theme.fg('text', '');
+	theme.bg('panel', '');
+	theme.bold('');
+	// `tail` is empty where the point is that the escape is left open at the end of the row.
+	const injections: Array<{ name: string; sequence: string; tail: string }> = [
+		{ name: 'operating system command, BEL-terminated', sequence: '\u001b]8;;https://example.com\u0007', tail: clean },
+		{ name: 'operating system command, ST-terminated', sequence: '\u001b]0;title\u001b\\', tail: clean },
+		{ name: 'charset designation (B)', sequence: '\u001b(B', tail: clean },
+		{ name: 'charset designation (0)', sequence: '\u001b(0', tail: clean },
+		{ name: 'control sequence that is not SGR: erase display', sequence: '\u001b[2J', tail: clean },
+		{ name: 'control sequence that is not SGR: cursor position', sequence: '\u001b[1;2H', tail: clean },
+		{ name: 'escape left unterminated at the end of the row', sequence: '\u001b', tail: '' },
+		{ name: 'operating system command left unterminated', sequence: '\u001b]0;title', tail: '' },
+	];
+	for (const { name, sequence: injection, tail } of injections) {
+		const offenders = strayEscapes([clean + injection + tail], allowed);
+		assert.equal(offenders.length, 1, `${name}: exactly one offender, got ${JSON.stringify(offenders)}`);
+		assert.ok(
+			offenders[0]!.includes(JSON.stringify(injection)),
+			`${name}: the offender must name the escape as ${JSON.stringify(injection)}, got ${offenders[0]}`,
+		);
+	}
+	// The allow-list for non-SGR families is empty on purpose: widening it is a decision.
+	assert.equal(ALLOWED_NON_SGR.size, 0, 'a non-SGR sequence was allowed without a reviewed decision');
+	// SGR the theme emitted, and plain resets, still pass.
+	assert.deepEqual(strayEscapes([`\u001b[1mbold\u001b[22m\u001b[0m\u001b[m`], allowed), [], 'theme SGR must stay allowed');
 });
