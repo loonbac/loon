@@ -332,37 +332,29 @@ test('every anchor of every target reports where it lives', () => {
 	}
 });
 
-/* The band's row count is what pi's mouse model reads. The patch that leaves the label
- * slot without a surface keeps the native count for loon - so loon needs no row shift -
- * while float still opens with a padding row and does.
+/* The band's row count is what pi's mouse model reads. The band opens with an empty
+ * surface row, so every native row sits one lower and the editor subtracts exactly that
+ * row - for both chromes, because both go through the same branch.
  *
  * This is a COUPLING GUARD, not a behavioural test: it matches the emitted source, with
- * comments stripped so a comment cannot satisfy it. There is no behavioural mouse test
- * and there cannot be one here - it would need pi's editor, which these tests replace
- * with a double - so what is checked is the pair that can desynchronise.
- *
- * The limit, stated: there is no behavioural proof of the mouse mapping, and there cannot
- * be one here - it would need pi's editor, which these tests replace with a double. What
- * can desynchronise is the label row and the shift, so that pair is what is asserted, with
- * the row numbers spelled out. */
-test('the label slot and the mouse shift stay in step', () => {
+ * comments stripped so a comment cannot satisfy it. There is no behavioural mouse test and
+ * there cannot be one here - it would need pi's editor, which these tests replace with a
+ * double - so what is checked is the pair that can desynchronise, with the numbers spelled
+ * out. */
+test('the band opens with a row and the mouse shift follows it', () => {
 	const shell = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
 	const prompt = TARGETS.find((target) => target.file === 'lib/shell-prompt.ts')!;
 	// Comments out first: a comment mentioning the string must not satisfy the guard.
 	const withoutComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 	const replacements = (target: typeof shell) => target.edits.map((edit) => withoutComments(edit.replacement)).join('\n');
-	const labelOutside = replacements(prompt).includes('layout.chrome === "loon" ? label');
-	const mouseSource = replacements(shell);
-	const shift = /layout\.chrome === "loon" \? (\d) : (\d)/.exec(mouseSource);
+	const opensWithRow = /floatPromptRow\("", layout, options\.borderColor\),\s*floatPromptRow\(floatPromptHint/.test(replacements(prompt));
+	const shift = /layout\.chrome === "loon" \? (\d) : (\d)/.exec(replacements(shell));
 	const loonShift = shift ? Number(shift[1]) : 1;
 	const floatShift = shift ? Number(shift[2]) : 1;
-	const expected = labelOutside ? { loonShift: 0, floatShift: 1 } : { loonShift: 1, floatShift: 1 };
 	assert.deepEqual(
-		{ loonShift, floatShift },
-		expected,
-		labelOutside
-			? 'the label is painted outside the surface, so loon must not shift its mouse rows and float must shift exactly one'
-			: 'the label opens the surface, so both chromes must shift exactly one mouse row',
+		{ loonShift, floatShift, opensWithRow },
+		{ loonShift: 1, floatShift: 1, opensWithRow: true },
+		'the band opens with an empty surface row, so both chromes must subtract exactly one mouse row',
 	);
 });
 
