@@ -210,7 +210,18 @@ test('the v2 rows add the wallpaper colour and return the accent to banner', () 
 		text.includes('await saveLoonAccent("banner")'),
 		'the four named colours must return the accent to gentle-pi, or picking pink is a no-op',
 	);
-	assert.ok(text.includes('loonSettings.accent !== "wallpaper" && banner.color === color'), 'the current marker ignores the wallpaper mode');
+	assert.ok(
+		text.includes('loonSettings.accent !== "wallpaper" && loonSettings.accent !== "theme" && banner.color === color'),
+		'a named colour claims (current) while the accent is the theme colour',
+	);
+	// The theme accent is a menu choice too: without it the only way to ask for it is
+	// a command, and the commands are going away.
+	assert.ok(text.includes('Banner color: theme (LOON)'), 'the theme accent has no row in the menu');
+	assert.ok(text.includes('await saveLoonAccent("theme")'), 'the theme row does not store the choice');
+	assert.ok(
+		text.includes('async (accent: "theme" | "banner" | "wallpaper")'),
+		'the menu cannot store the theme accent at all',
+	);
 	assert.ok(text.includes('accent.txt'), 'the wallpaper accent is not read');
 	// The marker is the first thing to go when the row is too narrow; (current) never is.
 	assert.ok(
