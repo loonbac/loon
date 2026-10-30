@@ -26,7 +26,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameS
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /** The gentle-pi release this patch is written for. */
 export const GENTLE_PI_VERSION = '4.5.1';
@@ -491,6 +491,129 @@ export function defaultPaths(): PatchPaths {
 	};
 }
 
+/** The version the installed package reports, or undefined when it cannot be read. */
+export function installedVersion(install: string): string | undefined {
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(join(install, 'package.json'), 'utf8'));
+		if (typeof parsed !== 'object' || parsed === null) return undefined;
+		const version = (parsed as { version?: unknown }).version;
+		return typeof version === 'string' ? version : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * An anchor as this file writes it. Both quote styles are tried, because the anchors
+ * are not written in one: escaping only the double-quoted form left half the targets
+ * with no address at all.
+ */
+function literalForms(text: string): string[] {
+	const base = text.replace(/\\/g, '\\\\').replace(/\t/g, '\\t').replace(/\n/g, '\\n');
+	return [base.replace(/"/g, '\\"'), base.replace(/'/g, "\\'")];
+}
+
+/**
+ * Where an anchor lives in this script, so a refusal is an address to jump to and not
+ * a hint to go hunting: `scripts/gentle-pi-patch.ts:61 (shellInit)`.
+ *
+ * The name comes from ANCHORS, and that entry names the constant that holds the text,
+ * which is the only way to find an anchor written as an array of lines: its text is
+ * never one literal in this file, and searching for it finds nothing.
+ */
+export function anchorAddress(anchor: string): string | undefined {
+	try {
+		const source = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+		const name = Object.entries(ANCHORS).find(([, value]) => value === anchor)?.[0];
+		if (name === undefined) {
+			const index = literalForms(anchor)
+				.map((form) => source.indexOf(form))
+				.find((found) => found >= 0);
+			if (index === undefined || index < 0) return undefined;
+			return 'scripts/gentle-pi-patch.ts:' + source.slice(0, index).split('\n').length;
+		}
+		const entry = new RegExp('^\\t' + name + ': ([A-Za-z0-9_]+),', 'm').exec(source);
+		const constant = entry?.[1];
+		const at = constant === undefined ? -1 : source.indexOf('const ' + constant + ' =');
+		if (at < 0) return undefined;
+		return 'scripts/gentle-pi-patch.ts:' + source.slice(0, at).split('\n').length + ' (' + name + ')';
+	} catch {
+		return undefined;
+	}
+}
+
+/** One anchor that no longer matches, with the closest line the target still has. */
+export interface AnchorProblem {
+	anchor: string;
+	occurrences: number;
+	address: string | undefined;
+	/** The anchor's first line, which is what a person compares against the target. */
+	expected: string;
+	/** The target's own line that most resembles it, already prefixed with its number. */
+	found: string | undefined;
+}
+
+const firstLine = (text: string): string => {
+	const lines = text.split('\n').map((line) => line.trim()).filter((line) => line.length > 8);
+	const line = lines[0] ?? text.replace(/\s+/g, ' ').trim();
+	return line.slice(0, 120);
+};
+
+/**
+ * The target's line that most resembles the anchor: the one carrying the anchor's
+ * longest identifier. A diff would be better and would say more; this says where to
+ * look, which is what a refused patch owes the person fixing it.
+ */
+function closestLine(text: string, anchor: string): string | undefined {
+	const identifiers = (anchor.match(/[A-Za-z_][A-Za-z0-9_]{6,}/g) ?? []).sort((a, b) => b.length - a.length);
+	if (identifiers.length === 0) return undefined;
+	const lines = text.split('\n');
+	for (const identifier of identifiers) {
+		const index = lines.findIndex((line) => line.includes(identifier));
+		if (index >= 0) return 'line ' + (index + 1) + ': ' + (lines[index] ?? '').trim().slice(0, 120);
+	}
+	return undefined;
+}
+
+/** Which anchors of one target stopped matching, and where each of them lives. */
+export function diagnoseAnchors(text: string, spec: TargetSpec): AnchorProblem[] {
+	const problems: AnchorProblem[] = [];
+	for (const edit of spec.edits) {
+		const occurrences = text.split(edit.anchor).length - 1;
+		if (occurrences === 1) continue;
+		problems.push({
+			anchor: edit.anchor,
+			occurrences,
+			address: anchorAddress(edit.anchor),
+			expected: firstLine(edit.anchor),
+			found: closestLine(text, edit.anchor),
+		});
+	}
+	return problems;
+}
+
+/**
+ * Why a target was refused, in full: which file, how its bytes differ, which anchors
+ * stopped matching, where each anchor lives in this script, and what was not done.
+ * A gentle-pi update is supposed to break this patch; this is what makes the break
+ * cheap to repair instead of a mystery.
+ */
+function reportDrift(spec: TargetSpec, text: string | undefined, paths: PatchPaths): void {
+	console.error(spec.file + ': not the build this patch was written against');
+	console.error('  md5:      expected ' + spec.md5 + ', found ' + (text === undefined ? '(no file)' : md5(text)));
+	console.error('  version:  installed ' + (installedVersion(paths.install) ?? 'unknown') + ' · patch pinned to ' + GENTLE_PI_VERSION);
+	const problems = diagnoseAnchors(text ?? '', spec);
+	if (problems.length === 0) {
+		console.error('  anchors:  every anchor still occurs once, so the file was edited after it was patched');
+	}
+	for (const problem of problems) {
+		console.error('  anchor:   ' + (problem.address ?? 'scripts/gentle-pi-patch.ts (line not found)') + ' occurs ' + problem.occurrences + ' time(s), expected 1');
+		console.error('    expected: ' + problem.expected);
+		console.error('    found:    ' + (problem.found ?? 'no similar line in ' + spec.file));
+	}
+	console.error('  nothing was written: no file changed and no backup was created');
+}
+
 function readTarget(spec: TargetSpec, paths: PatchPaths): string | undefined {
 	try {
 		return readFileSync(join(paths.install, spec.file), 'utf8');
@@ -622,11 +745,19 @@ function writeAtomically(path: string, text: string): void {
 }
 
 export function report(paths: PatchPaths, targets: TargetSpec[] = TARGETS): number {
+	const installed = installedVersion(paths.install);
+	console.log('gentle-pi installed: ' + (installed ?? 'unknown') + ' · patch pinned to ' + GENTLE_PI_VERSION);
 	for (const spec of targets) {
 		const text = readTarget(spec, paths);
 		const state = classify(text, spec);
 		const extra = state === 'different-version' ? ' (md5 ' + md5(text ?? '') + ', expected ' + spec.md5 + ')' : '';
 		console.log(spec.file + ': ' + state + extra);
+		if (state !== 'different-version') continue;
+		for (const problem of diagnoseAnchors(text ?? '', spec)) {
+			console.log('  ' + (problem.address ?? 'anchor at an unknown line') + ': occurs ' + problem.occurrences + ' time(s), expected 1');
+			console.log('    expected: ' + problem.expected);
+			console.log('    found:    ' + (problem.found ?? 'no similar line'));
+		}
 	}
 	return 0;
 }
@@ -646,12 +777,10 @@ export function apply(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numbe
 			continue;
 		}
 		if (state === 'different-version') {
-			console.error(spec.file + ': md5 ' + md5(text ?? '') + ', expected ' + spec.md5 + ' for gentle-pi ' + GENTLE_PI_VERSION);
-			console.error(
-				isMarked(text, spec)
-					? 'this file was patched and edited afterwards; restore it before patching again; nothing was changed'
-					: 'this file is not the build the patch was written against; nothing was changed',
-			);
+			reportDrift(spec, text, paths);
+			if (isMarked(text, spec)) {
+				console.error('  marker:   this file carries the patch marker and was edited after patching; revert or reinstall gentle-pi ' + GENTLE_PI_VERSION + ' first');
+			}
 			return 2;
 		}
 

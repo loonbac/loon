@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,6 +10,7 @@ import {
 	apply,
 	isMarked,
 	planRestore,
+	report,
 	revert,
 	PATCH_MARKER,
 	TARGETS,
@@ -17,6 +18,7 @@ import {
 	classify,
 	defaultPaths,
 	md5,
+	diagnoseAnchors,
 	patchText,
 	type TargetSpec,
 } from '../scripts/gentle-pi-patch.ts';
@@ -235,6 +237,112 @@ test('the v2 rows add the wallpaper colour and return the accent to banner', () 
 	assert.ok(text.includes('mark: loonSettings.mark === false'), 'the mark row does not toggle the setting');
 	assert.ok(text.includes('Mark saved.'), 'the mark row reports nothing when it saves');
 	assert.ok(!text.includes('Banner rose:'), 'the old rose row survived');
+});
+
+/**
+ * One stand-in file per target, holding that target's anchors in order: enough for
+ * the anchor scan, not a module the loader could import - the drift path never
+ * reaches the loader, which is the point of the case.
+ */
+function standFor(target: TargetSpec): string {
+	return ['// head', ...target.edits.map((edit) => edit.anchor), '// tail'].join('\n');
+}
+
+/** Run a function with the two console channels captured, in order. */
+function captureOutput(run: () => number): { code: number; output: string } {
+	const lines: string[] = [];
+	const log = console.log;
+	const error = console.error;
+	console.log = (...args: unknown[]) => {
+		lines.push(args.join(' '));
+	};
+	console.error = (...args: unknown[]) => {
+		lines.push(args.join(' '));
+	};
+	try {
+		return { code: run(), output: lines.join('\n') };
+	} finally {
+		console.log = log;
+		console.error = error;
+	}
+}
+
+test('a drifted target is refused with the file, the anchor and the address to fix', () => {
+	for (const target of TARGETS) {
+		const root = mkdtempSync(join(tmpdir(), 'loon-drift-'));
+		const install = join(root, 'gentle-pi');
+		const backups = join(root, 'backups');
+		const pristine = standFor(target);
+		// One byte inside the first anchor: what a gentle-pi update does to a target.
+		const firstAnchor = target.edits[0]!.anchor;
+		const at = pristine.indexOf(firstAnchor) + Math.floor(firstAnchor.length / 2);
+		const drifted = pristine.slice(0, at) + 'X' + pristine.slice(at + 1);
+		const spec: TargetSpec = { ...target, md5: md5(pristine) };
+		const path = join(install, target.file);
+		mkdirSync(dirname(path), { recursive: true });
+		writeFileSync(path, drifted);
+
+		const { code, output } = captureOutput(() => apply({ install, backups }, [spec]));
+
+		assert.equal(code, 2, target.file + ': a drifted target must be refused');
+		assert.equal(readFileSync(path, 'utf8'), drifted, target.file + ': a refused apply rewrote the target');
+		assert.ok(
+			!existsSync(backups) || readdirSync(backups).length === 0,
+			target.file + ': a refused apply wrote a backup',
+		);
+		assert.ok(output.includes(target.file), target.file + ': the failure does not name the target');
+		assert.ok(output.includes(spec.md5), target.file + ': the failure does not print the expected md5');
+		assert.ok(output.includes(md5(drifted)), target.file + ': the failure does not print the md5 it found');
+		assert.ok(output.includes('pinned to 4.5.1'), target.file + ': the failure does not name the pinned version');
+		assert.ok(output.includes('nothing was written'), target.file + ': the failure does not say nothing was written');
+		assert.ok(
+			output.includes('scripts/gentle-pi-patch.ts:'),
+			target.file + ': the failure does not point at the line that holds the anchor',
+		);
+		assert.ok(
+			output.includes(firstAnchor.split('\n')[0]!.trim().slice(0, 40)),
+			target.file + ': the failure does not show the anchor that stopped matching',
+		);
+	}
+});
+
+test('every anchor of every target reports where it lives', () => {
+	// The first anchor of a file is rarely the one an update breaks: each one is moved
+	// here, so an anchor that cannot be addressed - an array literal, say - is caught.
+	for (const target of TARGETS) {
+		for (const [index, edit] of target.edits.entries()) {
+			const stand = standFor(target);
+			const at = stand.indexOf(edit.anchor) + Math.max(1, Math.floor(edit.anchor.length / 2));
+			const drifted = stand.slice(0, at) + 'X' + stand.slice(at + 1);
+			const problems = diagnoseAnchors(drifted, target);
+			const problem = problems.find((item) => item.anchor === edit.anchor);
+			assert.ok(problem, target.file + ' edit ' + index + ': the broken anchor was not reported');
+			assert.ok(problem.address, target.file + ' edit ' + index + ': the anchor has no address in the patch script');
+			assert.match(problem.address, /^scripts\/gentle-pi-patch\.ts:\d+/);
+			assert.ok(problem.expected.length > 0, target.file + ' edit ' + index + ': the anchor is not shown');
+		}
+	}
+});
+
+test('check shows the installed version beside the pinned one', async () => {
+	const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+	const { join } = await import('node:path');
+	const { tmpdir } = await import('node:os');
+
+	const root = mkdtempSync(join(tmpdir(), 'loon-check-'));
+	const install = join(root, 'gentle-pi');
+	mkdirSync(join(install, 'extensions'), { recursive: true });
+	const shellText = shellStand();
+	writeFileSync(join(install, 'extensions', 'gentle-shell.ts'), shellText.replace('// head', '// head, edited by a newer gentle-pi'));
+	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.6.0' }));
+
+	const { code, output } = captureOutput(() => report({ install, backups: join(root, 'backups') }, [shellSpec]));
+
+	// Visible before anyone tries to apply, which is the whole point of check.
+	assert.match(output, /gentle-pi installed: 4\.6\.0/);
+	assert.match(output, /patch pinned to 4\.5\.1/);
+	assert.match(output, /extensions\/gentle-shell\.ts: different-version/);
+	assert.equal(code, 0, 'check reports, it does not fail the shell');
 });
 
 test('the four patch states, end to end on a copy of the package', async () => {
