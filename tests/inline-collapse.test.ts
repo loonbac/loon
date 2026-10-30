@@ -10,7 +10,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -319,16 +319,22 @@ test('a codemode row the reader expands comes back in full', () => {
 	}
 });
 
-test('a codemode call in a session without a carrier is untouched', () => {
+test('the very first call of a unit collapses, before any carrier exists', () => {
 	const agentHome = scratch();
 	try {
 		const pi = fakePi();
 		createInlineWork(pi.api, { env: {}, agentHome, heartbeatMs: 0 });
 		pi.fire('session_start', { type: 'session_start' }, sessionContext());
-		const renderers = pi.resolve('codemode');
-		assert.equal(renderers?.renderShell, 'default', 'an idle session keeps the rendering it had');
-		const call = renderers?.renderCall?.({ code: 'await' }, theme as never, renderContext() as never);
-		assert.deepEqual(call?.render(80), rowsOf('codemode'));
+		// pi builds a call's component while the assistant message streams, which is
+		// strictly before the tool runs and therefore before the carrier exists. A
+		// gate that waits for the carrier lets that first row through, and with
+		// codemode a whole unit can be a single call.
+		assert.equal(existsSync(carrierPath(agentHome, SESSION_ID)), false, 'the carrier does not exist yet');
+		for (const toolName of ['read', 'codemode']) {
+			const renderers = pi.resolve(toolName);
+			assert.equal(renderers?.renderShell, 'self', toolName + ' must collapse from the session, not from its own first call');
+			assert.deepEqual(renderers?.renderCall?.({}, theme as never, renderContext() as never)?.render(80), [], toolName + ' must not occupy a row');
+		}
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
@@ -368,16 +374,49 @@ test('every other tool keeps its rows', () => {
 	}
 });
 
-test('nothing is collapsed before the unit has a carrier', () => {
+test('a call mid-unit collapses too', () => {
+	const agentHome = scratch();
+	try {
+		const pi = runningUnit(agentHome);
+		for (const toolName of ['read', 'codemode']) {
+			assert.equal(pi.resolve(toolName)?.renderShell, 'self', toolName + ' keeps collapsing');
+			const call = pi.resolve(toolName)?.renderCall?.({ code: 'await 1' }, theme as never, renderContext() as never);
+			assert.deepEqual(call?.render(80), []);
+		}
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a call right after a unit closed still collapses', () => {
+	const agentHome = scratch();
+	try {
+		const pi = runningUnit(agentHome);
+		pi.fire(
+			'agent_end',
+			{ type: 'agent_end', messages: [{ role: 'assistant', content: [{ type: 'text', text: 'Cerrado.' }] }] },
+			sessionContext(),
+		);
+		// The next request in the session is the same job: its rows belong in the
+		// panel, not in the transcript.
+		for (const toolName of ['read', 'codemode']) {
+			assert.equal(pi.resolve(toolName)?.renderShell, 'self');
+			assert.deepEqual(pi.resolve(toolName)?.renderCall?.({}, theme as never, renderContext() as never)?.render(80), []);
+		}
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a session that never started keeps its rows', () => {
 	const agentHome = scratch();
 	try {
 		const pi = fakePi();
 		createInlineWork(pi.api, { env: {}, agentHome, heartbeatMs: 0 });
-		pi.fire('session_start', { type: 'session_start' }, sessionContext());
+		// No session, so nothing says this is an inline session at all.
 		const renderers = pi.resolve('read');
-		assert.equal(renderers?.renderShell, 'default', 'an idle session keeps the rendering it had');
-		const call = renderers?.renderCall?.({}, theme as never, renderContext() as never);
-		assert.deepEqual(call?.render(80), rowsOf('read'));
+		assert.equal(renderers?.renderShell, 'default');
+		assert.deepEqual(renderers?.renderCall?.({}, theme as never, renderContext() as never)?.render(80), rowsOf('read'));
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}

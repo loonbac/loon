@@ -434,7 +434,13 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		// rendering, and so does LOON_INLINE_WORK=0, which returned above.
 		const host = pi as ExtensionAPI & { registerToolRenderer?: (resolver: ToolRendererResolver) => void };
 		if (typeof host.registerToolRenderer === 'function') {
-			host.registerToolRenderer(collapseResolver(() => written && !closed));
+			// The gate is the session, never the carrier. pi builds a call's component
+			// while the assistant message streams, which is strictly before the tool
+			// runs and therefore before this session's carrier exists: a gate that
+			// waits for the carrier lets the first row of every unit through, and a
+			// unit driven through codemode can be a single call. Every row of an
+			// inline session belongs in the panel, from the first call to the last.
+			host.registerToolRenderer(collapseResolver(() => sessionId !== undefined && !closed));
 		}
 	} catch {
 		// Registration itself must not break pi either.

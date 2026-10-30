@@ -9,11 +9,14 @@
  * rows it would otherwise draw here, so the transcript keeps the assistant's prose
  * and its closing summary.
  *
- * Three rules keep it honest. It only runs while the session has a carrier, so a
- * session without one draws exactly as before. It never touches a tool that is not
- * one of the file and shell calls or `codemode`, which is what leaves subagent
- * tasks, questions for the owner and `todo` untouched. And a failure is never
- * collapsed: an errored call delegates to the renderers it would have had.
+ * Three rules keep it honest. It runs for the whole session, from its first tool
+ * call: pi builds a call's component while the assistant message streams, before
+ * the tool runs, so anything that waited for the session's carrier would let the
+ * first row of every unit through - and a unit driven through codemode can be one
+ * call. It never touches a tool that is not one of the file and shell calls or
+ * `codemode`, which is what leaves subagent tasks, questions for the owner and
+ * `todo` untouched. And a failure is never collapsed: an errored call delegates
+ * to the renderers it would have had.
  *
  * Everything is display only. No tool execution, schema or output changes.
  */
@@ -116,9 +119,10 @@ export function collapseRenderers(
 }
 
 /**
- * The resolver pi asks for a tool's renderers. `isLive` answers whether the
- * session has a carrier right now, which is what keeps an idle session, a
- * disabled extension and every other tool drawing exactly what they drew before.
+ * The resolver pi asks for a tool's renderers. `isLive` answers whether this is
+ * an inline session right now - a session that started and has not shut down -
+ * which is what keeps a session before its start, a disabled extension and every
+ * other tool drawing exactly what they drew before.
  */
 export function collapseResolver(isLive: () => boolean): ToolRendererResolver {
 	return (toolName, next) => {
