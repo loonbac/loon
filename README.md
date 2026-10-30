@@ -387,7 +387,7 @@ gentle-pi se actualiza. La respuesta son dos reglas, y la primera es la que impo
   una compilación distinta de la probada se permite y se avisa:
 
   ```
-  gentle-pi 4.6.0: anchors intact, version not tested (this patch was written against 4.5.1)
+  gentle-pi 4.6.0: 30 anchors intact, version not tested (this patch was written against 4.5.1)
   ```
 
 - **Si el cambio toca un ancla, el parche se rompe a propósito.** No aplica nada (salida
