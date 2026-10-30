@@ -620,17 +620,14 @@ export function diagnoseAnchors(text: string, spec: TargetSpec): AnchorProblem[]
 /**
  * Why a target was refused, in full: which file, how its bytes differ, which anchors
  * stopped matching, where each anchor lives in this script, and what was not done.
- * A gentle-pi update is supposed to break this patch; this is what makes the break
- * cheap to repair instead of a mystery.
+ * Only called when an anchor does not resolve - a healthy anchor set is patchable, so
+ * there is no refusal to explain.
  */
 function reportDrift(spec: TargetSpec, text: string | undefined, paths: PatchPaths): void {
 	console.error(spec.file + ': not the build this patch was written against');
 	console.error('  md5:      expected ' + spec.md5 + ', found ' + (text === undefined ? '(no file)' : md5(text)));
 	console.error('  version:  installed ' + (installedVersion(paths.install) ?? 'unknown') + ' · patch pinned to ' + GENTLE_PI_VERSION);
 	const problems = diagnoseAnchors(text ?? '', spec);
-	if (problems.length === 0) {
-		console.error('  anchors:  every anchor still occurs once, so the file was edited after it was patched');
-	}
 	for (const problem of problems) {
 		console.error('  anchor:   ' + (problem.address ?? 'scripts/gentle-pi-patch.ts (line not found)') + ' occurs ' + problem.occurrences + ' time(s), expected 1');
 		console.error('    expected: ' + problem.expected);
@@ -814,7 +811,7 @@ export function report(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numb
 			state === 'different-version'
 				? ' (md5 ' + md5(text ?? '') + ', expected ' + spec.md5 + ')'
 				: state === 'clean' && md5(text ?? '') !== spec.md5
-					? ' (anchors intact; md5 ' + md5(text ?? '') + ' is not the pinned ' + spec.md5 + ', so the build is untested)'
+					? ' (anchors intact: ' + spec.edits.length + ' checked; md5 ' + md5(text ?? '') + ' is not the pinned ' + spec.md5 + ', so the build is untested)'
 					: '';
 		console.log(spec.file + ': ' + state + extra);
 		if (state !== 'different-version') continue;
@@ -888,8 +885,9 @@ export function apply(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numbe
 
 	const installed = installedVersion(paths.install);
 	if (installed !== GENTLE_PI_VERSION) {
+		const anchors = prepared.reduce((total, item) => total + item.spec.edits.length, 0);
 		console.log(
-			'gentle-pi ' + (installed ?? 'unknown') + ': anchors intact, version not tested (this patch was written against ' + GENTLE_PI_VERSION + ')',
+			'gentle-pi ' + (installed ?? 'unknown') + ': ' + anchors + ' anchors intact, version not tested (this patch was written against ' + GENTLE_PI_VERSION + ')',
 		);
 	}
 

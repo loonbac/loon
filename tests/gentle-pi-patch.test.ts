@@ -344,7 +344,7 @@ test('check shows the installed version beside the pinned one', async () => {
 	assert.match(output, /gentle-pi installed: 4\.6\.0/);
 	assert.match(output, /patch pinned to 4\.5\.1/);
 	assert.match(output, /not the build this patch was written against/);
-	assert.match(output, /extensions\/gentle-shell\.ts: clean \(anchors intact; md5 [0-9a-f]{32} is not the pinned [0-9a-f]{32}/);
+	assert.match(output, /extensions\/gentle-shell\.ts: clean \(anchors intact: \d+ checked; md5 [0-9a-f]{32} is not the pinned [0-9a-f]{32}/);
 	assert.equal(code, 0, 'check reports, it does not fail the shell');
 });
 
@@ -367,7 +367,7 @@ test('a change outside the anchors does not block the patch', () => {
 	assert.equal(code, 0, 'a change that misses every anchor must not block the patch');
 	assert.match(readFileSync(path, 'utf8'), /LOON banner patch/, 'the file was not patched');
 	assert.equal(readFileSync(path, 'utf8').endsWith('// a comment a newer gentle-pi added\n'), true, 'the patch dropped the new tail');
-	assert.match(output, /gentle-pi 4\.6\.0: anchors intact, version not tested/);
+	assert.match(output, /gentle-pi 4\.6\.0: \d+ anchors intact, version not tested/);
 });
 
 test('an anchor that occurs twice is refused as ambiguous', () => {
@@ -425,6 +425,39 @@ test('the patched result is verified by its substitutions, not by the marker', (
 		verifyPatched('// head\nreplaced once replaced once\n// tail', spec) ?? '',
 		/landed 2 time/,
 		'a doubled replacement must be caught',
+	);
+});
+
+test('a refusal never blames a healthy anchor, and the notice counts them', () => {
+	const root = mkdtempSync(join(tmpdir(), 'loon-message-'));
+	const install = join(root, 'gentle-pi');
+	const backups = join(root, 'backups');
+	mkdirSync(join(install, 'extensions'), { recursive: true });
+	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.6.0' }));
+
+	// A drifted target: one anchor moved, nothing else.
+	const pristine = shellStand();
+	const moved = ANCHORS.shellRows.slice(0, 20) + 'X' + ANCHORS.shellRows.slice(21);
+	const drifted = pristine.replace(ANCHORS.shellRows, moved);
+	const path = join(install, 'extensions', 'gentle-shell.ts');
+	writeFileSync(path, drifted);
+
+	const refused = captureOutput(() => apply({ install, backups }, [{ ...shellSpec, md5: md5(pristine) }]));
+	assert.equal(refused.code, 2);
+	assert.ok(
+		!refused.output.includes('every anchor still occurs once'),
+		'a refusal still claims the anchors are healthy while refusing for them',
+	);
+	assert.match(refused.output, /occurs 0 time\(s\), expected 1/);
+
+	// And a healthy build of another version is patched, with the count of what was checked.
+	writeFileSync(path, pristine + '\n// a newer gentle-pi wrote this\n');
+	const applied = captureOutput(() => apply({ install, backups }, [{ ...shellSpec, md5: md5(pristine) }]));
+	assert.equal(applied.code, 0, 'a healthy anchor set must not be refused');
+	assert.match(
+		applied.output,
+		new RegExp('gentle-pi 4\\.6\\.0: ' + shellSpec.edits.length + ' anchors intact, version not tested'),
+		'the notice does not say how many anchors were checked',
 	);
 });
 
