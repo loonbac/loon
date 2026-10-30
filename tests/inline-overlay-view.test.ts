@@ -23,6 +23,7 @@ interface Scenario {
 	malformed?: boolean;
 	child?: boolean;
 	provider?: boolean;
+	twoUnits?: boolean;
 }
 
 interface Rendered {
@@ -83,7 +84,8 @@ function buildHarness(): Promise<Harness> {
 				mkdirSync(join(agentHome, 'state', 'loon-inline'), { recursive: true });
 				mkdirSync(join(agentHome, 'gentle-agents', 'tasks'), { recursive: true });
 				mkdirSync(join(agentHome, 'gentle-agents', 'presence'), { recursive: true });
-				const id = 'loon-inline-' + SESSION + '-' + (setup.running || setup.closed ? '1' : setup.restored ? '1' : '1');
+				// One session is one job, so the card id is the job id.
+				const id = 'loon-inline-' + SESSION;
 				const record = (status: string, label: string, result: string | null) => ({
 					id,
 					agent: 'gentle-ai-worker',
@@ -109,15 +111,16 @@ function buildHarness(): Promise<Harness> {
 					cost: 0,
 					pid: process.pid,
 				});
-				const thread = {
-					version: 1,
-					dropped: 0,
-					items: [
-						{ kind: 'tool', callId: 'c1', name: 'grep', args: {}, output: 'tres coincidencias', running: false, isError: false },
-						{ kind: 'text', text: 'resumen del cierre' },
-					],
-					limits: { maxItems: 200, maxOutputChars: 1000 },
-				};
+				const items: Record<string, unknown>[] = [
+					{ kind: 'tool', callId: 'c1', name: 'grep', args: {}, output: 'tres coincidencias', running: false, isError: false },
+					{ kind: 'text', text: 'resumen del cierre' },
+				];
+				if (setup.twoUnits) {
+					// What the writer produces for a second request in the same session:
+					// a divider, then that stretch of work.
+					items.push({ kind: 'note', text: 'new request' }, { kind: 'tool', callId: 'c2', name: 'edit', args: {}, output: 'aplicado', running: false, isError: false }, { kind: 'text', text: 'segundo cierre' });
+				}
+				const thread = { version: 1, dropped: 0, items, limits: { maxItems: 200, maxOutputChars: 1000 } };
 				if (setup.malformed) {
 					writeFileSync(join(agentHome, 'state', 'loon-inline', SESSION + '.json'), '{ not json');
 					writeFileSync(join(agentHome, 'gentle-agents', 'tasks', id + '.json'), '{ not json');
@@ -207,9 +210,21 @@ test('when the unit closes the same card flips, and does not double', { skip: !a
 test('a unit the store already restored is still one card', { skip: !available && 'gentle-pi is not installed here' }, async () => {
 	const rendered = await (await buildHarness()).render({ closed: true });
 	try {
-		rendered.restore('loon-inline-' + SESSION + '-1');
+		rendered.restore('loon-inline-' + SESSION);
 		const lines = rendered.lines;
 		assert.equal(cards(lines), 1, 'the restore must not add a second card for the same unit');
+	} finally {
+		rendered.dispose();
+	}
+});
+
+test('two requests in one session are one card with both transcripts', { skip: !available && 'gentle-pi is not installed here' }, async () => {
+	const rendered = await (await buildHarness()).render({ closed: true, twoUnits: true });
+	try {
+		assert.equal(cards(rendered.lines), 1, 'a second request must not add a second card');
+		const text = rendered.lines.join('\n');
+		assert.match(text, /grep/, 'the first stretch of work is still in the transcript');
+		assert.match(text, /edit/, 'and the second one is there too');
 	} finally {
 		rendered.dispose();
 	}

@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installOverlayPanel, overlayTasks, overlayThread, unitKey } from '../extensions/lib/inline-overlay.ts';
+import { installOverlayPanel, jobKey, overlayTasks, overlayThread } from '../extensions/lib/inline-overlay.ts';
 
 const SESSION = 'sess-overlay-1';
+/** The card id of that session's job. */
+const JOB_ID = 'loon-inline-' + SESSION;
 
 interface Unit {
 	id?: string;
@@ -15,6 +17,7 @@ interface Unit {
 	label?: string;
 	toolCalls?: number;
 	result?: string | null;
+	lastActivityAt?: number;
 }
 
 function home(): string {
@@ -45,7 +48,7 @@ function carrier(root: string, session: string, unit: Unit): void {
 		error: null,
 		result: unit.result ?? null,
 		lastStep: 'read',
-		lastActivityAt: Date.now(),
+		lastActivityAt: unit.lastActivityAt ?? Date.now(),
 		turns: 1,
 		toolCalls: unit.toolCalls ?? 1,
 		tokens: 10,
@@ -58,7 +61,9 @@ function carrier(root: string, session: string, unit: Unit): void {
 function liveThread(root: string, session: string, items: unknown[]): void {
 	writeFileSync(
 		join(root, 'state', 'loon-inline', session + '.thread.json'),
-		JSON.stringify({ id: 'loon-inline-' + session + '-1', thread: { version: 1, dropped: 0, items, limits: { maxItems: 200, maxOutputChars: 1000 } } }),
+		// The writer names the live thread after the job, so a card that is the job
+		// finds its transcript.
+		JSON.stringify({ id: 'loon-inline-' + session, thread: { version: 1, dropped: 0, items, limits: { maxItems: 200, maxOutputChars: 1000 } } }),
 	);
 }
 
@@ -82,7 +87,7 @@ function history(root: string, session: string, unit: Unit, items: unknown[]): v
 		error: null,
 		result: unit.result ?? 'done',
 		lastStep: 'bash',
-		lastActivityAt: Date.now(),
+		lastActivityAt: unit.lastActivityAt ?? Date.now(),
 		turns: 1,
 		toolCalls: unit.toolCalls ?? 1,
 		tokens: 10,
@@ -103,8 +108,8 @@ test('a running unit is one card, taken from the live record and its live thread
 		const tasks = overlayTasks(root, SESSION, []);
 		assert.equal(tasks.length, 1);
 		assert.equal(tasks[0]?.status, 'running');
-		assert.equal(tasks[0]?.id, 'loon-inline-' + SESSION + '-1');
-		assert.equal(overlayThread(root, tasks[0]?.id ?? '')?.items.length, 1);
+		assert.equal(tasks[0]?.id, JOB_ID, 'the card is the job, not the unit');
+		assert.equal(overlayThread(root, JOB_ID)?.items.length, 1);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -116,8 +121,10 @@ test('when the unit closes, the history record is the one card, not a second one
 		// Both sources exist at once, which is exactly the window between the
 		// history write and the shutdown that removes the carrier.
 		carrier(root, SESSION, { status: 'completed', label: 'working', result: null });
-		liveThread(root, SESSION, [toolItem('c1', 'read')]);
-		history(root, SESSION, { status: 'completed', label: 'cerrado', result: 'listo' }, [toolItem('c1', 'read'), { kind: 'text', text: 'listo' }]);
+		// The writer keeps both in step: the sidecar is rewritten at the close too.
+		const closed = [toolItem('c1', 'read'), { kind: 'text', text: 'listo' }];
+		liveThread(root, SESSION, closed);
+		history(root, SESSION, { status: 'completed', label: 'cerrado', result: 'listo' }, closed);
 		const tasks = overlayTasks(root, SESSION, []);
 		assert.equal(tasks.length, 1, 'one unit is one card');
 		assert.equal(tasks[0]?.status, 'completed');
@@ -134,35 +141,37 @@ test('a unit the store already restored is not drawn again', () => {
 	try {
 		history(root, SESSION, { status: 'completed' }, [toolItem('c1', 'read')]);
 		carrier(root, SESSION, { status: 'completed' });
-		const id = 'loon-inline-' + SESSION + '-1';
-		assert.equal(overlayTasks(root, SESSION, [id]).length, 0, 'the store serves that id; the provider must not double it');
+		assert.equal(overlayTasks(root, SESSION, [JOB_ID]).length, 0, 'the store serves this job; the provider must not double it');
+		assert.equal(overlayTasks(root, SESSION, [JOB_ID + '-1']).length, 0, 'an id the previous design wrote is the same job');
 		assert.equal(overlayTasks(root, SESSION, []).length, 1);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
 });
 
-test('a second unit is a second card and the first stays where it was', () => {
+test('a finished unit beside a running one is one card, and it says running', () => {
 	const root = home();
 	try {
-		history(root, SESSION, { status: 'completed', label: 'primera' }, [toolItem('c1', 'read')]);
-		carrier(root, SESSION, { id: 'loon-inline-' + SESSION + '-2', status: 'running', label: 'segunda', createdAt: 3000 });
+		// The first stretch of work closed and was written; the second is running.
+		history(root, SESSION, { status: 'completed', label: 'primera', endedAt: 2000, lastActivityAt: Date.now() - 5000 }, [toolItem('c1', 'read')]);
+		carrier(root, SESSION, { status: 'running', label: 'segunda', createdAt: 3000 });
 		const tasks = overlayTasks(root, SESSION, []);
-		assert.equal(tasks.length, 2);
-		assert.deepEqual(tasks.map((task) => task.id).sort(), ['loon-inline-' + SESSION + '-1', 'loon-inline-' + SESSION + '-2']);
+		assert.equal(tasks.length, 1, 'one job, one card');
+		assert.equal(tasks[0]?.status, 'running', 'a closing unit must not leave the job looking finished');
+		assert.equal(tasks[0]?.label, 'segunda', 'and the card shows what is happening now');
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
 });
 
-test('a carrier from before units existed is dropped once history exists', () => {
+test('records the previous design wrote one per unit collapse into the one card', () => {
 	const root = home();
 	try {
-		carrier(root, SESSION, { id: 'loon-inline-' + SESSION, status: 'running' });
-		history(root, SESSION, { status: 'completed' }, [toolItem('c1', 'read')]);
+		history(root, SESSION, { id: 'loon-inline-' + SESSION + '-1', status: 'completed', createdAt: 1000, endedAt: 2000 }, [toolItem('c1', 'read')]);
+		history(root, SESSION, { id: 'loon-inline-' + SESSION + '-2', status: 'completed', createdAt: 3000, endedAt: 4000 }, [toolItem('c2', 'edit')]);
 		const tasks = overlayTasks(root, SESSION, []);
-		assert.equal(tasks.length, 1, 'the numberless record is the same unit as the first one');
-		assert.equal(tasks[0]?.id, 'loon-inline-' + SESSION + '-1');
+		assert.equal(tasks.length, 1, 'an old session must not come back as one card per request');
+		assert.equal(tasks[0]?.id, JOB_ID);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -207,12 +216,13 @@ test('the provider is one global the panel finds, and it comes off again', () =>
 	}
 });
 
-test('the unit key is the unit, not the source it came from', () => {
-	assert.equal(unitKey('loon-inline-abc-1', 'abc'), unitKey('loon-inline-abc-1', 'abc'));
-	assert.notEqual(unitKey('loon-inline-abc-1', 'abc'), unitKey('loon-inline-abc-2', 'abc'));
-	assert.equal(unitKey('loon-inline-abc', 'abc'), 'loon-inline-abc#legacy');
-	// A session id that itself ends in digits is a session, not a unit: this is
-	// the shape that made a legacy carrier look like unit 1 of another session.
-	assert.equal(unitKey('loon-inline-sess-1', 'sess-1'), 'loon-inline-sess-1#legacy');
-	assert.equal(unitKey('loon-inline-sess-1-1', 'sess-1'), 'loon-inline-sess-1#1');
+test('the job key is the session, whatever id a source happens to use', () => {
+	assert.equal(jobKey('loon-inline-abc', 'abc'), 'loon-inline-abc');
+	assert.equal(jobKey('loon-inline-abc-1', 'abc'), 'loon-inline-abc', 'a numbered id is still the same job');
+	assert.equal(jobKey('loon-inline-abc-7', 'abc'), 'loon-inline-abc');
+	// A session id that itself ends in digits is a session, not a unit.
+	assert.equal(jobKey('loon-inline-sess-1', 'sess-1'), 'loon-inline-sess-1');
+	assert.equal(jobKey('loon-inline-sess-1-1', 'sess-1'), 'loon-inline-sess-1');
+	// Somebody else's id is left alone.
+	assert.equal(jobKey('child-task-1', 'abc'), 'child-task-1');
 });

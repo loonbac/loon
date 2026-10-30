@@ -381,9 +381,16 @@ gentle-pi). Al reabrir la sesión, gentle-pi la vuelve a meter en su store, así
 nombre y un resumen acotado, y el texto del cierre. Nada de eso es el log completo: un panel no
 es un log, y un volcado de herramienta ahí es ruido.
 
-Una unidad por registro, con su número: `…-1`, `…-2`. La segunda nunca sobrescribe la primera,
-y el número se reparte mirando lo que ya hay en disco, así que una sesión reanudada sigue la
-cuenta en vez de reutilizar un id tomado.
+Un registro por **trabajo**, no por petición: el id es `loon-inline-<sesión>` y el archivo se
+reescribe cada vez que un turno cierra, acumulando. Trabajar cinco veces en una sesión deja una
+tarjeta con cinco tramos, separados por una marca donde empezó cada petición nueva, en vez de
+cinco tarjetas que el humano lee como una sola cosa. Los totales son del trabajo —tokens, coste
+y llamadas se suman— y el tiempo de pared es el del trabajo completo, no el del último tramo.
+
+Los registros numerados que escribía la versión anterior se funden en ese único registro al
+empezar la sesión: sus transcripciones se concatenan en orden, con su marca, y los archivos
+numerados se retiran una vez su contenido está dentro. Sin eso, gentle-pi restauraría un
+archivo por petición y la sesión volvería como varias tarjetas.
 
 ### El panel, mientras la unidad corre
 
@@ -397,13 +404,13 @@ de historia recién escrito, con el mismo hilo más el texto de cierre. No hay n
 haga falta provocar: el panel se repinta solo en el tick de presencia que gentle-pi reprograma
 cada segundo.
 
-**Una unidad es una tarjeta, siempre.** Las tres fuentes —el registro vivo, el archivo de
-historia y lo que un reinicio metió en el store— se juntan por unidad, no por archivo: la clave
-sale del número de `loon-inline-<sesión>-<n>`, y los ids que el store ya sirve se descartan
-antes de devolver nada. Cuando la unidad cierra, los dos primeros existen a la vez durante el
-lapso entre escribir la historia y borrar el registro vivo, y aun así es una sola tarjeta.
-Un registro sin número, de antes de que las unidades se numeraran, se descarta en cuanto la
-sesión tiene uno numerado: es la misma unidad que la primera.
+**Un trabajo es una tarjeta, siempre.** Las tres fuentes —el registro vivo, el archivo de
+historia y lo que un reinicio metió en el store— se juntan por trabajo, no por archivo: todo id
+inline de una sesión resuelve a `loon-inline-<sesión>`, y si el store ya sirve alguno de ellos
+el proveedor no añade nada, porque esa tarjeta ya está. Cuando un tramo cierra, el registro vivo
+y el de historia existen a la vez durante el lapso entre escribir uno y borrar el otro, y aun
+así es una sola tarjeta: la que describe el estado más reciente, que mientras hay trabajo
+abierto es la viva y por eso la tarjeta dice «running» aunque el tramo anterior haya cerrado.
 
 Dos precisiones, porque las dos se ven como defecto sin serlo. La mitad durable y la mitad viva
 son independientes: si el parche no está, o gentle-pi cambió de versión, no se dibuja nada

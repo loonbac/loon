@@ -6,12 +6,14 @@
  * overlay panel can render both the card and the thread. These tests assert the
  * file that lands there: that gentle-pi's own reader accepts it, that the id is a
  * file name it accepts, that the thread carries the tool calls and the closing
- * summary without a full tool output, that a second unit never overwrites the
- * first, and that a session which never worked writes nothing at all.
+ * summary without a full tool output, that two requests in one session stay one
+ * record with both transcripts, that the previous design's one-record-per-unit
+ * files are merged into one, and that a session which never worked writes
+ * nothing at all.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
@@ -20,7 +22,8 @@ import { carrierDirectory, carrierPath } from '../extensions/lib/inline-carrier.
 
 const SESSION_ID = 'sess-hist-1';
 /** The carrier id prefix plus the session: every unit id starts here. */
-const UNIT_ID = 'loon-inline-' + SESSION_ID;
+/** The job id: one session is one card, so the record carries the session. */
+const JOB_ID = 'loon-inline-' + SESSION_ID;
 /** gentle-pi's own history location: `<agentHome>/gentle-agents/tasks`. */
 const historyDirectory = (agentHome: string): string => join(agentHome, 'gentle-agents', 'tasks');
 
@@ -105,6 +108,27 @@ function step(h: Harness, toolName: string, input: Record<string, unknown>, outp
 }
 
 /** A session that starts, does its steps, and closes the unit with a summary. */
+/** A session that stays open, so a second unit is really the same job. */
+function session(agentHome: string): Harness {
+	const h = fakePi();
+	createInlineWork(h.api, { env: {}, agentHome, heartbeatMs: 0, now: () => 1_700_000_000_000 });
+	h.fire('session_start', { type: 'session_start' });
+	return h;
+}
+
+/** The turn ended: the unit closes and its record is written. */
+function closeTurn(h: Harness, summary: string): void {
+	h.fire('agent_end', { type: 'agent_end', messages: [{ role: 'assistant', content: [{ type: 'text', text: summary }] }] });
+}
+
+/** What the model reported spending on that message. */
+function spend(h: Harness, tokens: number, cost: number): void {
+	h.fire('message_end', {
+		type: 'message_end',
+		message: { role: 'assistant', content: [], usage: { totalTokens: tokens, cost: { total: cost } } },
+	});
+}
+
 function runUnit(agentHome: string, steps: (h: Harness) => void, summary = 'Cerrei el slice con los tests.'): Harness {
 	const h = fakePi();
 	createInlineWork(h.api, { env: {}, agentHome, heartbeatMs: 0, now: () => 1_700_000_000_000 });
@@ -132,7 +156,7 @@ test('the closed unit lands where gentle-pi reads history from', () => {
 			step(h, 'read', { path: 'README.md' }, '# LOON\n\nsome prose');
 			step(h, 'bash', { command: 'npm test' }, 'ok 12 tests');
 		});
-		assert.deepEqual(historyFiles(agentHome), [UNIT_ID + '-1.json'], 'one history file per unit, named after the task id');
+		assert.deepEqual(historyFiles(agentHome), [JOB_ID + '.json'], 'one history file for the session, named after the job id');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
@@ -237,9 +261,9 @@ test(
 
 			const cards = store.list(SESSION_ID);
 			assert.equal(cards.length, 1, 'the panel lists exactly one card for the unit');
-			assert.equal(cards[0]?.id, UNIT_ID + '-1');
+			assert.equal(cards[0]?.id, JOB_ID);
 			assert.equal(cards[0]?.mode, 'inline');
-			const restored = store.thread(UNIT_ID + '-1');
+			const restored = store.thread(JOB_ID);
 			assert.ok(restored.items.length >= 3, 'opening the card shows its transcript, not an empty pane');
 		} finally {
 			rmSync(agentHome, { recursive: true, force: true });
@@ -247,26 +271,95 @@ test(
 	},
 );
 
-test('a second unit in the same session does not overwrite the first', () => {
+test('two units in one session are one record, with both transcripts in order', () => {
 	const agentHome = scratch();
 	try {
-		runUnit(agentHome, (h) => step(h, 'grep', { pattern: 'carrier' }, 'three matches'));
-		runUnit(agentHome, (h) => step(h, 'edit', { path: 'README.md' }, 'applied'));
-		assert.deepEqual(historyFiles(agentHome), [UNIT_ID + '-1.json', UNIT_ID + '-2.json'], 'each unit keeps its own record');
+		const h = session(agentHome);
+		step(h, 'grep', { pattern: 'carrier' }, 'three matches');
+		closeTurn(h, 'Primera parte lista.');
+		step(h, 'edit', { path: 'README.md' }, 'applied');
+		closeTurn(h, 'Segunda parte lista.');
+
+		assert.deepEqual(historyFiles(agentHome), [JOB_ID + '.json'], 'one card per job, not one per request');
+		const stored = JSON.parse(readFileSync(join(historyDirectory(agentHome), JOB_ID + '.json'), 'utf8')) as {
+			thread: { items: { kind: string; name?: string; text?: string }[] };
+		};
+		const layout = stored.thread.items.map((item) => (item.kind === 'tool' ? item.name : item.kind === 'note' ? 'note' : item.text));
+		assert.deepEqual(layout, ['grep', 'Primera parte lista.', 'note', 'edit', 'Segunda parte lista.'], 'both stretches of work, in order, with a divider where the next request began');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
 });
 
-test('the first unit is still readable after the second one closes', () => {
+test('the totals on the record are the job totals, not the last unit numbers', () => {
 	const agentHome = scratch();
 	try {
-		runUnit(agentHome, (h) => step(h, 'grep', { pattern: 'carrier' }, 'three matches'));
-		const before = historyFiles(agentHome)[0] as string;
-		runUnit(agentHome, (h) => step(h, 'edit', { path: 'README.md' }, 'applied'));
-		const text = readFileSync(join(historyDirectory(agentHome), before), 'utf8');
-		assert.match(text, /"name":"grep"/, "the first unit's call is still there");
-		assert.doesNotMatch(text, /"name":"edit"/, 'the second unit never writes into the first record');
+		const h = session(agentHome);
+		step(h, 'read', { path: 'a' }, 'one');
+		spend(h, 1000, 0.001);
+		closeTurn(h, 'Primera.');
+		const first = JSON.parse(readFileSync(join(historyDirectory(agentHome), JOB_ID + '.json'), 'utf8')) as { task: { tokens: number; cost: number; createdAt: number; startedAt: number | null } };
+		step(h, 'read', { path: 'b' }, 'two');
+		spend(h, 500, 0.002);
+		closeTurn(h, 'Segunda.');
+		const second = JSON.parse(readFileSync(join(historyDirectory(agentHome), JOB_ID + '.json'), 'utf8')) as { task: { tokens: number; cost: number; createdAt: number; startedAt: number | null; toolCalls: number } };
+		assert.equal(second.task.tokens, 1500, 'tokens add up across units');
+		assert.equal(second.task.cost, 0.003, 'cost adds up across units');
+		assert.equal(second.task.toolCalls, 2, 'and so do the calls');
+		assert.equal(second.task.createdAt, first.task.createdAt, 'the job keeps its start: wall time is the job span');
+		assert.equal(second.task.startedAt, first.task.startedAt);
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a session from the previous design is merged into one record, once', () => {
+	const agentHome = scratch();
+	try {
+		// Two records the old writer left behind, one per unit.
+		const legacy = (unit: number, name: string, at: number): void => {
+			const task = {
+				id: JOB_ID + '-' + unit,
+				agent: 'gentle-ai-worker',
+				mode: 'inline',
+				prompt: '',
+				label: 'unit ' + unit,
+				cwd: '/repo',
+				parentSessionId: SESSION_ID,
+				status: 'completed',
+				createdAt: at,
+				startedAt: at,
+				endedAt: at + 10,
+				model: 'test-model',
+				thinking: 'high',
+				sessionPath: null,
+				error: null,
+				result: 'done',
+				lastStep: name,
+				lastActivityAt: at + 10,
+				turns: 1,
+				toolCalls: 1,
+				tokens: 100,
+				cost: 0.001,
+			};
+			const thread = { version: 1, dropped: 0, items: [{ kind: 'tool', callId: 'c' + unit, name, args: {}, output: 'ok', running: false, isError: false }], limits: { maxItems: 200, maxOutputChars: 1000 } };
+			writeFileSync(join(historyDirectory(agentHome), task.id + '.json'), JSON.stringify({ task, thread }));
+		};
+		mkdirSync(historyDirectory(agentHome), { recursive: true });
+		legacy(1, 'grep', 1000);
+		legacy(2, 'edit', 2000);
+
+		// Starting the session is what merges them, before anything is restored.
+		const h = fakePi();
+		createInlineWork(h.api, { env: {}, agentHome, heartbeatMs: 0 });
+		h.fire('session_start', { type: 'session_start' });
+
+		assert.deepEqual(historyFiles(agentHome), [JOB_ID + '.json'], 'one record, so a restore brings one card');
+		const merged = JSON.parse(readFileSync(join(historyDirectory(agentHome), JOB_ID + '.json'), 'utf8')) as {
+			thread: { items: { kind: string; name?: string }[] };
+		};
+		const names = merged.thread.items.filter((item) => item.kind === 'tool').map((item) => item.name);
+		assert.deepEqual(names, ['grep', 'edit'], 'both stretches of work survive, in order');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
@@ -297,7 +390,7 @@ test('shutdown keeps the history and only removes the live carrier', () => {
 		h.fire('session_shutdown', { type: 'session_shutdown' });
 		assert.equal(existsSync(carrierPath(agentHome, SESSION_ID)), false, 'the live carrier is still removed');
 		assert.equal(existsSync(carrierDirectory(agentHome)), true);
-		assert.deepEqual(historyFiles(agentHome), [UNIT_ID + '-1.json'], 'the closed unit survives the shutdown: that is the whole point');
+		assert.deepEqual(historyFiles(agentHome), [JOB_ID + '.json'], 'the closed unit survives the shutdown: that is the whole point');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
