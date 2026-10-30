@@ -54,12 +54,31 @@ test('no painted row starts with an escape, in any card style', { skip: !availab
 	};
 	// The geometry is the invariant behind the byte rule: a style with no left margin puts
 	// the surface in the first cell, and that is the bug this file exists to catch.
-	const geometry = (card as unknown as { CARD_GEOMETRY?: Record<string, { padLeft: number }> }).CARD_GEOMETRY;
+	const geometry = (card as unknown as { CARD_GEOMETRY?: Record<string, { padLeft: number; padRight: number }> }).CARD_GEOMETRY;
 	if (geometry) {
 		for (const [style, spec] of Object.entries(geometry)) {
 			assert.ok(spec.padLeft >= 1, `${style} has padLeft ${spec.padLeft}: a painted row would start with an escape`);
 		}
+		// The numbers the human chose, not just the inequality: cards take a one-column
+		// transparent gutter on both sides, like float.
+		assert.equal(geometry.loon!.padLeft, 1, 'loon left gutter');
+		assert.equal(geometry.loon!.padRight, 1, 'loon right gutter');
 	}
+
+	// The prompt band is the one surface where loon differs from float, so its columns are
+	// asserted by number: rule in column 0, text in column 2.
+	const prompt = (await jiti.import(join(GENTLE, 'lib', 'shell-prompt.ts'))) as {
+		resolvePromptLayout: (width: number, style: string, bg: unknown) => unknown;
+		framePromptLines: (lines: string[], width: number, options: unknown, layout: unknown) => string[];
+	};
+	const theme2 = { fg: (_r: string, t: string) => t, bg: (_r: string, t: string) => `\u001b[48;2;61;56;35m${t}\u001b[49m` };
+	const bandOptions = { style: 'loon', bg: theme2.bg, fg: theme2.fg, borderColor: (t: string) => t, state: 'idle' };
+	const layout = prompt.resolvePromptLayout(120, 'loon', theme2.bg);
+	const bandRows = prompt.framePromptLines(['', 'hello', ''], 120, bandOptions, layout);
+	const band = bandRows[1]!.replace(/\u001b\[[0-9;]*m/g, '');
+	assert.equal(band.indexOf('▎'), 0, `loon band rule sits in column ${band.indexOf('▎')}, expected 0`);
+	assert.equal(band.indexOf('hello'), 2, `loon band text sits in column ${band.indexOf('hello')}, expected 2`);
+	assert.ok(!bandRows[1]!.startsWith('\u001b'), 'the band row begins with an escape');
 
 	const subject = {
 		title: 'read',
