@@ -369,8 +369,13 @@ sobrescrituras, ni la cabecera de hoy.
 
 ## Convenciones de idioma
 
-- Documentación de usuario y documentos de `odd/tasks/`: **español**.
-- Comentarios de código, identificadores y **mensajes de commit**: **inglés**.
+- **Español**: `README.md` y la documentación de usuario del repositorio, es decir, lo que
+  lee alguien que llega al proyecto.
+- **Inglés**: `odd/tasks/*.md`, todos, tanto los existentes como los nuevos. Son artefactos
+  de trabajo del agente, no documentación de usuario, y no se traducen ni al pasar.
+- **Inglés**: `AGENTS.md`, que es el manifiesto del proyecto y no se traduce, y `NOTICE`,
+  que es una atribución legal.
+- **Inglés**: comentarios de código, identificadores y mensajes de commit.
 
 ## Licencia
 
