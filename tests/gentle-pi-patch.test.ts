@@ -559,6 +559,12 @@ function plantBackup(backups: string, stamp: string, files: Record<string, strin
 		mkdirSync(dirname(path), { recursive: true });
 		writeFileSync(path, text);
 	}
+	// Every backup this tool writes carries the manifest that records its bytes.
+	const recorded = Object.entries(files).map(([file, text]) => ({ file, md5: md5(text) }));
+	writeFileSync(
+		join(backups, stamp, 'manifest.json'),
+		JSON.stringify({ version: '4.5.1', at: '2026-01-01T00:00:00.000Z', files: recorded }),
+	);
 }
 
 test('revert restores every target from snapshots split across backups', async () => {
@@ -594,6 +600,31 @@ test('revert restores every target from snapshots split across backups', async (
 	for (const spec of targets) {
 		assert.equal(readFileSync(join(install, spec.file), 'utf8'), pristine[spec.file as keyof typeof pristine], spec.file + ' was not restored');
 	}
+});
+
+test('a backup that does not match its own record is not a restore source', () => {
+	const root = mkdtempSync(join(tmpdir(), 'loon-revert-tampered-'));
+	const install = join(root, 'gentle-pi');
+	const backups = join(root, 'backups');
+	mkdirSync(join(install, 'extensions'), { recursive: true });
+	const pristine = shellStand();
+	const patched = patchText(pristine, shellSpec);
+	assert.ok(patched.ok);
+	const path = join(install, 'extensions', 'gentle-shell.ts');
+	writeFileSync(path, (patched as { text: string }).text);
+
+	const stamp = 'gentle-pi-banner-patch-20260101000009'; // manifest says pristine, file does not
+	plantBackup(backups, stamp, { 'extensions/gentle-shell.ts': '// tampered\n' });
+	writeFileSync(
+		join(backups, stamp, 'manifest.json'),
+		JSON.stringify({ files: [{ file: 'extensions/gentle-shell.ts', md5: md5(pristine) }] }),
+	);
+
+	const before = readFileSync(path, 'utf8');
+	const { code, output } = captureOutput(() => revert({ install, backups }, [shellSpec]));
+	assert.equal(code, 2, 'a tampered backup must not be restored');
+	assert.equal(readFileSync(path, 'utf8'), before, 'the installed file was overwritten from a tampered backup');
+	assert.ok(output.includes('extensions/gentle-shell.ts'), 'the refusal does not name the target');
 });
 
 test('a missing snapshot names the file and copies nothing at all', async () => {

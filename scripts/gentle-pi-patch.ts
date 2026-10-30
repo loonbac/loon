@@ -743,27 +743,27 @@ function timestamp(): string {
 	return [now.getFullYear(), pad(now.getMonth() + 1), pad(now.getDate()), pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds())].join('');
 }
 
-/**
- * What a backup directory says we wrote, per file. A patch applied over a build that is
- * not the pinned one produces a digest no constant can predict, so the record of our own
- * output is the only honest thing to verify a revert against.
- */
-function recordedOutputs(paths: PatchPaths, dir: string): Map<string, string> {
-	const recorded = new Map<string, string>();
-	try {
-		const parsed: unknown = JSON.parse(readFileSync(join(paths.backups, dir, 'manifest.json'), 'utf8'));
-		const files = (parsed as { files?: unknown }).files;
-		if (!Array.isArray(files)) return recorded;
-		for (const item of files) {
-			const entry = item as { file?: unknown; patchedMd5?: unknown };
-			if (typeof entry.file === 'string' && typeof entry.patchedMd5 === 'string') {
-				recorded.set(entry.file, entry.patchedMd5);
-			}
+/** The backup a plan can trust: its bytes must be the ones its own record says were there. */
+function trustedBackup(paths: PatchPaths, spec: TargetSpec): { dir: string; text: string; patched: string | undefined } | undefined {
+	for (const dir of backupDirs(paths)) {
+		const path = join(paths.backups, dir, spec.file);
+		if (!existsSync(path)) continue;
+		let files: unknown;
+		try {
+			files = (JSON.parse(readFileSync(join(paths.backups, dir, 'manifest.json'), 'utf8')) as { files?: unknown }).files;
+		} catch {
+			continue;
 		}
-	} catch {
-		return recorded;
+		if (!Array.isArray(files)) continue;
+		const entry = files.find((item) => (item as { file?: unknown }).file === spec.file) as
+			| { md5?: unknown; patchedMd5?: unknown }
+			| undefined;
+		if (typeof entry?.md5 !== 'string') continue;
+		const text = readFileSync(path, 'utf8');
+		if (md5(text) !== entry.md5) continue;
+		return { dir, text, patched: typeof entry.patchedMd5 === 'string' ? entry.patchedMd5 : undefined };
 	}
-	return recorded;
+	return undefined;
 }
 
 function backupOriginals(
@@ -994,15 +994,13 @@ export function planRestore(paths: PatchPaths, targets: TargetSpec[] = TARGETS):
 	const steps: RestoreStep[] = [];
 	const missing: { file: string; expects: string[] }[] = [];
 	for (const spec of targets) {
-		const dir = backupDirs(paths).find((name) => existsSync(join(paths.backups, name, spec.file)));
-		if (dir === undefined) {
+		const backup = trustedBackup(paths, spec);
+		if (backup === undefined) {
 			missing.push({ file: spec.file, expects: ourOutputs(spec) });
 			continue;
 		}
-		const source = join(paths.backups, dir, spec.file);
-		const recorded = recordedOutputs(paths, dir).get(spec.file);
-		const ours = recorded === undefined ? ourOutputs(spec) : [recorded, ...ourOutputs(spec)];
-		steps.push({ spec, source, text: readFileSync(source, 'utf8'), ours });
+		const ours = backup.patched === undefined ? ourOutputs(spec) : [backup.patched, ...ourOutputs(spec)];
+		steps.push({ spec, source: join(paths.backups, backup.dir, spec.file), text: backup.text, ours });
 	}
 	return missing.length > 0 ? { ok: false, missing } : { ok: true, steps };
 }
