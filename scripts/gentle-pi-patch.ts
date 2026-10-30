@@ -385,7 +385,7 @@ export const TARGETS: TargetSpec[] = [
 		file: 'lib/shell-bar.ts',
 		md5: 'c5b3819241a587f960834409312a72a0',
 		md5Patched: '5b43e3127eae0024d45b21eec34b1a95',
-		md5PatchedV1: ['36afe7b323c27f7c2753a22d08cb57fa'],
+		md5PatchedV1: ['36afe7b323c27f7c2753a22d08cb57fa', 'c4392741927c8da26d0b9d24142e3a41'],
 		edits: [
 			{ anchor: SHELL_BAR_BRAND_ANCHOR, replacement: SHELL_BAR_BRAND_ANCHOR + '\n\n' + SHELL_BAR_BRAND_ADDITION },
 			{ anchor: SHELL_BAR_MINIMAL_ANCHOR, replacement: SHELL_BAR_MINIMAL_REPLACEMENT },
@@ -405,6 +405,7 @@ export const TARGETS: TargetSpec[] = [
 		file: 'lib/shell-card.ts',
 		md5: 'd189f85262f41f5a5e8f590a0c57ed2d',
 		md5Patched: '8f3460ef6d3a5222d7a26662bb46b642',
+		md5PatchedV1: ['8dbecc2f2ac057b87ce5c344d7ba5241'],
 		edits: [
 			{ anchor: SHELL_CARD_1_ANCHOR, replacement: SHELL_CARD_1_REPLACEMENT },
 			{ anchor: SHELL_CARD_2_ANCHOR, replacement: SHELL_CARD_2_REPLACEMENT },
@@ -429,7 +430,7 @@ export const TARGETS: TargetSpec[] = [
 		file: 'lib/shell-prompt.ts',
 		md5: '6dccc1c4bf36e217d308a67c5e690c14',
 		md5Patched: 'fa3cc52522ee55195f48ceeee9c47259',
-		md5PatchedV1: ['08885475062712796843ef9508f6b1ed', '993a7f2237db3eb718b9d6ab05591bf1', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52'],
+		md5PatchedV1: ['08885475062712796843ef9508f6b1ed', '993a7f2237db3eb718b9d6ab05591bf1', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52', '0d07a750ae6162d2c8bbfbda7760e55f', '4e357af84fcafc01f3e240ea6331b066', 'ddb8bd748ae664cb28f9f0307e0917e5'],
 		edits: [
 			{ anchor: SHELL_PROMPT_1_ANCHOR, replacement: SHELL_PROMPT_1_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_2_ANCHOR, replacement: SHELL_PROMPT_2_REPLACEMENT },

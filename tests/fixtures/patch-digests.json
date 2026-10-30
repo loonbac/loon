@@ -26,13 +26,16 @@
 		"md5": "c5b3819241a587f960834409312a72a0",
 		"md5Patched": "5b43e3127eae0024d45b21eec34b1a95",
 		"md5PatchedV1": [
-			"36afe7b323c27f7c2753a22d08cb57fa"
+			"36afe7b323c27f7c2753a22d08cb57fa",
+			"c4392741927c8da26d0b9d24142e3a41"
 		]
 	},
 	"lib/shell-card.ts": {
 		"md5": "d189f85262f41f5a5e8f590a0c57ed2d",
 		"md5Patched": "8f3460ef6d3a5222d7a26662bb46b642",
-		"md5PatchedV1": []
+		"md5PatchedV1": [
+			"8dbecc2f2ac057b87ce5c344d7ba5241"
+		]
 	},
 	"lib/card-style-policy.ts": {
 		"md5": "2833f69f68273d351a09fd1d39424756",
@@ -49,7 +52,10 @@
 			"0618298301450ad9811a4d7b287bc3cd",
 			"2174a62f342df42f37d2a78b53b2a9e0",
 			"6ed83675ab5a63201df8ea38867cee8d",
-			"5bd10c1347200edb2f181e7631e67b52"
+			"5bd10c1347200edb2f181e7631e67b52",
+			"0d07a750ae6162d2c8bbfbda7760e55f",
+			"4e357af84fcafc01f3e240ea6331b066",
+			"ddb8bd748ae664cb28f9f0307e0917e5"
 		]
 	}
 }
