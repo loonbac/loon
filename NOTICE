@@ -5,6 +5,11 @@ This package reproduces the startup header of pi-claude-code-tui
 (https://github.com/Phoobobo/pi-claude-code-tui), Copyright (c) 2026 Phoobobo,
 licensed under the MIT License.
 
+Verification fixtures: tests/fixtures/gentle-pi-4.5.1/ holds unmodified copies of seven
+source files from gentle-pi 4.5.1 (MIT License, Copyright (c) the gentle-pi authors),
+kept only so the patch's pinned digests can be recomputed in a test. See the README in
+that directory.
+
 Derived material (from that project's extensions/claude-code-startup.ts and
 extensions/render-utils.ts):
 
