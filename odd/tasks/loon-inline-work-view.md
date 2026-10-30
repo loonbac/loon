@@ -94,6 +94,28 @@ Collapsing the render does not reduce context. If the context burn itself must d
 work has to be delegated or split, which is a policy decision taken with its own
 evidence; this feature must not be sold as a fix for it.
 
+
+S7. **The unit survives a reload, through gentle-pi's own history.**
+"on unit close, write `{ task, thread }` into gentle-pi's history dir, `task` being the carrier
+we already write (status `completed`, `mode: "inline"`, id `loon-inline-<sessionId>`) and
+`thread` a real `TaskThread` with the unit's actual activity. Read `lib/agents-protocol.ts`
+for the exact item shape and how `applyTaskEvent` builds a thread; do not approximate it."
+The history file is `<agentHome>/gentle-agents/tasks/<id>.json`, shaped `{ task, thread }`,
+which gentle-pi's `loadHistory` re-adds to its store on resume; the overlay panel renders
+`store.list()` and the detail pane renders `store.thread(id)`, so a persisted record is both
+the card and its transcript.
+
+S8. **The thread is the transcription, and it is bounded.**
+"The thread must be the transcription the owner asked for: the tool calls it made with their
+names and a bounded summary, and the closing result text. Bounded, because a full tool output
+in a panel line is noise."
+
+S9. **Persistence replaces "display state in memory".**
+"Keep the live carrier file as it is, and stop deleting the persisted history on reload or
+shutdown. A unit that closed stays readable; that is the whole point." And: "Do not modify
+gentle-pi's files: we write into its history directory, which is data, not code. No new
+`node_modules` patch."
+
 ## Tasks
 
 | ID | Spec | Route | Commit | Outcome |
@@ -104,6 +126,9 @@ evidence; this feature must not be sold as a fix for it.
 | T4 | S4 | inline | 5c27faa | `scripts/apply-inline-carrier-patch.mjs`: check/apply/revert, timestamped backup, verified idempotent rerun, TypeScript syntax gate, and the README note on when it must be rerun. |
 | T10 | S3, S5 | inline | 8104eee | Collapsed renderer through `pi.registerToolRenderer` from `extensions/inline-work.ts`: while the session has a carrier, `read`, `bash`, `grep`, `find`, `ls`, `edit` and `write` draw zero rows (`renderShell: "self"` plus an empty component, which makes `ToolExecutionComponent.render` return no lines). Anything else delegates to `next()`, unchanged: subagent tasks, questions, `todo`, `codemode`, every non-target tool. An errored result delegates to `next()` so the failure keeps its own rows, and `LOON_INLINE_WORK=0` never registers the resolver at all. |
 | T14 | S3, S5 | inline | dde0728 | `codemode` joins `COLLAPSED_TOOL_NAMES`, because an agent that works through `codemode` makes every single call through that one tool and the seven file and shell names left its transcript exactly as flooded as before. Tests first, asserting rows: the call collapses while a carrier is live, a failed `codemode` call still draws its row (pi builds the render context with the result's own error flag), `Ctrl+O` expansion brings it back, a session without a carrier is untouched, and `LOON_INLINE_WORK=0` still registers no renderer. The seven original names stay covered by the same test. Box `port`: targeted 14/14 pass, `npm run typecheck` the one pre-existing `theme-file` TS2307, suite 217 tests / 211 pass / 2 `probe-frame` tmux failures identical at base. |
+| T15 | S7, S8 | inline | 49185b8 | The unit's thread, built in memory as the unit runs: one `tool` item per top-level call (`{ kind: "tool", callId, name, args, output, running, isError }`, the shape `applyTaskEvent` builds), a bounded summary instead of raw output, and the closing result text as a `text` item. Nested calls (`parentToolCallId`) are skipped, as the carrier already does. |
+| T16 | S7, S9 | inline | 49185b8 | Persist the closed unit into gentle-pi's history directory as `{ task, thread }`, with per-unit ids (`loon-inline-<sessionId>-<n>`) so a second unit never overwrites the first; atomic write, no deletion on shutdown, no gentle-pi file touched. |
+| T17 | S7, S9 | inline | 49185b8 | README and this file: what survives a reload, what the panel now shows and its detail thread, what the widget card shows while a unit runs (the overlay reads the store), and how unit ids are allocated. |
 | T11 | S5 | pending | The panel entry still has no detail thread: `agents-view.threadWindow` reads `store.thread(id)` and the carrier never enters the store, so a carrier's thread is always empty. Giving it one needs either a thread field the view reads for non-store ids or a second patch site, so it is its own slice and the collapsed detail stays in the session log until then. |
 | T6 | S6 | inline | pending | Measure the actual inline/delegated split of recent sessions and report before changing any policy. |
 | T7 | S4 | inline | aa654cb | Harden `scripts/apply-inline-carrier-patch.mjs` after the first review: strict argument parsing (missing value, unknown flag, repeated flag, stray positional all rejected before any read or write) and a `revert` that refuses anything but the exact bytes the patch wrote. Tests first, both proving the failure by absence of a write, not by a message. |
@@ -173,3 +198,48 @@ same predicate reused for the standalone-sleep block, so both stay blind to the 
 same design. And: "The carrier file is removed at shutdown, so a Pi reload or restart drops the
 card until the next tool call re-creates it... Say so in the README, next to the
 double-invisible warning." Both limits are now in the README; neither adds code.
+
+L16. Order (verbatim, in parts): the owner requires that "the inline worker must stay in the
+Agents panel with its transcript, including after a reload. Today the carrier is deleted at
+shutdown, so a reload erases it, and it never enters the store, so its detail thread is
+empty. He wants both." Build on gentle-pi's history rather than inventing a second mechanism:
+"one JSON file per finished task at `historyDir(home, agentHome)` =
+`~/.pi/agent/gentle-agents/tasks/<id>.json`, shaped `{ task: TaskRecord, thread: TaskThread }`";
+"`fileFor` requires the id to match `/^[a-z0-9-]+$/i`"; "On session start gentle-pi calls
+`loadHistory(tasksDir)` and re-adds those tasks to the store (`restoredTaskIds`); the panel
+renders `visibleTasks()` = `store.list(sessionId)`, while only the widget filters restored and
+non-owned ids. The thread view is `store.thread(task.id)`."
+Decisions: persist through that file, not a private format; the thread is the transcription,
+bounded; keep the live carrier as it is and stop deleting the persisted history on reload or
+shutdown; do not modify gentle-pi's files, no new `node_modules` patch; if the panel filters
+restored tasks so the card still does not appear, "stop and report that with the exact filter,
+and propose the smallest option — do not patch"; tests first, five named checks including "a
+second unit in the same session does not overwrite the first" and "nothing is written when the
+unit never started"; acceptance is the owner running a unit, reloading Pi, opening
+`/gentle:agents` and finding the `gentle-ai-worker · inline` card with its transcript.
+
+L17. The id had to change, and this is why. S7 names the id `loon-inline-<sessionId>`, and the
+same order requires that "a second unit in the same session does not overwrite the first".
+One fixed id per session cannot do both: the second unit's file would replace the first. The
+record now carries `loon-inline-<sessionId>-<n>`, with `n` allocated one past the highest
+record already on disk and never below the number this process has handed out, so a resumed
+session continues the sequence. The live carrier file keeps its name
+(`state/loon-inline/<sessionId>.json`, which is what the patch reads); only the `id` field
+inside carries the unit, so the live card and the persisted record share an id and gentle-pi's
+duplicate guard still works.
+Where the card actually comes from, verified in the installed gentle-pi 4.5.1: the overlay
+panel lists `store.list()` (`lib/agents-view.ts:573`) and renders `store.thread(task.id)`
+(`:743`), while only the widget card above the editor goes through `visibleTasks()`. So the
+persisted-and-restored record is what makes the panel work, and a unit that is still running
+appears in the card but not in the panel until it closes and is restored.
+The restore gate is gentle-pi's own (`extensions/gentle-agents.ts:2562`):
+`event.reason === "resume" || (event.reason === "startup" && sessionManager.getEntries().length > 0)`.
+`new`, `fork` and an in-process `reload` never restore; that is the behaviour the acceptance
+run needs to match, and it is documented in the README rather than patched.
+Verification: box `port`, targeted `tests/inline-history.test.ts` exit 0 (5 pass, 3 skipped
+because they need the installed gentle-pi), `npm run typecheck` exit 2 with only the
+pre-existing `theme-file` TS2307, `npm test` 225 tests / 216 pass / 2 fail / 7 skipped with the
+two `probe-frame` tmux failures identical at base. On this machine, where gentle-pi is
+installed, all eight tests of the file pass, including the one that loads `loadHistory` and
+`TaskStore` from the installed package and checks that the restored store lists the card and
+keeps its thread.
