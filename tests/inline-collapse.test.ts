@@ -146,9 +146,9 @@ function scratch(): string {
 	return mkdtempSync(join(tmpdir(), 'loon-collapse-'));
 }
 
-function sessionContext(): ExtensionContext {
+function sessionContext(entries: unknown = []): ExtensionContext {
 	return {
-		sessionManager: { getSessionId: () => SESSION_ID },
+		sessionManager: { getSessionId: () => SESSION_ID, getEntries: () => entries },
 		cwd: '/repo',
 		model: { provider: 'anthropic', id: 'claude-opus-4' },
 		thinkingLevel: 'high',
@@ -161,6 +161,51 @@ function idleSession(agentHome: string, env: Record<string, string> = {}): FakeP
 	const pi = fakePi();
 	createInlineWork(pi.api, { env, agentHome, heartbeatMs: 0 });
 	pi.fire('session_start', { type: 'session_start' }, sessionContext());
+	return pi;
+}
+
+/** A context whose restored conversation pi cannot hand over. */
+function unreadableContext(): ExtensionContext {
+	return {
+		sessionManager: {
+			getSessionId: () => SESSION_ID,
+			getEntries: (): never => {
+				throw new Error('no entries');
+			},
+		},
+		cwd: '/repo',
+		model: { provider: 'anthropic', id: 'claude-opus-4' },
+		thinkingLevel: 'high',
+	} as unknown as ExtensionContext;
+}
+
+const RESTORED = [
+	{
+		type: 'message',
+		message: {
+			role: 'assistant',
+			content: [
+				{ type: 'thinking', thinking: 'Razonamiento de antes del reinicio, con su desarrollo.' },
+				{ type: 'text', text: 'La respuesta de antes del reinicio, entera.' },
+			],
+		},
+	},
+	{
+		type: 'message',
+		message: {
+			role: 'assistant',
+			content: [
+				{ type: 'text', text: 'Prosa de trabajo de antes del reinicio.' },
+				{ type: 'toolCall', name: 'read', input: { path: 'README.md' } },
+			],
+		},
+	},
+];
+
+function resumed(agentHome: string): FakePi {
+	const pi = fakePi();
+	createInlineWork(pi.api, { env: {}, agentHome, heartbeatMs: 0 });
+	pi.fire('session_start', { type: 'session_start', reason: 'resume' }, sessionContext(RESTORED));
 	return pi;
 }
 
@@ -562,6 +607,73 @@ test('every turn end keeps its own answer legible, and a work message still coll
 			sessionContext(),
 		);
 		assert.equal(pi.transform(work).split('\n').length, 1, 'work prose still leaves the transcript');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a resumed session draws the messages it restored exactly as it left them', () => {
+	const agentHome = scratch();
+	try {
+		const pi = resumed(agentHome);
+		const answer = 'La respuesta de antes del reinicio, entera.';
+		const work = 'Prosa de trabajo de antes del reinicio.';
+		const reasoning = 'Razonamiento de antes del reinicio, con su desarrollo.';
+		assert.equal(pi.transform(answer), answer, 'an answer read before the restart is not collapsed after it');
+		assert.equal(pi.transform(work), work, 'and neither is the prose of a turn that ended');
+		assert.equal(pi.transform(reasoning, { messageType: 'assistant-thinking' }), reasoning);
+		assert.equal(
+			existsSync(liveThreadPath(agentHome, SESSION_ID)),
+			false,
+			'the resumed history is not credited to a job that did not write it',
+		);
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('the first reasoning of the first own turn is one item, not the history plus one', () => {
+	const agentHome = scratch();
+	try {
+		const pi = resumed(agentHome);
+		// pi draws the restored conversation before this process writes anything.
+		pi.transform('Razonamiento de antes del reinicio, con su desarrollo.', { messageType: 'assistant-thinking' });
+		pi.transform('La respuesta de antes del reinicio, entera.');
+		pi.fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path: 'README.md' } }, sessionContext());
+		const live = 'El razonamiento de ahora, primero en un fotograma';
+		pi.transform(live, { messageType: 'assistant-thinking', isStreaming: true });
+		pi.transform(live + ' y completo en el siguiente.', { messageType: 'assistant-thinking', isStreaming: false });
+		const stored = JSON.parse(readFileSync(liveThreadPath(agentHome, SESSION_ID), 'utf8')) as {
+			thread: { items: Array<{ kind: string; text?: string }> };
+		};
+		assert.deepEqual(
+			stored.thread.items.filter((item) => item.kind === 'thinking').map((item) => item.text),
+			[live + ' y completo en el siguiente.'],
+			'one item, and it is the one this process thought',
+		);
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('when pi cannot hand over the restored conversation, nothing is decided until this process ends a message', () => {
+	const agentHome = scratch();
+	try {
+		const pi = fakePi();
+		createInlineWork(pi.api, { env: {}, agentHome, heartbeatMs: 0 });
+		pi.fire('session_start', { type: 'session_start', reason: 'resume' }, unreadableContext());
+		const history = 'Una respuesta de antes del reinicio, sin forma de reconocerla.';
+		assert.equal(pi.transform(history), history, 'nothing is decided about a message we cannot tell apart from our own');
+		const restoredReasoning = 'Razonamiento de antes, tambien sin reconocer.';
+		assert.equal(pi.transform(restoredReasoning, { messageType: 'assistant-thinking' }), restoredReasoning);
+		// The first message this process ends draws the line.
+		pi.fire(
+			'message_end',
+			{ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Respuesta de ahora.' }] } },
+			unreadableContext(),
+		);
+		const work = 'Prosa de trabajo de ahora.\n\nCon dos líneas.';
+		assert.equal(pi.transform(work).split('\n').length, 1, 'and the collapse is back for our own work');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}

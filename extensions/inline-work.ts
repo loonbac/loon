@@ -35,7 +35,12 @@ import type {
 } from '@earendil-works/pi-coding-agent';
 import { collapseResolver } from './lib/inline-collapse.ts';
 import { clearLiveThread, installOverlayPanel, writeLiveThread } from './lib/inline-overlay.ts';
-import { createTranscriptTransformer, transcriptMode, type TranscriptCollapse } from './lib/inline-transcript.ts';
+import {
+	createTranscriptTransformer,
+	restoredDecisions,
+	transcriptMode,
+	type TranscriptCollapse,
+} from './lib/inline-transcript.ts';
 import {
 	INLINE_RESULT_MAX,
 	addText,
@@ -269,6 +274,10 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		// Reasoning written before the card exists: the first call of the turn opens
 		// the job, and this is what it starts from.
 		let pending: UnitThread = emptyUnitThread();
+		// True when pi could not hand over the conversation it restored. Until this
+		// process ends its first message, nothing is collapsed or captured: the
+		// alternative is deciding about messages we cannot tell apart from our own.
+		let historyUnread = false;
 		let historyWritten = false;
 		let turnOpen = false;
 		let lastRealActivity = 0;
@@ -282,13 +291,13 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			// a turn are drawn before its first tool call, and the card only exists after
 			// that call: gating on the card would keep half of every turn in the
 			// transcript forever, because a decision is sticky.
-			isLive: () => sessionId !== undefined && !closed,
+			isLive: () => sessionId !== undefined && !closed && !historyUnread,
 			closingText: () => closingFull,
 			onThinking: (text: string, streaming: boolean): void => {
 				// Collapsing is not losing: the transcript keeps one line, and the panel
 				// keeps the block. A block that happens before the card exists is held
 				// here and becomes the first thing the card shows.
-				if (closed || sessionId === undefined) return;
+				if (closed || sessionId === undefined || historyUnread) return;
 				if (!jobOpen) {
 					pending = upsertThinking(pending, text, streaming);
 					return;
@@ -454,6 +463,26 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		 * Register a handler that cannot throw into pi. Handlers are synchronous and
 		 * return nothing: this extension never blocks, steers, or vetoes anything.
 		 */
+		/**
+		 * Seed the decisions with the conversation pi restored.
+		 * @param {ExtensionContext} ctx
+		 * @returns {'seeded' | 'empty' | 'unavailable'}
+		 */
+		const seedRestored = (ctx: ExtensionContext): 'seeded' | 'empty' | 'unavailable' => {
+			const manager = ctx?.sessionManager as { getEntries?: () => unknown } | undefined;
+			if (typeof manager?.getEntries !== 'function') return 'unavailable';
+			let entries: unknown;
+			try {
+				entries = manager.getEntries();
+			} catch {
+				return 'unavailable';
+			}
+			if (!Array.isArray(entries)) return 'unavailable';
+			const restored = restoredDecisions(entries);
+			for (const decision of restored) prose.remember(decision.text, decision.decision, decision.kind);
+			return restored.length > 0 ? 'seeded' : 'empty';
+		};
+
 		const safeHandler = <E,>(run: (event: E, ctx: ExtensionContext) => void): ((event: E, ctx: ExtensionContext) => void) => {
 			return (event: E, ctx: ExtensionContext): void => {
 				try {
@@ -491,8 +520,14 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			lastRealActivity = 0;
 			lastResult = null;
 			thread = emptyUnitThread();
+			pending = emptyUnitThread();
 			historyWritten = false;
 			stopHeartbeat();
+			// The conversation pi restored is history, not work in progress: seed the
+			// decisions before the first frame, or a resume collapses every old answer
+			// for good and credits the new job with the previous job's reasoning.
+			const seeded = seedRestored(ctx);
+			historyUnread = seeded === 'unavailable';
 			if (sessionId !== undefined) {
 				// A resumed session starts its card from its own first step again.
 				removeCarrier(agentHome, sessionId);
@@ -553,6 +588,9 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			// collapsed. Extensions see this event before pi rebuilds the finished
 			// message, so the exemption is already remembered when it is drawn last.
 			exemptAnswer(prose, message);
+			// The first message this process ends is the line between restored history
+			// and our own work, when history could not be read at all.
+			historyUnread = false;
 			if (!jobOpen) return;
 			const totals = usageTotals(message);
 			tokens += totals.tokens;
