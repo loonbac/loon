@@ -32,7 +32,7 @@ const spec = (file: string, text: string, anchors: string[]): TargetSpec => {
 	return patched.ok ? { ...base, md5Patched: md5(patched.text) } : base;
 };
 
-const shellFixture = ['// head', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '// tail'].join('\n');
+const shellFixture = ['// head', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '// preview', ANCHORS.shellCardPreview, '// tail'].join('\n');
 const bannerFixture = ['// head', ANCHORS.bannerEvent, '// body', ANCHORS.bannerConfig, '// tail'].join('\n');
 
 test('the patch targets the gentle-pi build it was written for', () => {
@@ -46,6 +46,11 @@ test('the patch targets the gentle-pi build it was written for', () => {
 			['extensions/startup-banner.ts', '028bd98910468c7076ef31c65f36e09f'],
 			// The header bar's brand gives way to a theme LOON generated.
 			['lib/shell-bar.ts', 'c5b3819241a587f960834409312a72a0'],
+			// Card style loon: the enum and the geometry that cards, panels and the bar read.
+			['lib/shell-card.ts', 'd189f85262f41f5a5e8f590a0c57ed2d'],
+			['lib/card-style-policy.ts', '2833f69f68273d351a09fd1d39424756'],
+			// The prompt band picks its geometry by style name, so loon needs this file too.
+			['lib/shell-prompt.ts', '6dccc1c4bf36e217d308a67c5e690c14'],
 		],
 	);
 });
@@ -150,7 +155,7 @@ test('the real installed files still match the anchors, when they are here', () 
 const shellSpec = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
 
 function shellStand(): string {
-	return ['export default async function stand() {', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '}', ''].join('\n');
+	return ['export default async function stand() {', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '// preview', ANCHORS.shellCardPreview, '}', ''].join('\n');
 }
 
 function bannerStand(): string {

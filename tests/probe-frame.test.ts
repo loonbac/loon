@@ -51,13 +51,16 @@ test('the snapshot records the four files and the themes directory', () => {
 	try {
 		const state = snapshot(home.env);
 		const manifest = readFileSync(join(state, 'manifest'), 'utf8').trim().split('\n');
-		assert.equal(manifest.length, 5, 'four config files plus the themes directory');
+		assert.equal(manifest.length, 6, 'five config files plus the themes directory');
 		// Four fields per entry: slot, path, digest, resolved path (empty when absent).
 		assert.match(manifest[0]!, /settings\.json\tfile:[0-9a-f]{64}\t\/.*settings\.json$/);
 		assert.match(manifest[1]!, /loon-tui\.json\tfile:[0-9a-f]{64}\t\/.*loon-tui\.json$/);
 		assert.match(manifest[2]!, /visual-customization\.json\tabsent\t$/);
 		assert.match(manifest[3]!, /banner\.json\tabsent\t$/);
-		assert.match(manifest[4]!, /themes\tdir:[0-9a-f]{64}\t\/.*themes$/);
+		// The card style is a setting a control frame has to write, so it is snapshotted
+		// like the rest: it was the file the 17:30 incident would have happened to next.
+		assert.match(manifest[4]!, /card-style\.json\tabsent\t$/);
+		assert.match(manifest[5]!, /themes\tdir:[0-9a-f]{64}\t\/.*themes$/);
 	} finally {
 		rmSync(home.root, { recursive: true, force: true });
 	}
@@ -257,6 +260,41 @@ test('a symlinked configuration file is snapshotted by bytes and restored throug
 	} finally {
 		rmSync(home.root, { recursive: true, force: true });
 	}
+});
+
+test('every gentle-pi setting a measurement can write is in the snapshot', () => {
+	// A measurement that writes a setting outside the manifest loses it exactly the way
+	// loon-tui.json was lost: the probe restores what it recorded, and nothing else.
+	const snapshotList = /CONFIG_PATHS=\(([\s\S]*?)\n\)/.exec(readFileSync(SCRIPT, 'utf8'));
+	assert.ok(snapshotList, 'probe-frame.sh must declare CONFIG_PATHS');
+	const listed = [...snapshotList[1]!.matchAll(/\$\{?\w+\}?\/([\w.-]+\.json)/g)].map((match) => match[1]!);
+	assert.ok(listed.includes('card-style.json'), 'card-style.json must be snapshotted, not only read');
+
+	// Every gentle-pi JSON name that appears in a test or script as a written file must
+	// be in that list. The names are read from the code, so a new setting cannot be
+	// forgotten silently.
+	const files: string[] = [];
+	const walk = (dir: string): void => {
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+			const path = join(dir, entry.name);
+			if (entry.isDirectory()) walk(path);
+			else if (/\.(sh|ts|mts)$/.test(entry.name)) files.push(path);
+		}
+	};
+	walk(join(REPO, 'scripts'));
+	walk(join(REPO, 'tests'));
+
+	const settingsWritten = new Set<string>();
+	for (const path of files) {
+		const text = readFileSync(path, 'utf8');
+		for (const match of text.matchAll(/(card-style|visual-customization|banner|card-content|permission-mode|persona|models|loon-tui)\.json/g)) {
+			settingsWritten.add(match[1]! + '.json');
+		}
+	}
+	assert.ok(settingsWritten.size > 0);
+	const missing = [...settingsWritten].filter((name) => !listed.includes(name));
+	assert.deepEqual(missing, [], 'these settings are written somewhere but not snapshotted by the probe');
 });
 
 test('no script or test writes a configuration file directly', () => {
