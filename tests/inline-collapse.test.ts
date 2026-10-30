@@ -19,7 +19,14 @@ import type {
 	ToolRendererResolver,
 	ToolRenderers,
 } from '@earendil-works/pi-coding-agent';
-import { INLINE_HEAVY_CALLS, createInlineWork } from '../extensions/inline-work.ts';
+import { INLINE_HEAVY_CALLS, createInlineWork, isAccountingTool } from '../extensions/inline-work.ts';
+
+function thinkingItems(agentHome: string): Array<{ kind: string; text?: string }> {
+	const path = liveThreadPath(agentHome, SESSION_ID);
+	if (!existsSync(path)) return [];
+	const live = JSON.parse(readFileSync(path, 'utf8')) as { thread: { items: Array<{ kind: string; text?: string }> } };
+	return live.thread.items.filter((item) => item.kind === 'thinking');
+}
 import { COLLAPSED_TOOL_NAMES } from '../extensions/lib/inline-collapse.ts';
 import { carrierPath, type InlineCarrierRecord } from '../extensions/lib/inline-carrier.ts';
 import { liveThreadPath } from '../extensions/lib/inline-overlay.ts';
@@ -516,10 +523,11 @@ test('a user message is never transformed', () => {
 	}
 });
 
-test('a thinking block collapses to one line and its text reaches the panel', () => {
+test('a thinking block of a heavy turn collapses to one line and its text reaches the panel', () => {
 	const agentHome = scratch();
 	try {
 		const pi = runningUnit(agentHome);
+		heavyTurn(pi, INLINE_HEAVY_CALLS - 1);
 		const reasoning = 'El dueño quiere el razonamiento fuera del transcript.\n\nPero sin perderlo: el panel lo muestra.';
 		const collapsed = pi.transform(reasoning, { messageType: 'assistant-thinking' });
 		assert.equal(collapsed.split('\n').length, 1, 'the reasoning leaves the transcript: ' + collapsed);
@@ -544,16 +552,99 @@ test('a thinking block collapses to one line and its text reaches the panel', ()
 	}
 });
 
-test('the first reasoning of a turn collapses before any tool call opened the card, and its prose does not', () => {
+test('before the first tool call neither the prose nor the reasoning is hidden', () => {
 	const agentHome = scratch();
 	try {
 		const pi = idleSession(agentHome);
 		const prose = 'Primera prosa del turno, antes de cualquier herramienta.\n\nCon dos líneas.';
 		assert.equal(pi.transform(prose), prose, 'a turn that has not worked yet is a conversation, not work');
 		const reasoning = 'Primer bloque de razonamiento del turno, antes de la herramienta.';
-		const collapsed = pi.transform(reasoning, { messageType: 'assistant-thinking' });
-		assert.equal(collapsed.split('\n').length, 1, 'the reasoning keeps its one line, heavy turn or not');
+		assert.equal(pi.transform(reasoning, { messageType: 'assistant-thinking' }), reasoning, 'the thinking obeys the same gate');
+		assert.equal(existsSync(liveThreadPath(agentHome, SESSION_ID)), false, 'and a visible block has nothing to preserve');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('the reasoning of a light turn is drawn whole and never reaches the panel', () => {
+	const agentHome = scratch();
+	try {
+		const pi = runningUnit(agentHome);
+		heavyTurn(pi, INLINE_HEAVY_CALLS - 2);
+		const reasoning = 'Esto es pensar en voz alta, no programar.\n\nCon dos párrafos.';
+		assert.equal(pi.transform(reasoning, { messageType: 'assistant-thinking' }), reasoning);
+		assert.deepEqual(thinkingItems(agentHome), [], 'a block that was not hidden is not duplicated in the panel');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('in a heavy turn the block before the third call stays whole and the ones after collapse into the panel', () => {
+	const agentHome = scratch();
+	try {
+		const pi = idleSession(agentHome);
+		heavyTurn(pi, INLINE_HEAVY_CALLS - 1);
+		const plan = 'El plan del turno, antes de la tercera llamada.';
+		assert.equal(pi.transform(plan, { messageType: 'assistant-thinking' }), plan, 'the plan is read, not filed');
+		heavyTurn(pi, 1);
+		const later = 'El razonamiento del trabajo ya pesado, después de la tercera.';
+		const collapsed = pi.transform(later, { messageType: 'assistant-thinking' });
+		assert.equal(collapsed.split('\n').length, 1);
 		assert.ok(collapsed.includes(THINKING_SUFFIX), collapsed);
+		const live = JSON.parse(readFileSync(liveThreadPath(agentHome, SESSION_ID), 'utf8')) as {
+			thread: { items: Array<{ kind: string; text?: string }> };
+		};
+		assert.deepEqual(
+			live.thread.items.filter((item) => item.kind === 'thinking').map((item) => item.text),
+			[later],
+			'only the block that was hidden is in the panel',
+		);
+		assert.equal(pi.transform(plan, { messageType: 'assistant-thinking' }), plan, 'and the earlier decision is not revisited');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a turn of todo, mem_save and one status check does not become heavy', () => {
+	const agentHome = scratch();
+	try {
+		const pi = idleSession(agentHome);
+		const calls: Array<[string, Record<string, unknown>]> = [
+			['todo', { action: 'write', tasks: [] }],
+			['mem_save', { title: 'algo', content: 'algo' }],
+			['bash', { command: 'gh issue list' }],
+		];
+		for (const [toolName, input] of calls) {
+			pi.fire('tool_call', { type: 'tool_call', toolName, input }, sessionContext());
+		}
+		const prose = 'Comprobé los issues y guardé la memoria.\n\nNo hay nada pendiente.';
+		assert.equal(pi.transform(prose), prose, 'bookkeeping is not work on the repository');
+		const reasoning = 'Pensaba si quedaba algo pendiente.\n\nNada.';
+		assert.equal(pi.transform(reasoning, { messageType: 'assistant-thinking' }), reasoning);
+		assert.deepEqual(thinkingItems(agentHome), [], 'five bookkeeping calls are not weight');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('accounting tools do not count, and a real call does', () => {
+	const agentHome = scratch();
+	try {
+		for (const name of ['todo', 'mem_save', 'mem_session_summary', 'orchestrator_send_message']) {
+			assert.equal(isAccountingTool(name), true, name + ' keeps the record');
+		}
+		for (const name of ['read', 'bash', 'edit', 'grep', 'codemode', 'task', 'inline-job']) {
+			assert.equal(isAccountingTool(name), false, name + ' works on the repository');
+		}
+		const pi = idleSession(agentHome);
+		for (let index = 0; index < 5; index += 1) {
+			pi.fire('tool_call', { type: 'tool_call', toolName: 'mem_save', input: {} }, sessionContext());
+		}
+		heavyTurn(pi, INLINE_HEAVY_CALLS - 1);
+		const prose = 'Dos llamadas reales todavía no son trabajo pesado.\n\nSe lee entera.';
+		assert.equal(pi.transform(prose), prose, 'five accounting calls and two real ones are still under the threshold');
+		heavyTurn(pi, 1);
+		assert.equal(pi.transform('Y ahora sí.\n\nYa es trabajo.').split('\n').length, 1, 'the third real call turns it');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
@@ -617,24 +708,24 @@ test('the counter is per turn: a light turn after a heavy one starts from zero',
 	}
 });
 
-test('the reasoning captured before the card exists is in the thread once the work starts', () => {
+test('a block that was read in full is not duplicated in the panel, and a hidden one is saved whole', () => {
 	const agentHome = scratch();
 	try {
 		const pi = idleSession(agentHome);
-		const first = 'Razonamiento previo a la primera herramienta.';
-		pi.transform(first, { messageType: 'assistant-thinking', isStreaming: true });
-		pi.transform(first, { messageType: 'assistant-thinking', isStreaming: false });
-		// The work starts now: the card is created, and its thread already has the block.
-		pi.fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path: 'README.md' } }, sessionContext());
-		pi.transform('Un segundo bloque, ya con la tarjeta abierta.', { messageType: 'assistant-thinking' });
+		const read = 'Razonamiento que se leyó entero, antes de la tercera herramienta.';
+		pi.transform(read, { messageType: 'assistant-thinking', isStreaming: true });
+		pi.transform(read, { messageType: 'assistant-thinking', isStreaming: false });
+		heavyTurn(pi);
+		const hidden = 'Razonamiento que el transcript ya no muestra.\n\nCon su desarrollo completo.';
+		pi.transform(hidden, { messageType: 'assistant-thinking', isStreaming: true });
+		pi.transform(hidden, { messageType: 'assistant-thinking', isStreaming: false });
 		const live = JSON.parse(readFileSync(liveThreadPath(agentHome, SESSION_ID), 'utf8')) as {
 			thread: { items: Array<{ kind: string; text?: string }> };
 		};
-		const thinking = live.thread.items.filter((item) => item.kind === 'thinking');
 		assert.deepEqual(
-			thinking.map((item) => item.text),
-			[first, 'Un segundo bloque, ya con la tarjeta abierta.'],
-			'the block that happened before the card was not lost: ' + JSON.stringify(live.thread.items),
+			live.thread.items.filter((item) => item.kind === 'thinking').map((item) => item.text),
+			[hidden],
+			'only what was hidden is in the panel: ' + JSON.stringify(live.thread.items),
 		);
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
@@ -707,7 +798,8 @@ test('the first reasoning of the first own turn is one item, not the history plu
 		// pi draws the restored conversation before this process writes anything.
 		pi.transform('Razonamiento de antes del reinicio, con su desarrollo.', { messageType: 'assistant-thinking' });
 		pi.transform('La respuesta de antes del reinicio, entera.');
-		pi.fire('tool_call', { type: 'tool_call', toolName: 'read', input: { path: 'README.md' } }, sessionContext());
+		// A heavy turn: the subject here is the seeded history, not the threshold.
+		heavyTurn(pi);
 		const live = 'El razonamiento de ahora, primero en un fotograma';
 		pi.transform(live, { messageType: 'assistant-thinking', isStreaming: true });
 		pi.transform(live + ' y completo en el siguiente.', { messageType: 'assistant-thinking', isStreaming: false });

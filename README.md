@@ -375,10 +375,11 @@ La única excepción es la configuración que **oculta** los bloques de razonami
 dibuja una etiqueta sin Markdown, el transformador no corre y el panel tampoco recibe el bloque.
 
 Y colapsar no es perder: un transformador de Markdown no se puede volver a abrir con `Ctrl+O`, así
-que cada bloque va al hilo del trabajo como un ítem propio (`kind: "thinking"`), que el panel
-rotula **Thinking**. Se registra **en cada fotograma**, no solo en el último: pi puede terminar un
-bloque sin volver a dibujarlo, y entonces el bloque que la persona leyó no llegaría nunca al
-panel. El ítem abierto se reescribe en su sitio, así que los fotogramas son un solo ítem que
+que cada bloque **que se colapsó** va al hilo del trabajo como un ítem propio (`kind: "thinking"`),
+que el panel rotula **Thinking**. Un bloque que se dibuja entero —turno ligero— no llega al panel:
+si no se ocultó nada, no hay nada que preservar. Se registra **en cada fotograma**, no solo en el
+último: pi puede terminar un bloque sin volver a dibujarlo, y entonces el bloque que la persona
+leyó no llegaría nunca al panel. El ítem abierto se reescribe en su sitio, así que los fotogramas son un solo ítem que
 crece; al sellarse, el siguiente bloque es otro ítem, y un repintado del mismo bloque no lo
 duplica. Se recorta a 4000 caracteres. Si el razonamiento no se fuera al panel, este cambio sería
 peor que el ruido que quita.
@@ -393,6 +394,8 @@ Cuatro reglas que hacen esto seguro:
   existencia de la tarjeta dejaría medio turno entero en el transcript para siempre, porque una
   decisión es pegajosa. Y la ausencia de tarjeta **no es una decisión**: sin sesión viva no se
   recuerda nada, de modo que el mismo mensaje se decide cuando la sesión empieza a trabajar.
+- **El peso del turno es la otra puerta, y es la misma para las dos cosas.** Por debajo de
+  `INLINE_HEAVY_CALLS` no se colapsa ni la prosa ni el razonamiento (ver más abajo).
 - **La primera decisión es la que queda**, en las dos direcciones. Un mensaje —o un bloque de
   razonamiento— que se colapsó mientras la unidad corría sigue colapsado al repintarse, y uno que
   ya era historia, o que se dibujó con `full`, se queda entero aunque el modo cambie después: por
@@ -416,7 +419,8 @@ Cuatro reglas que hacen esto seguro:
 Colapsar toda la prosa de un turno esconde algo más que el trabajo: en un turno ligero —mirar un
 estado, responder una pregunta con dos comandos— la narración intermedia **es** la respuesta, y
 mandarla al panel hace que el turno se lea como si el agente hubiera teletrabajado. El resumen
-final ya se lee entero; lo que sobraba era el colapso en turnos que no son trabajo.
+final ya se lee entero; lo que sobraba era el colapso en turnos que no son trabajo. Lo mismo vale
+para el razonamiento: pensar en voz alta en un turno ligero no es programar.
 
 Así que el umbral es explícito y vive en el código, no en una variable de entorno:
 
@@ -424,21 +428,41 @@ Así que el umbral es explícito y vive en el código, no en una variable de ent
 export const INLINE_HEAVY_CALLS = 3;
 ```
 
-- un turno con **menos de tres** llamadas de herramienta dibuja toda su prosa tal como se escribió;
-- al llegar a la tercera, la narración **posterior** de ese turno se colapsa;
+- un turno con **menos de tres** llamadas de herramienta dibuja **toda** su prosa y **todos** sus
+  bloques de razonamiento tal como se escribieron, sin marca;
+- al llegar a la tercera, la narración y el pensamiento **posteriores** de ese turno se colapsan;
 - un turno conversacional, sin herramientas, no colapsa nada nunca;
 - el contador es **por turno**, no por trabajo: un trabajo largo hecho de turnos ligeros no arrastra
   el peso del turno anterior.
 
-La decisión se toma **una vez por mensaje**, en el momento del dibujo, y no se revisa hacia atrás:
-lo que ya se dibujó entero se queda entero aunque el turno se vuelva pesado después. Es la misma
-adherencia que ya gobierna la exención de la respuesta, y evita el bug de intentar encoger algo
-que la persona ya está leyendo.
+**El razonamiento obedece a la misma puerta y en el mismo momento de decisión que la prosa**
+(`isHeavy()` en el fotograma del bloque, con el mismo contador). Un bloque visible no se manda al
+panel: si no se ocultó nada, no hay nada que preservar. Solo los bloques colapsados se convierten
+en ítems `thinking` del hilo.
+
+Consecuencia aceptada, y es la disciplina monotónica de siempre: en un turno pesado, el bloque que
+llega **antes** de la tercera llamada se queda entero, porque en ese instante el turno todavía no
+era pesado — y ese bloque inicial es justamente el plan. Nada se encoge hacia atrás.
+
+### Lo que cuenta como trabajo
+
+El contador suma toda herramienta que **trabaja sobre el repositorio**, y no la que lleva
+registro. La lista es explícita, junto al umbral:
+
+```ts
+export const INLINE_ACCOUNTING_TOOLS: readonly string[] = ['todo', 'mem_', 'orchestrator_'];
+```
+
+- un nombre exacto cuenta como ese nombre; una entrada terminada en `_` es una familia
+  (`mem_save`, `mem_session_summary`, `orchestrator_send_message`…);
+- `codemode` **sí** cuenta: es donde vive el trabajo real de este entorno —los tests, `git`, las
+  comprobaciones—; lo que se excluye es el registro, no el shell;
+- un turno de `todo` + `mem_save` + una comprobación suma **una** llamada y no alcanza el umbral;
+- si mañana aparece otra herramienta de registro, se añade a la lista. El umbral no se mueve.
 
 Lo que **no** depende del umbral: la fila de herramienta se colapsa desde la primera llamada en
-cuanto hay sesión viva (eso es exactamente lo que el dueño quería oculto), la respuesta final sigue
-exenta por su `message_end` sin herramienta, y el razonamiento sigue en una línea con su marca y su
-ítem en el panel.
+cuanto hay sesión viva (eso es exactamente lo que el dueño quería oculto) y la respuesta final
+sigue exenta por su `message_end` sin herramienta.
 
 #### Al reanudar, la conversación restaurada es historia, no trabajo
 
