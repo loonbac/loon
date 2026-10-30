@@ -432,6 +432,7 @@ const shellBarTarget = TARGETS.find((target) => target.file === 'lib/shell-bar.t
 // something that still reads like the function it stands in for.
 const shellBarFixture = [
 	'// head',
+	ANCHORS.shellBarMarginImport,
 	'function buildSegments(): string[] {',
 	'\treturn [',
 	ANCHORS.shellBarMinimal,
@@ -450,6 +451,12 @@ const shellBarFixture = [
 	'\t\t.map((stage) => presentation?.density === "minimal" ? stage.slice(1) : stage);',
 	ANCHORS.shellBarFallback,
 	ANCHORS.shellBarUsage,
+	'',
+	ANCHORS.shellBarMarginRow,
+	'',
+	ANCHORS.shellBarMarginPadding,
+	'',
+	ANCHORS.shellBarMarginRule,
 	'// tail',
 ].join('\n');
 
