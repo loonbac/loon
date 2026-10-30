@@ -76,7 +76,7 @@ test('no painted row starts with an escape, in any card style', { skip: !availab
 	const layout = prompt.resolvePromptLayout(120, 'loon', theme2.bg);
 	const bandRows = prompt.framePromptLines(['', 'hello', ''], 120, bandOptions, layout);
 	const band = bandRows[1]!.replace(/\u001b\[[0-9;]*m/g, '');
-	assert.equal(band.indexOf('▎'), 0, `loon band rule sits in column ${band.indexOf('▎')}, expected 0`);
+	assert.equal(band.indexOf('▎'), 1, `loon band rule sits in column ${band.indexOf('▎')}, expected 1: column 0 is the margin`);
 	assert.equal(band.indexOf('hello'), 2, `loon band text sits in column ${band.indexOf('hello')}, expected 2`);
 	assert.ok(!bandRows[1]!.startsWith('\u001b'), 'the band row begins with an escape');
 
@@ -186,7 +186,11 @@ test('the loon band surface ends where the bar surface ends', { skip: !available
 		const barRight = Math.max(...painted(chrome.rows[1]!));
 		assert.equal(bandRight, barRight, 'at ' + width + ' columns the band surface ends at ' + bandRight + ' and the bar at ' + barRight);
 		assert.equal(bandRight, width - 1, 'the surface reaches the last column at ' + width);
-		assert.equal(Math.min(...painted(bandRow)), 1, 'the band surface starts in column 1: column 0 is the rule');
-		assert.equal(bandRow.replace(/\u001b\[[0-9;]*m/g, '')[0], '▎', 'the band rule keeps column 0');
+		const bandCells = bandRow.replace(/\u001b\[[0-9;]*m/g, '');
+		assert.equal(Math.min(...painted(bandRow)), 1, 'the band surface starts in column 1');
+		assert.ok(!painted(bandRow).includes(0), 'column 0 is a margin: it carries no surface');
+		assert.ok(painted(bandRow).includes(1), 'the rule cell carries the surface: the glyph is a quarter block, and a transparent cell around it reads as a hole');
+		assert.equal(bandCells[0], ' ', 'the row starts with its margin, never with an escape or the glyph');
+		assert.equal(bandCells[1], '▎', 'the rule glyph sits in column 1, inside the surface');
 	}
 });
