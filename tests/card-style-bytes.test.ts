@@ -130,10 +130,10 @@ test('no painted row starts with an escape, in any card style', { skip: !availab
 	const bandOptions = { style: 'loon', bg: theme2.bg, fg: theme2.fg, borderColor: (t: string) => t, state: 'idle' };
 	const layout = prompt.resolvePromptLayout(120, 'loon', theme2.bg);
 	const bandRows = prompt.framePromptLines(['', 'hello', ''], 120, bandOptions, layout);
-	const band = bandRows[2]!.replace(/\u001b\[[0-9;]*m/g, '');
+	const band = bandRows[1]!.replace(/\u001b\[[0-9;]*m/g, '');
 	assert.equal(band.indexOf('▎'), 1, `loon band rule sits in column ${band.indexOf('▎')}, expected 1: column 0 is the margin`);
 	assert.equal(band.indexOf('hello'), 2, `loon band text sits in column ${band.indexOf('hello')}, expected 2`);
-	assert.ok(!bandRows[2]!.startsWith('\u001b'), 'the band row begins with an escape');
+	assert.ok(!bandRows[1]!.startsWith('\u001b'), 'the band row begins with an escape');
 
 	const subject = {
 		title: 'read',
@@ -215,7 +215,7 @@ test('the loon band surface ends where the bar surface ends', { skip: !available
 		const bandRowsAtWidth = prompt.framePromptLines(['', 'a line the band paints', ''], width, {
 			state: 'idle', tick: 0, bg: theme.bg, fg: theme.fg, borderColor: (text: string) => text, style: 'loon',
 		}, layout);
-		const bandRow = bandRowsAtWidth[2]!;
+		const bandRow = bandRowsAtWidth[1]!;
 		const chrome = shellBar.renderShellBelowInputFloat(model, theme, width, undefined, presentation);
 		assert.ok(chrome, 'the bar did not render at ' + width + ' columns');
 		const bandRight = Math.max(...paintedColumns(bandRow));
@@ -234,11 +234,11 @@ test('the loon band surface ends where the bar surface ends', { skip: !available
 	}
 });
 
-// The band's first row is its top edge. The hint used to BE that row, so the surface
-// started on the label and the band had padding below but none above. It now opens with an
-// empty surface row, symmetric to the one it closes with - and the row count is what pi's
-// mouse model reads, which is why the editor translates y by one row.
-test('the band opens with an empty surface row and the hint is not the first row', { skip: !available && 'gentle-pi is not installed here' }, async () => {
+// Row 0 of the band is its top slot. pi's editor maps that row to padding and ignores it
+// for clicks, so the label lives there with no surface and no rule: the band starts on the
+// first content row and the caption reads above it. The row spans the band's width, so the
+// two blocks end on the same column and the row count stays native.
+test("the band's first row is the label, painted without surface", { skip: !available && 'gentle-pi is not installed here' }, async () => {
 	const { createJiti } = (await import(join(PI_ROOT, 'node_modules', 'jiti', 'lib', 'jiti-static.mjs'))) as {
 		createJiti: (url: string, options: Record<string, unknown>) => { import: (path: string) => Promise<unknown> };
 	};
@@ -266,15 +266,20 @@ test('the band opens with an empty surface row and the hint is not the first row
 			state: 'idle', tick: 0, bg: theme.bg, fg: theme.fg, borderColor: (text: string) => text, style: 'loon',
 		}, layout);
 		const cells = rows.map((row) => row.replace(/\u001b\[[0-9;]*m/g, ''));
-		// One editor line, plus the row the band opens with and the row it closes with.
-		assert.equal(rows.length, 4, 'the band has ' + rows.length + ' rows at ' + width + ', expected 4');
-		assert.equal(cells[0]!.slice(2).trim(), '', 'the band opens with text on its top edge at ' + width + ': ' + JSON.stringify(cells[0]!.trim()));
-		assert.ok(!rows[0]!.includes('waiting for input'), 'the hint is still the first row of the band at ' + width);
-		assert.ok(cells[1]!.includes('waiting for input'), 'the hint is not the second row of the band at ' + width + ': ' + JSON.stringify(cells[1]!.trim()));
+		// The label slot, one content row, the closing row: the native count, unchanged.
+		assert.equal(rows.length, 3, 'the band has ' + rows.length + ' rows at ' + width + ', expected 3');
+		assert.ok(cells[0]!.includes('waiting for input'), 'row 0 is not the label at ' + width + ': ' + JSON.stringify(cells[0]!.trim()));
+		assert.ok(!cells[0]!.includes('\u258e'), 'row 0 still carries the rule at ' + width + ': ' + JSON.stringify(cells[0]!.trim()));
+		assert.deepEqual(paintedColumns(rows[0]!), [], 'row 0 paints a surface at ' + width + ': ' + JSON.stringify(cells[0]!.trim()));
+		assert.ok(paintedColumns(rows[1]!).length > 0, 'the first content row carries no surface at ' + width);
+		assert.equal(paintedColumns(rows[1]!)[0], 1, 'the band starts in column 1 at ' + width);
 		for (const [index, row] of rows.entries()) {
+			if (index === 0) continue;
 			const right = Math.max(...paintedColumns(row));
 			assert.equal(right, width - 1, 'band row ' + index + ' at ' + width + ' closes its surface at column ' + right);
 		}
+		// The label row is as wide as the band, so the two blocks end on the same column.
+		assert.equal(cells[0]!.length, cells[1]!.length, 'the label row is ' + cells[0]!.length + ' cells and the band ' + cells[1]!.length + ' at ' + width);
 	}
 });
 
