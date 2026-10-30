@@ -211,8 +211,10 @@ PENDING y ERROR de un único color plano.
   que `accent.txt`; un archivo con ese nombre cuyo `name` propio no es el nuestro se deja
   intacto y se informa como `skipped-foreign`.
 - `/loon:tui status` dice qué tema se generó, qué pasó con el archivo y si es el activo.
-- Mientras `Wallpaper (LOON)` está activo, el banner también sigue el fondo de pantalla,
-  derivado en el momento de pintar: el archivo de ajustes nunca se reescribe por eso.
+- Con `Wallpaper (LOON)` activo, el acento del tema ya no coincide con el crudo del
+  fondo de pantalla: el tema eleva su rol `accent` para que las tarjetas INFO lean su
+  título. Qué pinta el banner lo decide el ajuste `accent` y nada más; un atajo anterior
+  que lo ignoraba mientras el tema generado estaba activo se eliminó por eso.
 
 En gentle-pi no se parchea nada para esto: su categoría Themes se construye en tiempo de
 ejecución a partir de los temas instalados, así que un archivo de tema real produce la
