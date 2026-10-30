@@ -11,8 +11,8 @@
  *
  * Three rules keep it honest. It only runs while the session has a carrier, so a
  * session without one draws exactly as before. It never touches a tool that is not
- * one of the file and shell calls, which is what leaves subagent tasks, questions
- * for the owner, `todo` and `codemode` untouched. And a failure is never
+ * one of the file and shell calls or `codemode`, which is what leaves subagent
+ * tasks, questions for the owner and `todo` untouched. And a failure is never
  * collapsed: an errored call delegates to the renderers it would have had.
  *
  * Everything is display only. No tool execution, schema or output changes.
@@ -22,8 +22,11 @@ import type { ToolRendererResolver, ToolRenderers } from '@earendil-works/pi-cod
 
 /**
  * The calls that flood the transcript, and the only ones this renderer drops.
+ * The file and shell tools are one family; `codemode` is the other, because an
+ * agent that works through it makes every single call through that one tool, so
+ * the seven names alone would leave its transcript exactly as flooded as before.
  * Everything else is somebody else's row: subagent tasks, questions waiting for
- * the owner, the todo list, codemode and the gentle tools.
+ * the owner, the todo list and the gentle tools.
  */
 export const COLLAPSED_TOOL_NAMES: ReadonlySet<string> = new Set([
 	'read',
@@ -33,6 +36,7 @@ export const COLLAPSED_TOOL_NAMES: ReadonlySet<string> = new Set([
 	'ls',
 	'edit',
 	'write',
+	'codemode',
 ]);
 
 /** How much of a failure is kept when the tool it came from has no renderer. */

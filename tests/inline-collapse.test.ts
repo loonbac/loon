@@ -29,7 +29,7 @@ const SUBAGENT_TOOLS = ['subagent_run', 'subagent_status', 'subagent_result'];
 /** Tools whose answer only the owner can give. */
 const QUESTION_TOOLS = ['ask_user_choice', 'ask_user_question'];
 /** Tools that also draw in the main transcript and are none of this slice's business. */
-const OTHER_TOOLS = ['todo', 'codemode', 'gentle_review', 'gentle_design'];
+const OTHER_TOOLS = ['todo', 'gentle_review', 'gentle_design'];
 
 const theme = {
 	bold: (value: string): string => value,
@@ -250,6 +250,90 @@ test('a failure is never collapsed away', () => {
 	}
 });
 
+test('a codemode call collapses like the file and shell tools', () => {
+	const agentHome = scratch();
+	try {
+		const pi = runningUnit(agentHome);
+		const renderers = pi.resolve('codemode');
+		assert.ok(renderers, 'codemode must still resolve to renderers');
+		assert.equal(renderers.renderShell, 'self', 'codemode must draw its own framing, or pi keeps the frame');
+		const call = renderers.renderCall?.({ code: 'await tools.read({ path: "a" })' }, theme as never, renderContext() as never);
+		assert.deepEqual(call?.render(80), [], 'a codemode call must not occupy a row');
+		const result = renderers.renderResult?.(
+			{ content: [{ type: 'text', text: 'file contents' }], details: undefined, isError: false },
+			{ expanded: false, isPartial: false },
+			theme as never,
+			renderContext() as never,
+		);
+		assert.deepEqual(result?.render(80), [], 'a codemode result must not occupy a row either');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a failed codemode call still draws its row', () => {
+	const agentHome = scratch();
+	try {
+		const pi = runningUnit(agentHome);
+		const renderers = pi.resolve('codemode');
+		assert.ok(renderers);
+		// pi builds the render context with the result's own error flag
+		// (tool-execution.js: isError: this.result?.isError ?? false), so this is
+		// the shape a failed codemode call really produces.
+		const failure = {
+			content: [{ type: 'text' as const, text: 'SyntaxError: unexpected token' }],
+			details: undefined,
+			isError: true,
+		};
+		const call = renderers.renderCall?.({ code: 'await' }, theme as never, renderContext({ isError: true }) as never);
+		assert.deepEqual(call?.render(80), rowsOf('codemode'), 'the failed call keeps its own row');
+		const result = renderers.renderResult?.(
+			failure,
+			{ expanded: false, isPartial: false },
+			theme as never,
+			renderContext({ isError: true }) as never,
+		);
+		assert.deepEqual(result?.render(80), rowsOf('codemode'), 'the failure keeps the rendering it has today');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a codemode row the reader expands comes back in full', () => {
+	const agentHome = scratch();
+	try {
+		const pi = runningUnit(agentHome);
+		const renderers = pi.resolve('codemode');
+		assert.ok(renderers);
+		const call = renderers.renderCall?.({ code: 'await' }, theme as never, renderContext({ expanded: true }) as never);
+		assert.deepEqual(call?.render(80), rowsOf('codemode'), 'an expanded codemode row must never stay blank');
+		const result = renderers.renderResult?.(
+			{ content: [{ type: 'text', text: 'ok' }], details: undefined, isError: false },
+			{ expanded: true, isPartial: false },
+			theme as never,
+			renderContext({ expanded: true }) as never,
+		);
+		assert.deepEqual(result?.render(80), rowsOf('codemode'));
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a codemode call in a session without a carrier is untouched', () => {
+	const agentHome = scratch();
+	try {
+		const pi = fakePi();
+		createInlineWork(pi.api, { env: {}, agentHome, heartbeatMs: 0 });
+		pi.fire('session_start', { type: 'session_start' }, sessionContext());
+		const renderers = pi.resolve('codemode');
+		assert.equal(renderers?.renderShell, 'default', 'an idle session keeps the rendering it had');
+		const call = renderers?.renderCall?.({ code: 'await' }, theme as never, renderContext() as never);
+		assert.deepEqual(call?.render(80), rowsOf('codemode'));
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
 test('a question waiting for the owner is never collapsed', () => {
 	const agentHome = scratch();
 	try {
@@ -274,7 +358,11 @@ test('every other tool keeps its rows', () => {
 			const call = renderers?.renderCall?.({}, theme as never, renderContext() as never);
 			assert.deepEqual(call?.render(80), rowsOf(toolName), toolName + ' is not part of the collapse');
 		}
-		assert.equal(COLLAPSED_TOOL_NAMES.size, 7, 'only the file and shell tools are collapsed');
+		assert.equal(
+			COLLAPSED_TOOL_NAMES.size,
+			8,
+			'the file and shell tools plus codemode, which is every call of an agent that works through it',
+		);
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
@@ -305,6 +393,8 @@ test('LOON_INLINE_WORK=0 returns the previous behaviour in full', () => {
 		assert.deepEqual(pi.resolvers, [], 'the disabled extension registers no renderer at all');
 		const call = pi.resolve('read')?.renderCall?.({}, theme as never, renderContext() as never);
 		assert.deepEqual(call?.render(80), rowsOf('read'));
+		const codemode = pi.resolve('codemode')?.renderCall?.({}, theme as never, renderContext() as never);
+		assert.deepEqual(codemode?.render(80), rowsOf('codemode'), 'codemode is untouched too');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}

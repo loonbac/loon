@@ -333,11 +333,13 @@ el archivo después, se niega en vez de pisar una versión más nueva y decir qu
 
 La tercera pieza no necesita parche. Mientras la sesión tiene registro, `extensions/inline-work.ts`
 registra un renderer con `pi.registerToolRenderer` que no dibuja ninguna fila para
-`read`, `bash`, `grep`, `find`, `ls`, `edit` y `write`: pi dibuja un componente vacío de
-una herramienta con `renderShell: "self"` como cero líneas, así que el transcript se queda
-con la prosa del asistente y su resumen de cierre. Todo lo demás conserva su dibujo: los
-subagentes reales, las preguntas que esperan tu respuesta, `todo`, `codemode` y cualquier
-otra herramienta. Una llamada que falla delega en el renderer que tenía antes, para que el
+`read`, `bash`, `grep`, `find`, `ls`, `edit`, `write` y `codemode`: pi dibuja un componente
+vacío de una herramienta con `renderShell: "self"` como cero líneas, así que el transcript
+se queda con la prosa del asistente y su resumen de cierre. Las ocho son dos familias del
+mismo problema: las herramientas de archivo y shell, y `codemode`, por donde pasa *cada*
+llamada de un agente que trabaja a través de él —con las siete primeras su transcript
+seguiría igual de lleno—. Todo lo demás conserva su dibujo: los subagentes reales, las
+preguntas que esperan tu respuesta, `todo` y cualquier otra herramienta. Una llamada que falla delega en el renderer que tenía antes, para que el
 error nunca se esconda, y sin registro —sesión ociosa, o `LOON_INLINE_WORK=0`— no se
 registra renderer alguno y todo se dibuja exactamente como antes.
 
@@ -362,8 +364,19 @@ node scripts/apply-inline-carrier-patch.mjs apply
 Y si quieres el transcript de antes sin tocar `node_modules`, `LOON_INLINE_WORK=0` apaga las
 dos mitades a la vez.
 
-Cuatro límites que conviene conocer. El panel completo de `/gentle:agents` lee el store de
-gentle-pi directamente y no verá el registro (la tarjeta lateral sí lo hace). Una fila
+Relacionado, y esto se ve como defecto sin serlo: la tarjeta se crea con la primera llamada a
+una herramienta y se borra al apagar la sesión. Recargar o reiniciar pi deja la sesión sin
+registro, así que abrir `/gentle:agents` justo después de recargar muestra solo las tareas de
+subagentes, y la tarjeta vuelve en cuanto el trabajo hace su primera llamada. Que falte ahí no
+significa que el registro esté roto.
+
+Cinco límites que conviene conocer. El panel completo de `/gentle:agents` lee el store de
+gentle-pi directamente y no verá el registro (la tarjeta lateral sí lo hace). El contador de
+trabajo en curso, en cambio, no cuenta la tarjeta: gentle-pi lo calcula en
+`gentle-agents.ts:573` desde `store.list(...).filter(ownedTaskIds.has(...))`, no desde el
+`visibleTasks()` que el parche reescribe, y el registro nunca entra al store ni a
+`ownedTaskIds`. Es solo presentación, y arreglarlo pediría otro parche a `node_modules` por un
+número: queda escrito como inconsistencia conocida, no como tarea. Una fila
 terminada desaparece de la tarjeta a los 60 segundos, exactamente como la de un subagente
 real. La tarjeta del panel todavía no tiene hilo de detalle, así que el detalle que el
 transcript deja de dibujar se lee en el log de la sesión; darle uno es la tarea
