@@ -18,10 +18,13 @@ Nothing moves out of the parent: no child process, no second model call, no chan
 token accounting. The feature changes what is drawn, never what is executed. It must not
 be described as delegation, and the entry must not claim a real subagent ran.
 
-S3. **The render stops being noise.**
-User: "llena el render principal de basura".
-Consecutive tool calls of one work unit collapse into a single card that keeps a call
-count and can be expanded on demand, so the transcript stays readable after the fact.
+S3. **The main transcript keeps the summaries reachable.**
+User: "el historial de pi al scrollear hacia arriba no es infinito, se corta, y si el trabajo inline se hace siempre en el render principal ya no puedo ver el anterior mensaje de pi".
+The target is scrollback, not context. Consecutive tool calls of one work unit collapse
+into a single card with a call count, so one programming unit costs a few lines in the
+main transcript instead of hundreds, and the previous summaries stay within reach.
+Collapsed detail is never destroyed: the unit's full activity lives in the Agents panel
+entry, expandable on demand.
 
 S4. **The patch survives package updates.**
 A local patch to `gentle-pi` is lost on every install. It ships as a script that backs
@@ -48,7 +51,10 @@ Why not edit only the prompt: the fires are display and policy. The display half
 feature. The policy half — work staying inline until the context is two thirds full — is
 not a rendering problem and is measured separately (see S6).
 
-S6. **The inline-first policy is a separate lever.**
+S6. **Context is a separate lever from scrollback.**
+The user already knows collapsing does not lower context, and it is not asked to.
+Context burn and scrollback pressure have different fixes: this feature addresses the
+second; the first needs delegation or smaller units, decided with its own evidence.
 User: "bastante de mi trabajo no se esta delegando y aun asi el orquestador edita en
 inline hasta llegar a limites de contexto del 70 por ahi".
 Collapsing the render does not reduce context. If the context burn itself must drop, the
@@ -71,5 +77,9 @@ evidence; this feature must not be sold as a fix for it.
 L1. User: "es que se supone que ya no delegar mucho ahorra tokens, por eso no quiero delegar, pero quiero que cuando comience a programar la ia inline salga como si fuera un gentleman-worker aunque no lo es, eso me ayudaria a no llenar de basura el render principal, y todo el trabajo saldria en el menu de gentle:agents como si de verdad se hubiera lanzado un subagente aunque enrealidad el inline se movio ahi por un rato porque esta programando, se puede no?".
 
 L2. Discovery: `/gentle:agents` is fed by `store.list(activeSessionId())` through `visibleTasks()` (`extensions/gentle-agents.ts:721`); the ownership filter applies to presence and counts, not to this list. `TaskRecord` comes from `lib/agents-protocol.ts:117` and records live under `historyDir`. A carrier record with the active session id therefore renders without touching the ownership rules.
+
+L4. User: "yo se que colapsar el render no baja el contexto, era solo para que entiendas que ultimamente hay mucho trabajo inline que me llena el render principal, lo que me quita de ver el resumen de lo que hizo la ia ya que el historial de pi al scrollear hacia arriba no es infinito, se corta". Real motivation: scrollback, not tokens.
+
+L5. Discovery: `tuiMode: fullscreen` (the current setting) scrolls the transcript inside the terminal window, so history is whatever Pi retains; `regular` mode hands scrolling to the terminal and its own scrollback. Immediate stopgap, with the trade-off that fullscreen fixes the editor and status area.
 
 L3. User: "bastante de mi trabajo no se esta delegando y aun asi el orquestador edita en inline hasta llegar a limites de contexto del 70 por ahi, y llena el render principal de basura, entonces hay que parchar mas el gentle agents".
