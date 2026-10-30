@@ -79,7 +79,7 @@ evidence; this feature must not be sold as a fix for it.
 | T4 | S4 | inline | 5c27faa | `scripts/apply-inline-carrier-patch.mjs`: check/apply/revert, timestamped backup, verified idempotent rerun, TypeScript syntax gate, and the README note on when it must be rerun. |
 | T5 | S3, S5 | worker | pending | Renderer collapsing consecutive tool calls of one unit into one expandable card with a closing summary. |
 | T6 | S6 | inline | pending | Measure the actual inline/delegated split of recent sessions and report before changing any policy. |
-| T7 | S4 | inline | pending | Harden `scripts/apply-inline-carrier-patch.mjs` after the first review: strict argument parsing (missing value, unknown flag, repeated flag, stray positional all rejected before any read or write) and a `revert` that refuses anything but the exact bytes the patch wrote. Tests first, both proving the failure by absence of a write, not by a message. |
+| T7 | S4 | inline | aa654cb | Harden `scripts/apply-inline-carrier-patch.mjs` after the first review: strict argument parsing (missing value, unknown flag, repeated flag, stray positional all rejected before any read or write) and a `revert` that refuses anything but the exact bytes the patch wrote. Tests first, both proving the failure by absence of a write, not by a message. |
 
 ## Log
 
