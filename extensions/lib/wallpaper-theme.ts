@@ -255,7 +255,24 @@ function liftToSurfaces(rgb: Rgb, surfaces: readonly string[], floor: number): s
 	}
 	return paint(lightness, lch.C, lch.H);
 }
+
 /**
+ * The selected-row surface. Two floors meet on it: the row has to read as a highlight
+ * against the background, and `dim` has to clear its own floor on top of the row. Both
+ * are checked while solving, so neither wins by accident; the lightest row that holds
+ * both is the one kept.
+ */
+function selectionSurface(hue: number, chroma: number, background: Rgb, ink: Rgb): string {
+	let best: string | undefined;
+	for (let lightness = 0.18; lightness <= 0.7; lightness += 0.005) {
+		const hex = paint(lightness, chroma, hue);
+		const rgb = hexToRgb(hex) as Rgb;
+		if (contrastRatio(rgb, background) < CONTRAST_FLOORS.selectionOverBg) continue;
+		if (contrastRatio(ink, rgb) < SELECTION_SURFACE_TARGET) break;
+		best = hex;
+	}
+	return best ?? paint(0.3, chroma, hue);
+}/**
  * Derive the whole palette from one accent colour.
  *
  * Deterministic: the same accent always yields the same theme, and the result is
@@ -271,18 +288,24 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 	const mid = Math.min(tint * 0.35, 0.04);
 
 	const bg = hexToRgb(paint(0.16, low, H)) as Rgb;
-	const accentHex = liftToContrast(accent, bg, 3);
 	// Card surfaces: tinted with the accent, never a semantic colour. The top of the
 	// allowed range, because the lightness window below is narrow and a dull grey is
 	// worse than a visible tint.
 	const surface = Math.min(0.034, Math.max(0.02, tint * 0.6));
 	const [cardSuccess, cardPending, cardError] = cardSurfaces(bg, H, surface);
 
+	// The accent is ink on the card surfaces, not only on bg: a card title sits on the
+	// lightest of them, so the lift answers to that surface. L rises, H and C are kept.
+	const accentHex = liftToSurfaces(accent, [cardError], ACCENT_SURFACE_CONTRAST_TARGET);
+
 	// `dim` is the hint role, and a hint lands on a card surface, not on the background:
 	// solved against `bg` alone it read 2.43 on the lightest card while its own floor was
 	// green. Solve it against every surface a hint can land on, at a target above the
 	// floor so a rotating accent cannot round the role back underneath.
 	const dimHex = liftToSurfaces(hexToRgb(paint(0.56, 0.02, H)) as Rgb, [cardSuccess, cardPending, cardError], DIM_SURFACE_CONTRAST_TARGET);
+	// The selected row answers to two floors at once: visible as a highlight, and dark
+	// enough that dim still reads on top of it.
+	const selectionHex = selectionSurface(H, Math.max(0.38 * source.C, 0.032), bg, hexToRgb(dimHex) as Rgb);
 	// The lift must not let the hint merge into the secondary text: muted keeps at
 	// least the same distance from dim on the background that it had before.
 	const mutedHex = liftToContrast(hexToRgb(paint(0.73, 0.02, H)) as Rgb, bg, contrastRatio(hexToRgb(dimHex) as Rgb, bg) + CONTRAST_FLOORS.mutedOverDim);
@@ -295,14 +318,16 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 		userMessageBg: paint(0.27, mid, H),
 		// A surface is not a success: these two are the accent's own hue, tinted enough to
 		// read as the colour the wallpaper asked for.
-		selection: tintedSurface(H, Math.max(0.38 * source.C, 0.032), bg, 2.3, 3.2),
+		selection: selectionHex,
 		border: tintedSurface(H, Math.max(0.55 * source.C, 0.042), bg, 2.5, 3.2),
 		borderSubtle: paint(0.27, low + 0.005, H),
 		text: paint(0.96, 0.012, H),
 		muted: mutedHex,
 		dim: dimHex,
 		accent: accentHex,
-		accentBright: liftToContrast(hexToRgb(paint(Math.min(1, source.L + 0.12), Math.min(source.C, 0.14), H)) as Rgb, bg, 3),
+		// Bright means brighter than the accent that was just lifted, not brighter than the
+	// wallpaper: deriving it from the source would leave it darker than the accent.
+	accentBright: liftToSurfaces(hexToRgb(paint(Math.min(1, rgbToOklch(hexToRgb(accentHex) as Rgb).L + 0.12), Math.min(source.C, 0.14), H)) as Rgb, [cardError], ACCENT_SURFACE_CONTRAST_TARGET),
 		accentDim: paint(Math.max(0.3, source.L - 0.2), Math.min(source.C, 0.1), H),
 		// The tone signal lives in `success`/`warning`/`error`, which stay semantic. The
 		// tool backgrounds are only card surfaces: gentle-pi paints INFO, SUCCESS,
@@ -346,7 +371,20 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 }
 
 /** The three floors the palette must clear, named for the tests and the docs. */
-export const CONTRAST_FLOORS = { text: 7, muted: 4.5, accent: 3, dimSurface: 3, mutedOverDim: 2.5 } as const;
+export const CONTRAST_FLOORS = { text: 7, muted: 4.5, accent: 3, dimSurface: 3, mutedOverDim: 2.5, accentSurface: 3, dimOnSelection: 3, selectionOverBg: 1.5 } as const;
+/**
+ * The accent family is ink on the card surfaces too: an INFO card paints its title with
+ * `accent` and its body sits on `toolErrorBg`, so the accent is solved against the
+ * lightest surface it can land on, at a target above the floor for rounding.
+ */
+export const ACCENT_SURFACE_CONTRAST_TARGET = 3.2;
+
+/**
+ * A selected row is a surface with text on it, so it answers to two floors at once: it
+ * has to stay visible against the background, and stay dark enough for `dim` to read on
+ * top of it.
+ */
+export const SELECTION_SURFACE_TARGET = 3.2;
 
 /**
  * The lightness `dim` is solved to. It is secondary text, so WCAG AA for large text

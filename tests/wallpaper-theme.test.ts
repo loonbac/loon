@@ -6,6 +6,7 @@ import {
 	CARD_SURFACE_STEP,
 	CONTRAST_FLOORS,
 	DIM_SURFACE_CONTRAST_TARGET,
+	ACCENT_SURFACE_CONTRAST_TARGET,
 	LOON_THEME_SUFFIX,
 	WALLPAPER_THEME_NAME,
 	deriveWallpaperTheme,
@@ -139,7 +140,10 @@ test('selection is the accent-tinted surface, and text stays legible on it', () 
 		const ratio = contrastRatio(selection, bg);
 		assert.ok(hueDelta <= 20, 'selection hue ' + lch.H.toFixed(1) + ' is ' + hueDelta.toFixed(1) + ' away from ' + source.H.toFixed(1));
 		assert.ok(lch.C >= 0.35 * source.C, 'selection chroma ' + lch.C.toFixed(3) + ' is below 0.35 x ' + source.C.toFixed(3));
-		assert.ok(ratio >= 1.9 && ratio <= 3.2, 'selection/bg ' + ratio.toFixed(2) + ' is outside 1.9..3.2');
+		// The selected row carries two floors: it has to read as a highlight against the
+		// background, and stay dark enough for dim to clear its own floor on top of it. The
+		// second floor is what moved the lower bound down from 1.9 to the agreed 1.5.
+		assert.ok(ratio >= 1.5 && ratio <= 3.2, 'selection/bg ' + ratio.toFixed(2) + ' is outside 1.5..3.2');
 		assert.ok(contrastRatio(text, selection) >= 4.5, 'text/selection is ' + contrastRatio(text, selection).toFixed(2));
 	}
 });
@@ -289,5 +293,82 @@ test('dim clears its floor on the lightest surface it lands on, for every accent
 			muted - onBg >= CONTRAST_FLOORS.mutedOverDim,
 			'muted - dim on bg is ' + (muted - onBg).toFixed(2) + ' for accent ' + accent + '; the floor is ' + CONTRAST_FLOORS.mutedOverDim,
 		);
+	}
+});
+/* The accent family is ink on card surfaces: an INFO card paints its title with `accent`
+ * over a card body, and the band's rule with `thinkingHigh`. Measured only against `bg`,
+ * the accent read 1.86 there. The tone is the wallpaper's identity, so the lightness
+ * rises and the hue stays; chroma is only clipped when it leaves the gamut. */
+
+const ACCENT_FAMILY_PROBES: [number, number, number][] = [
+	[155, 72, 74],
+	[171, 154, 94],
+	[213, 169, 240],
+	[30, 144, 255],
+	[255, 0, 0],
+	[0, 255, 0],
+	[0, 0, 0],
+	[255, 255, 255],
+	[8, 8, 8],
+];
+
+test('the accent family clears the card surface, and selection keeps dim readable', () => {
+	for (const accent of ACCENT_FAMILY_PROBES) {
+		const vars = deriveWallpaperTheme(accent).vars as Record<string, string>;
+		const bg = hexToRgb(vars.bg!)!;
+		const card = hexToRgb(vars.toolErrorBg!)!;
+		const selection = hexToRgb(vars.selection!)!;
+		const accentRgb = hexToRgb(vars.accent!)!;
+		const accentRatio = contrastRatio(accentRgb, card);
+		assert.ok(
+			accentRatio >= CONTRAST_FLOORS.accentSurface,
+			'accent/toolErrorBg is ' + accentRatio.toFixed(2) + ' for accent ' + accent.join(',') + '; the floor is ' + CONTRAST_FLOORS.accentSurface + ' and the target ' + ACCENT_SURFACE_CONTRAST_TARGET,
+		);
+		// The tone is the identity: the hue may not move, and the chroma only gives way to
+		// the gamut, never to the floor.
+		const source = rgbToOklch(accent);
+		const lifted = rgbToOklch(accentRgb);
+		const hueDrift = Math.abs(((lifted.H - source.H + 540) % 360) - 180);
+		// Black and white carry no tone: there is no hue to preserve, so the check only
+		// applies where the wallpaper actually has one.
+		if (source.C > 0.01) {
+			assert.ok(hueDrift <= 1, 'accent hue drifted ' + hueDrift.toFixed(2) + ' degrees for accent ' + accent.join(','));
+		}
+		assert.ok(lifted.L >= source.L, 'accent darkness rose instead of falling for accent ' + accent.join(','));
+		// The bright variant may never be darker than the accent it accompanies, or the two
+		// names would be lying about the same palette. A white wallpaper already sits at the
+		// lightness ceiling, so the check is a floor, not a strict ordering.
+		assert.ok(
+			rgbToOklch(hexToRgb(vars.accentBright!)!).L >= lifted.L - 0.001,
+			'accentBright is not brighter than accent for accent ' + accent.join(',') + ': ' + rgbToOklch(hexToRgb(vars.accentBright!)!).L.toFixed(3) + ' vs ' + lifted.L.toFixed(3),
+		);
+		// Two floors on one surface: readable as a highlight, and dark enough for dim.
+		const dimOnSelection = contrastRatio(hexToRgb(vars.dim!)!, selection);
+		assert.ok(
+			dimOnSelection >= CONTRAST_FLOORS.dimOnSelection,
+			'dim/selection is ' + dimOnSelection.toFixed(2) + ' for accent ' + accent.join(',') + '; the floor is ' + CONTRAST_FLOORS.dimOnSelection,
+		);
+		const selectionOverBg = contrastRatio(selection, bg);
+		assert.ok(
+			selectionOverBg >= CONTRAST_FLOORS.selectionOverBg,
+			'selection/bg is ' + selectionOverBg.toFixed(2) + ' for accent ' + accent.join(',') + '; a highlight has to stay visible, floor ' + CONTRAST_FLOORS.selectionOverBg,
+		);
+		// The band's rule ink lands on the same card surface as the accent.
+		const rule = contrastRatio(hexToRgb(vars.thinkingHigh!)!, card);
+		assert.ok(
+			rule >= CONTRAST_FLOORS.accentSurface,
+			'thinkingHigh/toolErrorBg is ' + rule.toFixed(2) + ' for accent ' + accent.join(',') + '; the band rule would lose its ink',
+		);
+	}
+});
+
+test('the semantic roles do not move when the accent family does', () => {
+	// Pinned by hex: these three carry the tone signal and are not surfaces, so a palette
+	// change in the accent family must leave them exactly where they were.
+	for (const accent of ACCENT_FAMILY_PROBES) {
+		const vars = deriveWallpaperTheme(accent).vars as Record<string, string>;
+		assert.equal(vars.success, '#83D494', 'success moved for accent ' + accent.join(','));
+		assert.equal(vars.warning, '#F5B75B', 'warning moved for accent ' + accent.join(','));
+		assert.equal(vars.error, '#F47B74', 'error moved for accent ' + accent.join(','));
 	}
 });
