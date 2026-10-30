@@ -195,6 +195,23 @@ container draws nothing and there are no images (`:159-168`). The definition is 
 read, bash, powershell, edit, write, grep, find and ls, so `codemode` arrives with whatever its
 own definition has.
 
+S20. **The assistant's prose collapses to one line, and the answer does not.**
+"the remaining complaint is about prose, not rows": the same paragraphs the panel shows as the
+unit's thread were also drawn in full in the transcript. pi's `registerMarkdownTransformer` is
+the supported hook ("a transformer for user and assistant Markdown before Pi renders it in the
+interactive transcript") and its context distinguishes `user`, `assistant` and
+`assistant-thinking`. A knob with three values: `summary` (default) draws one line with an
+excerpt plus `· inline · /gentle:agents`, `off` draws the pointer alone, `full` leaves
+everything as it was.
+
+S21. **The collapse is sticky, bounded, and never eats the answer.**
+"A message collapsed while the unit was live must not expand on a later repaint" and the reverse:
+one that was already history must not shrink. So the first decision is remembered by content.
+"The closing message of the turn stays legible in full": the exact text is exempted at unit close,
+recognised by its text or its opening when a repaint normalises the edges, with one repaint
+requested so it appears without a keystroke. The memory is capped at 500 decisions; at the cap the
+oldest is forgotten and that message is decided again on its next render.
+
 ## Tasks
 
 | ID | Spec | Route | Commit | Outcome |
@@ -213,6 +230,8 @@ own definition has.
 | T20 | S10-S13 | inline | 302c445 | Tests first: a copy of the installed `lib/` gets the patch, is imported with jiti and rendered, so the assertions are about what the panel draws — one card while the unit runs, one after it closes, none duplicated once the store restored it, a non-inline task unchanged, a malformed record absent, and an anchor mismatch refused before any write. |
 | T22 | S14, S15, S17 | inline | 608f065 | The card is the job: `jobId(sessionId)` as the record id, one file rewritten at every close, the thread accumulating with a `note` divider where a new request began, totals summed and the status taken from the newest description of the job. |
 | T23 | S16 | inline | 608f065 | `consolidateLegacyHistory`: at session start, the numbered records the previous design wrote are merged into the job record and removed, so a resume brings one card. |
+| T27 | S20, S21 | inline | 67900f3 | `extensions/lib/inline-transcript.ts`: `transcriptMode` (`summary`/`off`/`full`, unknown values falling back to the default), the marker, the bounded first-decision memory, and the transformer; wired from `extensions/inline-work.ts` through `registerMarkdownTransformer`, with the closing answer exempted at `agent_end` and one repaint requested. |
+| T28 | S20, S21 | inline | 67900f3 | Tests and docs: an assistant message collapses while live; the same text stays collapsed on a later repaint; the closing answer renders in full and stays that way; a user message and the thinking text are byte-identical; `full` and `LOON_INLINE_WORK=0` change nothing; with no carrier nothing is transformed; the cap forgets oldest first; the README explains the knob, the marker and the cap. |
 | T25 | S18, S19 | inline | 0930de4 | The collapse gate becomes the session (`sessionId !== undefined && !closed`), so the first call of a unit collapses like the rest and a `codemode` unit that is one call leaves no row. Tests first: the first call before any carrier exists, a call mid-unit, and a call right after a unit closed; plus the narrow truth that a session which never started keeps its rows. |
 | T26 | S18, S19 | inline | 0930de4 | README and this file: the gate is the session, why the carrier cannot gate it (pi builds the row while streaming), and the `renderShell` evidence that the mechanism itself was never the problem. |
 | T24 | S14-S17 | inline | 608f065 | Tests and docs: two requests in one session are one card with both transcripts in order; a restore of that session brings one card; a finished stretch beside a running one says running; the totals add up; a malformed record is still absent; the README explains the job, the divider and the merge. |
@@ -482,3 +501,42 @@ assertion here is the component the host would draw (zero lines for a `renderShe
 call whose self container is empty) plus the ordering fact that made the old gate wrong, read
 from the host source. The acceptance is a person restarting pi, asking for work that goes
 through `codemode`, and seeing no tool row in the transcript while the panel shows the unit.
+
+L24. Work order for T20, verbatim where it decides behaviour. "Your T18 diagnosis is moot and I am
+closing it: the owner's screenshots show the transcript with zero tool rows. The tool collapse
+works. What he sees duplicated is the assistant prose - the same paragraphs appear in the
+transcript and as Text items in the panel thread. So the remaining complaint is about prose, not
+rows." Then: "`LOON_INLINE_TRANSCRIPT` with three values. `summary` is the default: while the
+inline carrier is live, an assistant message renders as one compact line (the first heading or
+first line, truncated, plus something like · inline · /gentle:agents), and the full text lives in
+the panel thread. `off`: assistant prose renders as that marker with no excerpt. `full`: today's
+behaviour, untouched." "User messages, assistant-thinking, and any message while no carrier is
+live are never transformed." "The closing message of the turn stays legible in full." "Stickiness
+matters: a message collapsed while the unit was live must not expand on a later repaint ... Remember
+what you collapsed by content, not by live state." "Bounded memory: the remembered set must not
+grow without limit over a long session; cap it and say what happens at the cap."
+The hook is the one verified in the installed pi 1.4.0: `MarkdownTransformContext { messageType:
+"user" | "assistant" | "assistant-thinking"; isStreaming: boolean; availableWidth: number }` and
+`registerMarkdownTransformer(transformer)` (`core/extensions/types.d.ts:1160-1165, 1252`).
+What the implemented rules add, and why: the first decision is remembered for **both** outcomes
+(`collapsed`, `kept`, `exempt`), because remembering only the collapsed ones would let a live
+repaint shrink text that was already history when the unit began. The answer is identified by its
+trimmed text and, for long answers, by its first 120 characters, because a renderer can normalise
+the edges of a message and the one message that must never collapse is the answer. The exemption
+survives later units, so a repaint during the next request cannot eat it.
+The cap is 500 decisions. At the cap the oldest is forgotten and that message is decided again on
+its next render: while a unit is live that means it collapses again, and for a forgotten exempt
+answer it would collapse too - stated in the README rather than hidden, and out of reach of a
+normal session, since the closing message of each turn is one of the 500.
+
+L25. Verification for T27-T28. Box `port` (Node v22.23.3, `npm ci` exit 0): targeted
+`tests/inline-transcript.test.ts` and `tests/inline-collapse.test.ts` exit 0 with 31 pass;
+`npm run typecheck` exit 2 with only the box's pre-existing `theme-file` TS2307, 0 errors on
+this machine; `npm test` 261 tests / 246 pass / 2 fail / 13 skipped, the two failures the
+`probe-frame` tmux pair identical at base. On this machine 261/261 pass.
+What this slice cannot prove on its own: the pixels, and the order between pi's final render of a
+message and `agent_end`. The transformer's behaviour is pinned by tests; the repaint request is
+`ctx.ui.setWidget('loon-inline-prose', undefined)`, which in the installed host calls
+`renderWidgets()` (`interactive-mode.js:1853-1864`); if a build ever made that a no-op the
+answer would still expand on the next natural repaint (the streaming-end frame or the card's
+one-second tick), so the failure mode is late, not lost.
