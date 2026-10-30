@@ -212,6 +212,24 @@ recognised by its text or its opening when a repaint normalises the edges, with 
 requested so it appears without a keystroke. The memory is capped at 500 decisions; at the cap the
 oldest is forgotten and that message is decided again on its next render.
 
+S22. **A job is the work, and it opens and closes on the agent's word.**
+"a job is the WORK he asked for, not a turn": asking for something that takes four turns is one
+worker, one card, one record, and it says `running` across all of them. "A job opens with the
+first inline activity after the previous job closed" and "closes only on an explicit completion
+signal from the agent, because the agent is the only party that knows the work is finished. ...
+Do not infer completion from the turn ending." The signal is cheap and callable from a tool:
+`node scripts/inline-job.mjs end` writes a marker next to the live carrier, and the extension
+consumes it on its next event. While the job is open, every turn appends to the same thread with a
+divider where the new request began, and the totals aggregate over the whole job.
+
+S23. **Two fallbacks, both recorded.**
+"Fallback for a forgotten signal: a job with no activity for a bounded idle window closes itself
+as completed, and says in its record that it was closed by inactivity rather than by the agent."
+Ten minutes, measured on real activity and not on the heartbeat that keeps the record fresh; the
+record carries `closedBy: "idle"` and the transcript carries a note. And a session that ends with
+a job open closes it as `closedBy: "session"`, because "a job that never signalled still ends up
+completed rather than hanging in the panel forever".
+
 ## Tasks
 
 | ID | Spec | Route | Commit | Outcome |
@@ -230,6 +248,8 @@ oldest is forgotten and that message is decided again on its next render.
 | T20 | S10-S13 | inline | 302c445 | Tests first: a copy of the installed `lib/` gets the patch, is imported with jiti and rendered, so the assertions are about what the panel draws — one card while the unit runs, one after it closes, none duplicated once the store restored it, a non-inline task unchanged, a malformed record absent, and an anchor mismatch refused before any write. |
 | T22 | S14, S15, S17 | inline | 608f065 | The card is the job: `jobId(sessionId)` as the record id, one file rewritten at every close, the thread accumulating with a `note` divider where a new request began, totals summed and the status taken from the newest description of the job. |
 | T23 | S16 | inline | 608f065 | `consolidateLegacyHistory`: at session start, the numbered records the previous design wrote are merged into the job record and removed, so a resume brings one card. |
+| T29 | S22, S23 | inline | 5e72520 | The job lifecycle: numbered job ids, `openJob` on the first activity after a close, `closeJob` only on the agent's signal, the idle fallback and the shutdown, per-job totals, and `scripts/inline-job.mjs` (`end`/`status`) as the signal the agent runs. |
+| T30 | S22, S23 | inline | 5e72520 | Tests and docs: three turns are one card and still running; the signal closes it with the accumulated thread; the next request opens a new card; the idle fallback records its reason; a session ending with a job open closes it; a restore brings one card; the README documents the exact command. |
 | T27 | S20, S21 | inline | 67900f3 | `extensions/lib/inline-transcript.ts`: `transcriptMode` (`summary`/`off`/`full`, unknown values falling back to the default), the marker, the bounded first-decision memory, and the transformer; wired from `extensions/inline-work.ts` through `registerMarkdownTransformer`, with the closing answer exempted at `agent_end` and one repaint requested. |
 | T28 | S20, S21 | inline | 67900f3 | Tests and docs: an assistant message collapses while live; the same text stays collapsed on a later repaint; the closing answer renders in full and stays that way; a user message and the thinking text are byte-identical; `full` and `LOON_INLINE_WORK=0` change nothing; with no carrier nothing is transformed; the cap forgets oldest first; the README explains the knob, the marker and the cap. |
 | T25 | S18, S19 | inline | 0930de4 | The collapse gate becomes the session (`sessionId !== undefined && !closed`), so the first call of a unit collapses like the rest and a `codemode` unit that is one call leaves no row. Tests first: the first call before any carrier exists, a call mid-unit, and a call right after a unit closed; plus the narrow truth that a session which never started keeps its rows. |
@@ -540,3 +560,47 @@ message and `agent_end`. The transformer's behaviour is pinned by tests; the rep
 `renderWidgets()` (`interactive-mode.js:1853-1864`); if a build ever made that a no-op the
 answer would still expand on the next natural repaint (the streaming-end frame or the card's
 one-second tick), so the failure mode is late, not lost.
+
+L26. Work order for the job lifecycle, verbatim where it decides behaviour. "a job is the WORK he
+asked for, not a turn. If he asks for something and it gets done inline, that is one worker, and
+it must stay running across every turn it takes, marking itself completed only when all the work
+is done." "A job opens with the first inline activity after the previous job closed." "A job
+closes only on an explicit completion signal from the agent ... Give me a cheap way to signal it
+that I can call from a tool ... Do not infer completion from the turn ending." "Fallback for a
+forgotten signal: a job with no activity for a bounded idle window closes itself as completed, and
+says in its record that it was closed by inactivity rather than by the agent." "While a job is
+open, every turn appends to the same thread with a divider where a new request began, and totals
+aggregate across the whole job." Tests: three turns one card running; the signal flips it with the
+accumulated thread; a request after a closed job opens a new card; the idle fallback records its
+reason; restore yields one card; "a job that never signalled still ends up completed rather than
+hanging in the panel forever."
+What this slice replaced: the previous S14-S17 made the job the session and closed it at every
+`agent_end`. That is the same defect one level up - one card per message forwarded to the model -
+so the session-wide collapse of its records is gone: `overlayTasks` now dedupes by **job id**, and
+two jobs of one session are two cards on purpose.
+The command the agent runs: `node scripts/inline-job.mjs end` (or the absolute path from another
+repository). It resolves the session from `--session`, then `$PI_SESSION_ID`, then by matching a
+live carrier's `pid` against this process's ancestors, which is what makes it work when several pi
+instances are open. It writes `<agentHome>/state/loon-inline/<sessionId>.close.json`; the
+extension reads and deletes it on its next event, so one signal closes one job and the next
+request opens the next card.
+Idle is ten minutes of **real** activity, not of heartbeats: the heartbeat keeps the record fresh
+for the panel's liveness check, so `lastRealActivity` is a separate clock that only moves on tool
+calls, messages and turns.
+
+L27. Verification for T29-T30. Box `port` (Node v22.23.3, `npm ci` exit 0): targeted
+`inline-history`, `inline-overlay`, `inline-overlay-view` and `inline-carrier` exit 0 with 28
+pass and 9 skipped (the ones that need the installed gentle-pi); `npm run typecheck` exit 2 with
+only the box's pre-existing `theme-file` TS2307, 0 errors on this machine; `npm test` 264 tests /
+249 pass / 2 fail / 13 skipped, the two failures the `probe-frame` tmux pair identical at base.
+On this machine 264/264 pass.
+What this slice cannot prove on its own: the pixels, and the moment the agent chooses to run the
+command - that is a behaviour of whoever is working, not of this code. What the tests do prove is
+that the file the command writes is consumed on the next event (`tests/inline-history.test.ts`,
+"the agent signal closes the job with the accumulated thread", which writes the same marker the
+script writes), and that the command exists and answers (`node scripts/inline-job.mjs status`,
+`--help`, and a rejected subcommand).
+One consequence, stated rather than discovered later: records written by the earlier design were
+one per turn, and this slice does not merge them (merging unrelated jobs would be a lie about the
+work). A session that ran the earlier design may therefore show its old records as separate
+completed cards; nothing new creates them, and the new numbering starts after the highest one.

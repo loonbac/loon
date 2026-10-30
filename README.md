@@ -433,16 +433,32 @@ gentle-pi). Al reabrir la sesión, gentle-pi la vuelve a meter en su store, así
 nombre y un resumen acotado, y el texto del cierre. Nada de eso es el log completo: un panel no
 es un log, y un volcado de herramienta ahí es ruido.
 
-Un registro por **trabajo**, no por petición: el id es `loon-inline-<sesión>` y el archivo se
-reescribe cada vez que un turno cierra, acumulando. Trabajar cinco veces en una sesión deja una
-tarjeta con cinco tramos, separados por una marca donde empezó cada petición nueva, en vez de
-cinco tarjetas que el humano lee como una sola cosa. Los totales son del trabajo —tokens, coste
-y llamadas se suman— y el tiempo de pared es el del trabajo completo, no el del último tramo.
+Un registro por **trabajo**, no por turno: el id es `loon-inline-<sesión>-<n>` y el archivo se
+escribe cuando el trabajo termina, con la transcripción acumulada. Pedir algo que se hace en
+cuatro turnos deja **una** tarjeta con cuatro tramos, separados por una marca donde empezó cada
+petición nueva; los totales son del trabajo —tokens, coste y llamadas se suman, y el tiempo de
+pared va de la primera actividad a la última— y una petición posterior, ya cerrado el trabajo,
+abre otra tarjeta con su propio número.
 
-Los registros numerados que escribía la versión anterior se funden en ese único registro al
-empezar la sesión: sus transcripciones se concatenan en orden, con su marca, y los archivos
-numerados se retiran una vez su contenido está dentro. Sin eso, gentle-pi restauraría un
-archivo por petición y la sesión volvería como varias tarjetas.
+**El trabajo no termina cuando el turno termina.** Solo el agente sabe cuándo la tarea está
+hecha, así que lo dice él, con un comando:
+
+```sh
+node scripts/inline-job.mjs end        # cierra el trabajo de esta sesión de pi
+node scripts/inline-job.mjs status     # qué trabajos están abiertos ahora
+```
+
+Desde otro directorio, con la ruta completa:
+`node /home/loonbac/Proyectos/pi-loon/loon/scripts/inline-job.mjs end`. El script escribe una
+señal pequeña junto al registro vivo y la extensión la consume en su siguiente evento: la
+tarjeta pasa a `completed`, la transcripción se guarda y el registro anota
+`"closedBy": "agent"`. Se puede forzar una sesión concreta con `--session <id>`.
+
+Dos salidas de emergencia, porque un agente puede olvidarse de avisar: un trabajo sin actividad
+real durante **diez minutos** se cierra solo como completado y lo dice en su registro
+(`"closedBy": "idle"`, y una nota en la transcripción explicando que no lo cerró el agente); y
+si la sesión de pi termina con el trabajo abierto, se cierra como `"closedBy": "session"` en vez
+de quedarse colgado en el panel para siempre.
 
 ### El panel, mientras la unidad corre
 
