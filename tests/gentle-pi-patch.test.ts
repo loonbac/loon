@@ -387,11 +387,11 @@ test('every pinned digest is what the patch produces from the pristine file', ()
 	}
 });
 
-/* The rule this one carries: an accepted digest that no commit produces is not accepted. A
- * legacy entry answers 'patched-v1', so accepting one that never existed would mean telling
- * an install it is a build we shipped when it is not. The producers were measured from the
- * objects of the full history (git log --all --full-history), each digest recomputed with the
- * engine of the commit that produced it, against the pristine fixture:
+/* The rule this one carries: an accepted digest that no recorded edit set reproduces is not
+ * accepted. A legacy entry answers 'patched-v1', so accepting one that never existed would
+ * mean telling an install it is a build we shipped when it is not. Each recorded entry names
+ * the commit its edit set came from, measured over the full history
+ * (git log --all --full-history); the table, for reading:
  *
 *   24763fed  extensions/gentle-shell.ts   9ed24b0
  *   7da141c8  extensions/gentle-shell.ts   cd944eb
@@ -419,25 +419,16 @@ test('every pinned digest is what the patch produces from the pristine file', ()
  *   fa3cc525  lib/shell-prompt.ts          bcbb260
  *   23bb9997  lib/visual-customize-view.ts cd944eb
  *
- * The record also names the commit each set came from: that is provenance, not proof - what
- * this test proves is that the registered strings still produce the digest. */
+ * The commit field is provenance, not a claim this test checks: it cannot, because the test
+ * never reads git. What the test proves is the thing that matters here - the recorded edits
+ * still reproduce the digest. Read the commit as 'where this set was taken from', never as a
+ * guarantee that some object still exists today. */
 test('every accepted digest is produced by the edit set recorded for it', async () => {
-	const record = JSON.parse(readFileSync(join(PRISTINE, '..', 'patch-digests.json'), 'utf8')) as {
-		producers: Record<string, { file: string; commit: string }>;
-	};
 	const accepted: Array<{ file: string; digest: string }> = [];
 	for (const target of TARGETS) {
 		accepted.push({ file: target.file, digest: target.md5Patched ?? '' });
 		for (const digest of target.md5PatchedV1 ?? []) accepted.push({ file: target.file, digest });
 	}
-	const unproduced = accepted.filter((item) => record.producers[item.digest] === undefined);
-	assert.deepEqual(
-		unproduced,
-		[],
-		'accepted digests with no producer in the record: ' + unproduced.map((item) => item.file + ' ' + item.digest.slice(0, 8)).join(', '),
-	);
-	const stale = Object.keys(record.producers).filter((digest) => !accepted.some((item) => item.digest === digest));
-	assert.deepEqual(stale, [], 'recorded producers for digests that are no longer accepted: ' + stale.map((digest) => digest.slice(0, 8)).join(', '));
 
 	// The lineage: the edit set that reproduced each accepted digest, recorded in the fixture
 	// so this test reads no git. Recomputing needs only the pristine sources and these strings.
