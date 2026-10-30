@@ -310,6 +310,37 @@ test('three turns inside one job are one record, and the card stays running', ()
 	}
 });
 
+test('a job never shows completed between its turns, not for a moment', () => {
+	const agentHome = scratch();
+	try {
+		const h = session(agentHome);
+		const status = (): unknown => (readStored(agentHome, carrierPath(agentHome, SESSION_ID)) as { status?: unknown }).status;
+
+		step(h, 'read', { path: 'a' }, 'one');
+		closeTurn(h, 'Primera.');
+		assert.equal(status(), 'running', 'a turn ending must not tell the person the work finished');
+		assert.deepEqual(historyFiles(agentHome), [], 'and must not write the record either');
+
+		step(h, 'read', { path: 'b' }, 'two');
+		closeTurn(h, 'Segunda.');
+		assert.equal(status(), 'running');
+		assert.deepEqual(historyFiles(agentHome), []);
+
+		step(h, 'read', { path: 'c' }, 'three');
+		closeTurn(h, 'Tercera.');
+		assert.equal(status(), 'running', 'three turns, still the same open job');
+		assert.deepEqual(historyFiles(agentHome), []);
+
+		// Only the agent's own signal completes it.
+		signalDone(agentHome);
+		h.fire('message_end', { type: 'message_end', message: { role: 'assistant', content: [] } });
+		assert.equal(status(), 'completed');
+		assert.deepEqual(historyFiles(agentHome), [JOB_ONE + '.json']);
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
 test('the agent signal closes the job with the accumulated thread', () => {
 	const agentHome = scratch();
 	try {

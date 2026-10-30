@@ -248,6 +248,7 @@ completed rather than hanging in the panel forever".
 | T20 | S10-S13 | inline | 302c445 | Tests first: a copy of the installed `lib/` gets the patch, is imported with jiti and rendered, so the assertions are about what the panel draws — one card while the unit runs, one after it closes, none duplicated once the store restored it, a non-inline task unchanged, a malformed record absent, and an anchor mismatch refused before any write. |
 | T22 | S14, S15, S17 | inline | 608f065 | The card is the job: `jobId(sessionId)` as the record id, one file rewritten at every close, the thread accumulating with a `note` divider where a new request began, totals summed and the status taken from the newest description of the job. |
 | T23 | S16 | inline | 608f065 | `consolidateLegacyHistory`: at session start, the numbered records the previous design wrote are merged into the job record and removed, so a resume brings one card. |
+| T31 | S22 | inline | 6a6fb8c | Pin the no-flicker rule with a test that reads the card between every turn of a three-turn job (running, and no record written), and close T17 in the README: the panel thread holds the assistant prose, so with the prose collapse off the same paragraph is visible twice by design — not a TUI compositing leak. |
 | T29 | S22, S23 | inline | 5e72520 | The job lifecycle: numbered job ids, `openJob` on the first activity after a close, `closeJob` only on the agent's signal, the idle fallback and the shutdown, per-job totals, and `scripts/inline-job.mjs` (`end`/`status`) as the signal the agent runs. |
 | T30 | S22, S23 | inline | 5e72520 | Tests and docs: three turns are one card and still running; the signal closes it with the accumulated thread; the next request opens a new card; the idle fallback records its reason; a session ending with a job open closes it; a restore brings one card; the README documents the exact command. |
 | T27 | S20, S21 | inline | 67900f3 | `extensions/lib/inline-transcript.ts`: `transcriptMode` (`summary`/`off`/`full`, unknown values falling back to the default), the marker, the bounded first-decision memory, and the transformer; wired from `extensions/inline-work.ts` through `registerMarkdownTransformer`, with the closing answer exempted at `agent_end` and one repaint requested. |
@@ -604,3 +605,20 @@ One consequence, stated rather than discovered later: records written by the ear
 one per turn, and this slice does not merge them (merging unrelated jobs would be a lie about the
 work). A session that ran the earlier design may therefore show its old records as separate
 completed cards; nothing new creates them, and the new numbering starts after the highest one.
+
+L28. The order that asked for this slice said three things, and two of them were already in master
+when it arrived. T17: closed as a misdiagnosis of mine - "the transcript contains no panel rows at
+all ... what appears in both places is the assistant prose, which the panel records as Text
+items ... there is no pi-tui compositing leak to hunt, and you should not spend another minute on
+renderFrame." Recorded in the README instead of hunted: the thread holds the assistant prose, so
+with the prose collapse off the same paragraph is visible twice by design.
+The flicker: "while a job spans three turns, the card must never show completed in between". That
+hole was closed in `5e72520`, where `agent_end` stopped completing anything - `closeJob` is the
+only writer of `COMPLETED` and it is reached only from the agent's signal, the idle fallback and
+the shutdown. What was missing was a test that reads the card *between* turns, so this slice adds
+it: 'a job never shows completed between its turns, not for a moment' checks the carrier's status
+and that no history file exists after each of three `agent_end`s, then that the signal completes it.
+The explicit signal and the idle fallback were not missing: `scripts/inline-job.mjs end` and the
+ten-minute idle close landed in `5e72520`, and T20's prose collapse landed in `fb41c42`. The
+report that preceded this order listed them; this log records them again so the record is not
+read as a gap.
