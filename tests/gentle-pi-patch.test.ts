@@ -35,7 +35,7 @@ const spec = (file: string, text: string, anchors: string[]): TargetSpec => {
 	return patched.ok ? { ...base, md5Patched: md5(patched.text) } : base;
 };
 
-const shellFixture = ['// head', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '// preview', ANCHORS.shellCardPreview, '// tail'].join('\n');
+const shellFixture = ['// head', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '// preview', ANCHORS.shellCardPreview, '// tail', '', 'export class Editor {', ANCHORS.shellMouse, '}'].join('\n');
 const bannerFixture = ['// head', ANCHORS.bannerEvent, '// body', ANCHORS.bannerConfig, '// tail'].join('\n');
 
 test('the patch targets the gentle-pi build it was written for', () => {
@@ -158,7 +158,14 @@ test('the real installed files still match the anchors, when they are here', () 
 const shellSpec = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
 
 function shellStand(): string {
-	return ['export default async function stand() {', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '// preview', ANCHORS.shellCardPreview, '}', ''].join('\n');
+	// The mouse anchor is a class method, so it has to stand inside one: a method body in a
+	// plain function is a parse error, and the gate validates the bytes it is about to write.
+	return [
+		'export default async function stand() {', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '// preview', ANCHORS.shellCardPreview, '}',
+		'',
+		'export class Editor {', ANCHORS.shellMouse, '}',
+		'',
+	].join('\n');
 }
 
 function bannerStand(): string {
@@ -323,6 +330,23 @@ test('every anchor of every target reports where it lives', () => {
 			assert.ok(problem.expected.length > 0, target.file + ' edit ' + index + ': the anchor is not shown');
 		}
 	}
+});
+
+/* The band's row count is what pi's mouse model reads. The patch that opens the band with
+ * an empty surface row has to shift the editor's row coordinates by exactly that row, or a
+ * click lands one line below the cursor it aimed at. The two edits travel together. */
+test('the patch that opens the band with a row shifts the mouse rows by one', () => {
+	const shell = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
+	const prompt = TARGETS.find((target) => target.file === 'lib/shell-prompt.ts')!;
+	const opensWithRow = prompt.edits.some((edit) => /floatPromptRow\("", layout, options\.borderColor\),\s*floatPromptRow\(floatPromptHint/.test(edit.replacement));
+	const shiftsRows = shell.edits.some((edit) => edit.replacement.includes('y: event.y - 1'));
+	assert.equal(
+		shiftsRows,
+		opensWithRow,
+		opensWithRow
+			? 'the band opens with an extra row but the editor does not shift its mouse rows'
+			: 'the editor shifts its mouse rows although the band does not open with an extra one',
+	);
 });
 
 test('check shows the installed version beside the pinned one', async () => {

@@ -130,12 +130,12 @@ test('no painted row starts with an escape, in any card style', { skip: !availab
 	const bandOptions = { style: 'loon', bg: theme2.bg, fg: theme2.fg, borderColor: (t: string) => t, state: 'idle' };
 	const layout = prompt.resolvePromptLayout(120, 'loon', theme2.bg);
 	const bandRows = prompt.framePromptLines(['', 'hello', ''], 120, bandOptions, layout);
-	const band = bandRows[1]!.replace(/\u001b\[[0-9;]*m/g, '');
+	const band = bandRows[2]!.replace(/\u001b\[[0-9;]*m/g, '');
 	assert.equal(band.indexOf('▎'), 1, `loon band rule sits in column ${band.indexOf('▎')}, expected 1: column 0 is the margin`);
 	// One cell of air between the rule and the text, taken from the trailing air: the surface
 	// still closes on the last column.
 	assert.equal(band.indexOf('hello'), 3, `loon band text sits in column ${band.indexOf('hello')}, expected 3`);
-	assert.ok(!bandRows[1]!.startsWith('\u001b'), 'the band row begins with an escape');
+	assert.ok(!bandRows[2]!.startsWith('\u001b'), 'the band row begins with an escape');
 
 	const subject = {
 		title: 'read',
@@ -214,9 +214,10 @@ test('the loon band surface ends where the bar surface ends', { skip: !available
 	card.setCardStyle('loon');
 	for (const width of [120, 160]) {
 		const layout = prompt.resolvePromptLayout(width, 'loon', theme.bg);
-		const bandRow = prompt.framePromptLines(['', 'a line the band paints', ''], width, {
+		const bandRowsAtWidth = prompt.framePromptLines(['', 'a line the band paints', ''], width, {
 			state: 'idle', tick: 0, bg: theme.bg, fg: theme.fg, borderColor: (text: string) => text, style: 'loon',
-		}, layout)[1]!;
+		}, layout);
+		const bandRow = bandRowsAtWidth[2]!;
 		const chrome = shellBar.renderShellBelowInputFloat(model, theme, width, undefined, presentation);
 		assert.ok(chrome, 'the bar did not render at ' + width + ' columns');
 		const bandRight = Math.max(...paintedColumns(bandRow));
@@ -272,6 +273,50 @@ test('the band keeps a cell of air between the rule and the content of every row
 			assert.equal(cells[1], '▎', 'band row ' + index + ' at ' + width + ' does not carry the rule in column 1');
 			assert.equal(cells[2], ' ', 'band row ' + index + ' at ' + width + ' paints its content on the rule: column 2 is ' + JSON.stringify(cells[2]));
 			assert.equal(cells.length, width, 'band row ' + index + ' at ' + width + ' is ' + cells.length + ' cells wide');
+			const right = Math.max(...paintedColumns(row));
+			assert.equal(right, width - 1, 'band row ' + index + ' at ' + width + ' closes its surface at column ' + right);
+		}
+	}
+});
+
+// The band's first row is its top edge. The hint used to BE that row, so the surface
+// started on the label and the band had padding below but none above. It now opens with an
+// empty surface row, symmetric to the one it closes with - and the row count is what pi's
+// mouse model reads, which is why the editor translates y by one row.
+test('the band opens with an empty surface row and the hint is not the first row', { skip: !available && 'gentle-pi is not installed here' }, async () => {
+	const { createJiti } = (await import(join(PI_ROOT, 'node_modules', 'jiti', 'lib', 'jiti-static.mjs'))) as {
+		createJiti: (url: string, options: Record<string, unknown>) => { import: (path: string) => Promise<unknown> };
+	};
+	const jiti = createJiti(import.meta.url, {
+		moduleCache: false,
+		interopDefault: true,
+		fsCache: false,
+		alias: {
+			'@earendil-works/pi-tui': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-tui', 'dist', 'index.js'),
+			'@earendil-works/pi-agent-core': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-agent-core', 'dist', 'index.js'),
+			'@earendil-works/pi-ai': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-ai', 'dist', 'compat.js'),
+		},
+	});
+	const prompt = (await jiti.import(join(GENTLE, 'lib', 'shell-prompt.ts'))) as {
+		resolvePromptLayout: (width: number, style: string, bg: unknown) => unknown;
+		framePromptLines: (lines: string[], width: number, options: unknown, layout: unknown) => string[];
+	};
+	const theme = {
+		fg: (_role: string, text: string) => text,
+		bg: (_role: string, text: string) => '\u001b[48;2;61;56;35m' + text + '\u001b[49m',
+	};
+	for (const width of [100, 120, 160]) {
+		const layout = prompt.resolvePromptLayout(width, 'loon', theme.bg);
+		const rows = prompt.framePromptLines(['', 'hello', ''], width, {
+			state: 'idle', tick: 0, bg: theme.bg, fg: theme.fg, borderColor: (text: string) => text, style: 'loon',
+		}, layout);
+		const cells = rows.map((row) => row.replace(/\u001b\[[0-9;]*m/g, ''));
+		// One editor line, plus the row the band opens with and the row it closes with.
+		assert.equal(rows.length, 4, 'the band has ' + rows.length + ' rows at ' + width + ', expected 4');
+		assert.equal(cells[0]!.slice(2).trim(), '', 'the band opens with text on its top edge at ' + width + ': ' + JSON.stringify(cells[0]!.trim()));
+		assert.ok(!rows[0]!.includes('waiting for input'), 'the hint is still the first row of the band at ' + width);
+		assert.ok(cells[1]!.includes('waiting for input'), 'the hint is not the second row of the band at ' + width + ': ' + JSON.stringify(cells[1]!.trim()));
+		for (const [index, row] of rows.entries()) {
 			const right = Math.max(...paintedColumns(row));
 			assert.equal(right, width - 1, 'band row ' + index + ' at ' + width + ' closes its surface at column ' + right);
 		}
