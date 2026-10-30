@@ -332,21 +332,20 @@ test('every anchor of every target reports where it lives', () => {
 	}
 });
 
-/* The band's row count is what pi's mouse model reads. The patch that leaves the label
- * slot without a surface keeps the native count for loon - so loon needs no row shift -
- * while float still opens with a padding row and does. The two edits travel together: the
- * day the label goes back inside the surface, the shift has to go back with it. */
-test('the label slot stays outside the surface and the mouse shift stays chrome-aware', () => {
+/* The band's row count is what pi's mouse model reads. The patch that opens the band with
+ * an empty surface row has to shift the editor's row coordinates by exactly that row, or a
+ * click lands one line below the cursor it aimed at. The two edits travel together. */
+test('the patch that opens the band with a row shifts the mouse rows by one', () => {
 	const shell = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
 	const prompt = TARGETS.find((target) => target.file === 'lib/shell-prompt.ts')!;
-	const labelOutside = prompt.edits.some((edit) => edit.replacement.includes('layout.chrome === "loon" ? label : floatPromptRow(""'));
-	const chromeAwareShift = shell.edits.some((edit) => edit.replacement.includes('const shift = layout.chrome === "loon" ? 0 : 1;'));
+	const opensWithRow = prompt.edits.some((edit) => /floatPromptRow\("", layout, options\.borderColor\),\s*floatPromptRow\(floatPromptHint/.test(edit.replacement));
+	const shiftsRows = shell.edits.some((edit) => edit.replacement.includes('y: event.y - 1'));
 	assert.equal(
-		chromeAwareShift,
-		labelOutside,
-		labelOutside
-			? 'the label is painted outside the surface but the mouse rows are shifted unconditionally'
-			: 'the mouse rows are chrome-aware although the label still opens the surface',
+		shiftsRows,
+		opensWithRow,
+		opensWithRow
+			? 'the band opens with an extra row but the editor does not shift its mouse rows'
+			: 'the editor shifts its mouse rows although the band does not open with an extra one',
 	);
 });
 
