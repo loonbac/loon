@@ -43,9 +43,10 @@ import {
 	addToolStart,
 	boundedArgs,
 	addDivider,
-	consolidateLegacyHistory,
+	addNote,
 	emptyUnitThread,
 	jobId,
+	nextUnitNumber,
 	toolSummary,
 	writeUnitHistory,
 	type UnitThread,
@@ -60,6 +61,7 @@ import {
 	isCarrierSessionId,
 	pruneDeadCarriers,
 	removeCarrier,
+	takeCloseRequest,
 	stepLabel,
 	workUnitName,
 	writeCarrier,
@@ -69,6 +71,15 @@ import {
 
 /** How often a running record says it is still alive. */
 export const DEFAULT_HEARTBEAT_MS = 20_000;
+
+/**
+ * A job that has shown no real activity for this long closes itself as
+ * completed, so an agent that forgets the signal cannot leave a running card on
+ * the panel forever. Ten minutes is longer than any pause between the turns of
+ * one piece of work, and short enough that a forgotten job is gone while the
+ * person still remembers asking for it.
+ */
+export const IDLE_CLOSE_MS = 10 * 60 * 1000;
 
 /** Test seams: nothing here changes behaviour in a real session. */
 export interface InlineWorkDeps {
@@ -224,11 +235,18 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		let written = false;
 		let closed = false;
 		let heartbeat: ReturnType<typeof setInterval> | undefined;
-		// The unit's history: which unit this is, what it did, and whether that has
-		// already been written to disk. One file per unit, never per session.
-		let unit = 0;
+		// The job: the work the person asked for, which can take several turns. It
+		// opens with the first inline activity after the previous job closed and it
+		// closes only on the agent's own signal, on the idle fallback or at
+		// shutdown - never because a turn ended.
+		let job = 0;
+		let jobOpen = false;
+		let jobClosedBy: 'agent' | 'idle' | 'session' | undefined;
 		let thread: UnitThread = emptyUnitThread();
 		let historyWritten = false;
+		let turnOpen = false;
+		let lastRealActivity = 0;
+		let lastResult: string | null = null;
 		// The answer of the current turn, untruncated, kept so the transcript can
 		// refuse to collapse it even after the turn is over.
 		let closingFull: string | undefined;
@@ -238,26 +256,83 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			closingText: () => closingFull,
 		});
 
+		const currentId = (): string | undefined => (sessionId === undefined || job === 0 ? undefined : jobId(sessionId, job));
+
 		/**
-		 * A unit is one stretch of work between two closing turns, and the job is the
-		 * session: the first tool call after a close starts the next unit inside the
-		 * same card, appending its work to the same transcript behind a divider. The
-		 * card never changes identity between units, so a long session reads as one
-		 * piece of work instead of one card per request.
+		 * Open a job if none is open. A job is the work the person asked for: it can
+		 * take many turns, and inside it every turn appends to the same thread behind
+		 * a divider where the new request began. Its id is its own, so the job that
+		 * follows a closed one is a second card and never a continuation.
+		 * @param {boolean} newRequest whether the previous turn already closed
 		 */
-		const startUnit = (): void => {
+		const openJob = (newRequest: boolean): void => {
 			if (sessionId === undefined) return;
-			// A second call inside the same unit is the same unit.
-			if (unit > 0 && !historyWritten && status === INLINE_STATUS.RUNNING) return;
-			if (unit > 0) thread = addDivider(thread);
-			unit += 1;
+			if (jobOpen) {
+				if (newRequest && thread.items.length > 0) thread = addDivider(thread);
+				return;
+			}
+			job = nextUnitNumber(agentHome, sessionId, job);
+			jobOpen = true;
+			jobClosedBy = undefined;
 			historyWritten = false;
+			turnOpen = false;
+			thread = emptyUnitThread();
+			lastResult = null;
+			turns = 0;
+			toolCalls = 0;
+			tokens = 0;
+			cost = 0;
+			createdAt = 0;
+			startedAt = null;
+			endedAt = null;
+			lastRealActivity = 0;
+			status = INLINE_STATUS.RUNNING;
 		};
-		const currentId = (): string | undefined => (sessionId === undefined || unit === 0 ? undefined : jobId(sessionId));
+
+		/**
+		 * Close the job: one record, written where gentle-pi restores it, with the
+		 * accumulated transcript. The reason is kept in the record because "closed
+		 * because nobody spoke" is not the same as "closed because the work was
+		 * done".
+		 * @param {'agent' | 'idle' | 'session'} reason
+		 */
+		const closeJob = (reason: 'agent' | 'idle' | 'session'): void => {
+			if (!jobOpen || sessionId === undefined) return;
+			const at = now();
+			jobClosedBy = reason;
+			status = INLINE_STATUS.COMPLETED;
+			endedAt = at;
+			lastActivityAt = at;
+			if (reason === 'idle') {
+				thread = addNote(thread, 'closed after ' + Math.round(IDLE_CLOSE_MS / 60000) + ' minutes without activity: the agent never signalled completion');
+			}
+			const record = snapshot();
+			if (record !== undefined) writeUnitHistory(agentHome, { ...record, result: lastResult ?? record.result }, thread);
+			jobOpen = false;
+			historyWritten = true;
+			stopHeartbeat();
+			persist();
+			const id = currentId();
+			if (id !== undefined) writeLiveThread(agentHome, sessionId, id, thread);
+		};
+
+		/** Consume the agent's explicit signal, if it wrote one. */
+		const takeSignal = (): void => {
+			if (!jobOpen || sessionId === undefined) return;
+			if (!takeCloseRequest(agentHome, sessionId)) return;
+			closeJob('agent');
+		};
+
+		/** The fallback: a job nobody has touched for a while is over. */
+		const closeIfIdle = (): void => {
+			if (!jobOpen) return;
+			if (now() - lastRealActivity < IDLE_CLOSE_MS) return;
+			closeJob('idle');
+		};
 
 		const snapshot = (): InlineCarrierRecord | undefined => {
 			if (sessionId === undefined) return undefined;
-			return buildCarrierRecord({
+			const record = buildCarrierRecord({
 				sessionId,
 				...(currentId() === undefined ? {} : { id: currentId() as string }),
 				cwd,
@@ -276,6 +351,7 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 				cost,
 				pid,
 			});
+			return jobClosedBy === undefined ? record : { ...record, closedBy: jobClosedBy };
 		};
 
 		const persist = (): void => {
@@ -297,7 +373,11 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			if (heartbeat !== undefined || closed || heartbeatMs <= 0) return;
 			heartbeat = setInterval(() => {
 				try {
-					if (!written || status !== INLINE_STATUS.RUNNING) return;
+					// The signal and the idle fallback are checked here too, so a job
+					// closes even when the agent says nothing else afterwards.
+					takeSignal();
+					closeIfIdle();
+					if (!jobOpen || status !== INLINE_STATUS.RUNNING) return;
 					lastActivityAt = now();
 					persist();
 				} catch {
@@ -311,16 +391,17 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		const begin = (step: string): void => {
 			if (sessionId === undefined) return;
 			const at = now();
-			if (!written) {
-				written = true;
+			if (createdAt === 0) {
 				createdAt = at;
 				startedAt = at;
 			}
+			written = true;
 			status = INLINE_STATUS.RUNNING;
 			endedAt = null;
 			lastStep = step;
 			label = step;
 			lastActivityAt = at;
+			lastRealActivity = at;
 			persist();
 			startHeartbeat();
 		};
@@ -359,7 +440,12 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			cost = 0;
 			written = false;
 			closed = false;
-			unit = 0;
+			job = 0;
+			jobOpen = false;
+			jobClosedBy = undefined;
+			turnOpen = false;
+			lastRealActivity = 0;
+			lastResult = null;
 			thread = emptyUnitThread();
 			historyWritten = false;
 			stopHeartbeat();
@@ -372,10 +458,6 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			// what makes a unit appear while it runs, without a restart; withdrawing
 			// it at shutdown leaves the panel exactly as gentle-pi ships it.
 			installOverlayPanel({ agentHome });
-			// A session that ran the previous design has one record per unit; merge
-			// them now, before gentle-pi restores anything, so it comes back as the
-			// one card it is.
-			if (sessionId !== undefined) consolidateLegacyHistory(agentHome, sessionId);
 		}));
 
 		pi.on('tool_call', safeHandler((event: ToolCallEvent, ctx: ExtensionContext): void => {
@@ -385,8 +467,11 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			const current = modelLabel(ctx);
 			model = current.model;
 			thinking = current.thinking;
+			// A call with no turn open is the first activity after a close: the same
+			// job continues, or a new one opens.
+			openJob(!turnOpen);
+			turnOpen = true;
 			toolCalls += 1;
-			startUnit();
 			// The thread is the transcription the owner opens in the panel: one item
 			// per top-level call, with the arguments that name it.
 			thread = addToolStart(thread, {
@@ -402,7 +487,7 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		}));
 
 		pi.on('tool_execution_end', safeHandler((event: ToolExecutionEndEvent): void => {
-			if (closed || !written || unit === 0) return;
+			if (closed || !jobOpen) return;
 			// A nested call belongs to the step that made it, exactly as above.
 			if (typeof event.parentToolCallId === 'string') return;
 			thread = addToolEnd(thread, {
@@ -412,68 +497,75 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			});
 			const endedId = currentId();
 			if (endedId !== undefined && sessionId !== undefined) writeLiveThread(agentHome, sessionId, endedId, thread);
+			takeSignal();
 		}));
 
 		pi.on('message_end', safeHandler((event: MessageEndEvent): void => {
 			if (closed) return;
 			const message = event.message as unknown;
 			if (typeof message !== 'object' || message === null || (message as { role?: unknown }).role !== 'assistant') return;
+			if (!jobOpen) return;
 			const totals = usageTotals(message);
 			tokens += totals.tokens;
 			cost += totals.cost;
-			if (!written) return;
 			lastActivityAt = now();
+			lastRealActivity = lastActivityAt;
 			persist();
+			takeSignal();
 		}));
 
 		pi.on('turn_end', safeHandler((_event: TurnEndEvent): void => {
-			if (closed || !written) return;
+			if (closed || !jobOpen) return;
 			turns += 1;
 			lastActivityAt = now();
+			lastRealActivity = lastActivityAt;
 			persist();
+			takeSignal();
 		}));
 
 		pi.on('agent_end', safeHandler((event: AgentEndEvent, ctx: ExtensionContext): void => {
-			if (closed || !written) return;
+			if (closed || !jobOpen) return;
 			const at = now();
-			status = INLINE_STATUS.COMPLETED;
-			endedAt = at;
+			turnOpen = false;
 			lastActivityAt = at;
-			const summary = summaryLine((event as { messages?: unknown }).messages);
+			lastRealActivity = at;
+			const messages = (event as { messages?: unknown }).messages;
+			const summary = summaryLine(messages);
 			if (summary !== undefined) label = summary;
-			stopHeartbeat();
-			persist();
-			// The unit is closed: this is the moment its history can be written, and
-			// the moment it becomes a card that survives a reload. Written once.
-			if (unit === 0 || historyWritten) return;
-			const closing = closingText((event as { messages?: unknown }).messages);
-			if (closing.length > 0) thread = addText(thread, closing);
+			const closing = closingText(messages);
+			if (closing.length > 0) {
+				thread = addText(thread, closing);
+				lastResult = closing;
+			}
 			// The answer of the turn must stay legible in the transcript: exempt its
 			// exact text, then ask for one frame, because the message may already have
 			// been drawn while it still looked like work in progress.
-			const answer = rawClosingText((event as { messages?: unknown }).messages);
+			const answer = rawClosingText(messages);
 			closingFull = answer.length > 0 ? answer : undefined;
 			if (closingFull !== undefined) prose.exempt(closingFull);
 			repaintTranscript(ctx);
-			const record = snapshot();
-			if (record === undefined) return;
-			const withResult: InlineCarrierRecord = { ...record, result: closing.length > 0 ? closing : record.result };
-			writeUnitHistory(agentHome, withResult, thread);
-			historyWritten = true;
-			const closedId = currentId();
-			if (closedId !== undefined && sessionId !== undefined) writeLiveThread(agentHome, sessionId, closedId, thread);
+			// The turn is over; the job is not. It stays running until the agent says
+			// the work is done, because only the agent knows that.
+			status = INLINE_STATUS.RUNNING;
 			persist();
+			const openId = currentId();
+			if (openId !== undefined && sessionId !== undefined) writeLiveThread(agentHome, sessionId, openId, thread);
+			takeSignal();
 		}));
 
 		// The live carrier is display state for a running session and goes with it.
 		// The history is not: a unit that closed stays readable, which is the
 		// whole reason it is written under gentle-pi's own directory.
 		pi.on('session_shutdown', safeHandler((_event: SessionShutdownEvent): void => {
+			// The session going away is not the agent's signal, but it is a fact: the
+			// job is over and its record has to survive.
+			closeJob('session');
 			closed = true;
 			written = false;
 			stopHeartbeat();
 			thread = emptyUnitThread();
-			unit = 0;
+			job = 0;
+			jobOpen = false;
 			historyWritten = false;
 			if (sessionId !== undefined) {
 				removeCarrier(agentHome, sessionId);

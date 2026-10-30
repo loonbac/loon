@@ -17,13 +17,12 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { createInlineWork } from '../extensions/inline-work.ts';
-import { carrierDirectory, carrierPath } from '../extensions/lib/inline-carrier.ts';
+import { IDLE_CLOSE_MS, createInlineWork } from '../extensions/inline-work.ts';
+import { carrierDirectory, carrierPath, closeRequestPath } from '../extensions/lib/inline-carrier.ts';
 
 const SESSION_ID = 'sess-hist-1';
-/** The carrier id prefix plus the session: every unit id starts here. */
-/** The job id: one session is one card, so the record carries the session. */
-const JOB_ID = 'loon-inline-' + SESSION_ID;
+/** The first job of the session: a job is the work, so it carries its own number. */
+const JOB_ONE = 'loon-inline-' + SESSION_ID + '-1';
 /** gentle-pi's own history location: `<agentHome>/gentle-agents/tasks`. */
 const historyDirectory = (agentHome: string): string => join(agentHome, 'gentle-agents', 'tasks');
 
@@ -91,6 +90,18 @@ function scratch(): string {
 	return mkdtempSync(join(tmpdir(), 'loon-history-'));
 }
 
+/** A record on disk, wherever it is stored. */
+function readStored(agentHome: string, path: string): Record<string, unknown> {
+	const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+	return parsed as Record<string, unknown>;
+}
+
+/** What the agent runs to say the work is done: the marker the extension consumes. */
+function signalDone(agentHome: string): void {
+	mkdirSync(join(agentHome, 'state', 'loon-inline'), { recursive: true });
+	writeFileSync(closeRequestPath(agentHome, SESSION_ID), JSON.stringify({ at: Date.now(), by: 'agent' }));
+}
+
 let callSequence = 0;
 
 /** One top-level tool call, before and after it ran. */
@@ -138,6 +149,10 @@ function runUnit(agentHome: string, steps: (h: Harness) => void, summary = 'Cerr
 		type: 'agent_end',
 		messages: [{ role: 'assistant', content: [{ type: 'text', text: summary }] }],
 	});
+	// A turn ending does not finish the work: the agent says so, and the extension
+	// consumes that signal on its next event.
+	signalDone(agentHome);
+	h.fire('message_end', { type: 'message_end', message: { role: 'assistant', content: [] } });
 	return h;
 }
 
@@ -156,7 +171,7 @@ test('the closed unit lands where gentle-pi reads history from', () => {
 			step(h, 'read', { path: 'README.md' }, '# LOON\n\nsome prose');
 			step(h, 'bash', { command: 'npm test' }, 'ok 12 tests');
 		});
-		assert.deepEqual(historyFiles(agentHome), [JOB_ID + '.json'], 'one history file for the session, named after the job id');
+		assert.deepEqual(historyFiles(agentHome), [JOB_ONE + '.json'], 'one history file for the job, named after the job id');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
@@ -261,9 +276,9 @@ test(
 
 			const cards = store.list(SESSION_ID);
 			assert.equal(cards.length, 1, 'the panel lists exactly one card for the unit');
-			assert.equal(cards[0]?.id, JOB_ID);
+			assert.equal(cards[0]?.id, JOB_ONE);
 			assert.equal(cards[0]?.mode, 'inline');
-			const restored = store.thread(JOB_ID);
+			const restored = store.thread(JOB_ONE);
 			assert.ok(restored.items.length >= 3, 'opening the card shows its transcript, not an empty pane');
 		} finally {
 			rmSync(agentHome, { recursive: true, force: true });
@@ -271,95 +286,154 @@ test(
 	},
 );
 
-test('two units in one session are one record, with both transcripts in order', () => {
+test('three turns inside one job are one record, and the card stays running', () => {
 	const agentHome = scratch();
 	try {
 		const h = session(agentHome);
-		step(h, 'grep', { pattern: 'carrier' }, 'three matches');
-		closeTurn(h, 'Primera parte lista.');
-		step(h, 'edit', { path: 'README.md' }, 'applied');
-		closeTurn(h, 'Segunda parte lista.');
+		step(h, 'read', { path: 'a' }, 'one');
+		closeTurn(h, 'Primera parte.');
+		step(h, 'read', { path: 'b' }, 'two');
+		closeTurn(h, 'Segunda parte.');
+		step(h, 'read', { path: 'c' }, 'three');
+		closeTurn(h, 'Tercera parte.');
 
-		assert.deepEqual(historyFiles(agentHome), [JOB_ID + '.json'], 'one card per job, not one per request');
-		const stored = JSON.parse(readFileSync(join(historyDirectory(agentHome), JOB_ID + '.json'), 'utf8')) as {
-			thread: { items: { kind: string; name?: string; text?: string }[] };
-		};
-		const layout = stored.thread.items.map((item) => (item.kind === 'tool' ? item.name : item.kind === 'note' ? 'note' : item.text));
-		assert.deepEqual(layout, ['grep', 'Primera parte lista.', 'note', 'edit', 'Segunda parte lista.'], 'both stretches of work, in order, with a divider where the next request began');
+		// The job is the work, not the turn: nothing is written until the work is over.
+		assert.deepEqual(historyFiles(agentHome), [], 'an open job writes no history yet');
+		const carrier = readStored(agentHome, carrierPath(agentHome, SESSION_ID));
+		assert.equal(carrier.status, 'running', 'a turn ending must not finish the job');
+		assert.equal(carrier.id, JOB_ONE, 'one id for the whole job');
+		const thread = JSON.parse(readFileSync(join(carrierDirectory(agentHome), SESSION_ID + '.thread.json'), 'utf8')) as { id: string; thread: { items: { kind: string; name?: string; text?: string }[] } };
+		const layout = thread.thread.items.map((item) => (item.kind === 'tool' ? item.name : item.kind === 'note' ? 'note' : item.text));
+		assert.deepEqual(layout, ['read', 'Primera parte.', 'note', 'read', 'Segunda parte.', 'note', 'read', 'Tercera parte.'], 'three turns, in order, with a divider where each new request began');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
 });
 
-test('the totals on the record are the job totals, not the last unit numbers', () => {
+test('the agent signal closes the job with the accumulated thread', () => {
+	const agentHome = scratch();
+	try {
+		const h = session(agentHome);
+		step(h, 'read', { path: 'a' }, 'one');
+		closeTurn(h, 'Primera parte.');
+		step(h, 'edit', { path: 'b' }, 'two');
+		closeTurn(h, 'Segunda parte.');
+		assert.deepEqual(historyFiles(agentHome), []);
+
+		// The agent says the work is done; the extension consumes it on its next event.
+		signalDone(agentHome);
+		h.fire('message_end', {
+			type: 'message_end',
+			message: { role: 'assistant', content: [], usage: { totalTokens: 10, cost: { total: 0.001 } } },
+		});
+
+		assert.deepEqual(historyFiles(agentHome), [JOB_ONE + '.json'], 'the job becomes one record');
+		const stored = readStored(agentHome, join(historyDirectory(agentHome), JOB_ONE + '.json')) as {
+			task: { status: string; closedBy?: string; toolCalls: number };
+			thread: { items: { kind: string; name?: string }[] };
+		};
+		assert.equal(stored.task.status, 'completed');
+		assert.equal(stored.task.closedBy, 'agent', 'the record says who closed it');
+		assert.deepEqual(stored.thread.items.filter((item) => item.kind === 'tool').map((item) => item.name), ['read', 'edit'], 'both turns are in the transcript');
+		assert.equal(readStored(agentHome, carrierPath(agentHome, SESSION_ID)).status, 'completed', 'and the card is finished');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a request after a closed job opens a new card', () => {
+	const agentHome = scratch();
+	try {
+		const h = session(agentHome);
+		step(h, 'read', { path: 'a' }, 'one');
+		closeTurn(h, 'Primera.');
+		signalDone(agentHome);
+		h.fire('message_end', { type: 'message_end', message: { role: 'assistant', content: [] } });
+		assert.deepEqual(historyFiles(agentHome), [JOB_ONE + '.json']);
+
+		// The next request is a new piece of work, and gets its own card.
+		step(h, 'bash', { command: 'ls' }, 'ok');
+		const carrier = readStored(agentHome, carrierPath(agentHome, SESSION_ID));
+		assert.equal(carrier.id, 'loon-inline-' + SESSION_ID + '-2', 'the next job has its own id');
+		assert.equal(carrier.status, 'running');
+		closeTurn(h, 'Segunda.');
+		signalDone(agentHome);
+		h.fire('message_end', { type: 'message_end', message: { role: 'assistant', content: [] } });
+		assert.deepEqual(historyFiles(agentHome), [JOB_ONE + '.json', 'loon-inline-' + SESSION_ID + '-2.json'].sort(), 'two jobs, two records');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('the totals belong to the job, and a new job starts from zero', () => {
 	const agentHome = scratch();
 	try {
 		const h = session(agentHome);
 		step(h, 'read', { path: 'a' }, 'one');
 		spend(h, 1000, 0.001);
 		closeTurn(h, 'Primera.');
-		const first = JSON.parse(readFileSync(join(historyDirectory(agentHome), JOB_ID + '.json'), 'utf8')) as { task: { tokens: number; cost: number; createdAt: number; startedAt: number | null } };
 		step(h, 'read', { path: 'b' }, 'two');
 		spend(h, 500, 0.002);
 		closeTurn(h, 'Segunda.');
-		const second = JSON.parse(readFileSync(join(historyDirectory(agentHome), JOB_ID + '.json'), 'utf8')) as { task: { tokens: number; cost: number; createdAt: number; startedAt: number | null; toolCalls: number } };
-		assert.equal(second.task.tokens, 1500, 'tokens add up across units');
-		assert.equal(second.task.cost, 0.003, 'cost adds up across units');
-		assert.equal(second.task.toolCalls, 2, 'and so do the calls');
-		assert.equal(second.task.createdAt, first.task.createdAt, 'the job keeps its start: wall time is the job span');
-		assert.equal(second.task.startedAt, first.task.startedAt);
+		signalDone(agentHome);
+		h.fire('message_end', { type: 'message_end', message: { role: 'assistant', content: [] } });
+		const first = readStored(agentHome, join(historyDirectory(agentHome), JOB_ONE + '.json')) as {
+			task: { tokens: number; cost: number; toolCalls: number; createdAt: number };
+		};
+		assert.equal(first.task.tokens, 1500, 'tokens add up across the turns of one job');
+		assert.equal(first.task.cost, 0.003, 'and so does the cost');
+		assert.equal(first.task.toolCalls, 2);
+
+		step(h, 'bash', { command: 'ls' }, 'ok');
+		spend(h, 7, 0.0005);
+		const second = readStored(agentHome, carrierPath(agentHome, SESSION_ID)) as { tokens: number; cost: number; createdAt: number; toolCalls: number };
+		assert.equal(second.tokens, 7, 'a new job does not inherit the previous totals');
+		assert.equal(second.cost, 0.0005);
+		assert.equal(second.toolCalls, 1);
+		assert.ok(second.createdAt >= first.task.createdAt, 'and it starts its own clock');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
 });
 
-test('a session from the previous design is merged into one record, once', () => {
+test('the idle fallback closes the job and records why', async () => {
 	const agentHome = scratch();
 	try {
-		// Two records the old writer left behind, one per unit.
-		const legacy = (unit: number, name: string, at: number): void => {
-			const task = {
-				id: JOB_ID + '-' + unit,
-				agent: 'gentle-ai-worker',
-				mode: 'inline',
-				prompt: '',
-				label: 'unit ' + unit,
-				cwd: '/repo',
-				parentSessionId: SESSION_ID,
-				status: 'completed',
-				createdAt: at,
-				startedAt: at,
-				endedAt: at + 10,
-				model: 'test-model',
-				thinking: 'high',
-				sessionPath: null,
-				error: null,
-				result: 'done',
-				lastStep: name,
-				lastActivityAt: at + 10,
-				turns: 1,
-				toolCalls: 1,
-				tokens: 100,
-				cost: 0.001,
-			};
-			const thread = { version: 1, dropped: 0, items: [{ kind: 'tool', callId: 'c' + unit, name, args: {}, output: 'ok', running: false, isError: false }], limits: { maxItems: 200, maxOutputChars: 1000 } };
-			writeFileSync(join(historyDirectory(agentHome), task.id + '.json'), JSON.stringify({ task, thread }));
-		};
-		mkdirSync(historyDirectory(agentHome), { recursive: true });
-		legacy(1, 'grep', 1000);
-		legacy(2, 'edit', 2000);
-
-		// Starting the session is what merges them, before anything is restored.
+		const clock = { value: 1_800_000_000_000 };
 		const h = fakePi();
-		createInlineWork(h.api, { env: {}, agentHome, heartbeatMs: 0 });
+		createInlineWork(h.api, { env: {}, agentHome, heartbeatMs: 10, now: () => clock.value });
 		h.fire('session_start', { type: 'session_start' });
+		step(h, 'read', { path: 'a' }, 'one');
+		closeTurn(h, 'Primera.');
+		assert.deepEqual(historyFiles(agentHome), []);
 
-		assert.deepEqual(historyFiles(agentHome), [JOB_ID + '.json'], 'one record, so a restore brings one card');
-		const merged = JSON.parse(readFileSync(join(historyDirectory(agentHome), JOB_ID + '.json'), 'utf8')) as {
-			thread: { items: { kind: string; name?: string }[] };
+		// Nothing else happens: no signal, no activity. The heartbeat notices.
+		clock.value += IDLE_CLOSE_MS + 1;
+		await new Promise((resolve) => setTimeout(resolve, 80));
+
+		assert.deepEqual(historyFiles(agentHome), [JOB_ONE + '.json'], 'a job nobody finished is still closed');
+		const stored = readStored(agentHome, join(historyDirectory(agentHome), JOB_ONE + '.json')) as {
+			task: { status: string; closedBy?: string };
+			thread: { items: { kind: string; text?: string }[] };
 		};
-		const names = merged.thread.items.filter((item) => item.kind === 'tool').map((item) => item.name);
-		assert.deepEqual(names, ['grep', 'edit'], 'both stretches of work survive, in order');
+		assert.equal(stored.task.status, 'completed');
+		assert.equal(stored.task.closedBy, 'idle');
+		assert.match(JSON.stringify(stored.thread.items), /without activity/, 'the transcript says it was not the agent who closed it');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('a job still open when the session ends is closed, not left running', () => {
+	const agentHome = scratch();
+	try {
+		const h = session(agentHome);
+		step(h, 'read', { path: 'a' }, 'one');
+		closeTurn(h, 'Primera.');
+		h.fire('session_shutdown', { type: 'session_shutdown' });
+		const stored = readStored(agentHome, join(historyDirectory(agentHome), JOB_ONE + '.json')) as { task: { status: string; closedBy?: string } };
+		assert.equal(stored.task.status, 'completed');
+		assert.equal(stored.task.closedBy, 'session');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}
@@ -390,7 +464,7 @@ test('shutdown keeps the history and only removes the live carrier', () => {
 		h.fire('session_shutdown', { type: 'session_shutdown' });
 		assert.equal(existsSync(carrierPath(agentHome, SESSION_ID)), false, 'the live carrier is still removed');
 		assert.equal(existsSync(carrierDirectory(agentHome)), true);
-		assert.deepEqual(historyFiles(agentHome), [JOB_ID + '.json'], 'the closed unit survives the shutdown: that is the whole point');
+		assert.deepEqual(historyFiles(agentHome), [JOB_ONE + '.json'], 'the closed job survives the shutdown: that is the whole point');
 	} finally {
 		rmSync(agentHome, { recursive: true, force: true });
 	}

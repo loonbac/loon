@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installOverlayPanel, jobKey, overlayTasks, overlayThread } from '../extensions/lib/inline-overlay.ts';
+import { installOverlayPanel, jobCardId, overlayTasks, overlayThread } from '../extensions/lib/inline-overlay.ts';
 
 const SESSION = 'sess-overlay-1';
-/** The card id of that session's job. */
-const JOB_ID = 'loon-inline-' + SESSION;
+/** The card id of that session's first job. */
+const JOB_ID = 'loon-inline-' + SESSION + '-1';
 
 interface Unit {
 	id?: string;
@@ -63,7 +63,7 @@ function liveThread(root: string, session: string, items: unknown[]): void {
 		join(root, 'state', 'loon-inline', session + '.thread.json'),
 		// The writer names the live thread after the job, so a card that is the job
 		// finds its transcript.
-		JSON.stringify({ id: 'loon-inline-' + session, thread: { version: 1, dropped: 0, items, limits: { maxItems: 200, maxOutputChars: 1000 } } }),
+		JSON.stringify({ id: 'loon-inline-' + session + '-1', thread: { version: 1, dropped: 0, items, limits: { maxItems: 200, maxOutputChars: 1000 } } }),
 	);
 }
 
@@ -142,7 +142,7 @@ test('a unit the store already restored is not drawn again', () => {
 		history(root, SESSION, { status: 'completed' }, [toolItem('c1', 'read')]);
 		carrier(root, SESSION, { status: 'completed' });
 		assert.equal(overlayTasks(root, SESSION, [JOB_ID]).length, 0, 'the store serves this job; the provider must not double it');
-		assert.equal(overlayTasks(root, SESSION, [JOB_ID + '-1']).length, 0, 'an id the previous design wrote is the same job');
+		assert.equal(overlayTasks(root, SESSION, ['loon-inline-' + SESSION + '-9']).length, 1, 'a different job of the same session is a different card');
 		assert.equal(overlayTasks(root, SESSION, []).length, 1);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -164,14 +164,14 @@ test('a finished unit beside a running one is one card, and it says running', ()
 	}
 });
 
-test('records the previous design wrote one per unit collapse into the one card', () => {
+test('two jobs of one session are two cards, each with its own id', () => {
 	const root = home();
 	try {
 		history(root, SESSION, { id: 'loon-inline-' + SESSION + '-1', status: 'completed', createdAt: 1000, endedAt: 2000 }, [toolItem('c1', 'read')]);
 		history(root, SESSION, { id: 'loon-inline-' + SESSION + '-2', status: 'completed', createdAt: 3000, endedAt: 4000 }, [toolItem('c2', 'edit')]);
 		const tasks = overlayTasks(root, SESSION, []);
-		assert.equal(tasks.length, 1, 'an old session must not come back as one card per request');
-		assert.equal(tasks[0]?.id, JOB_ID);
+		assert.equal(tasks.length, 2, 'a job is the work, so two jobs are two cards');
+		assert.deepEqual(tasks.map((task) => task.id), ['loon-inline-' + SESSION + '-1', 'loon-inline-' + SESSION + '-2']);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -216,13 +216,7 @@ test('the provider is one global the panel finds, and it comes off again', () =>
 	}
 });
 
-test('the job key is the session, whatever id a source happens to use', () => {
-	assert.equal(jobKey('loon-inline-abc', 'abc'), 'loon-inline-abc');
-	assert.equal(jobKey('loon-inline-abc-1', 'abc'), 'loon-inline-abc', 'a numbered id is still the same job');
-	assert.equal(jobKey('loon-inline-abc-7', 'abc'), 'loon-inline-abc');
-	// A session id that itself ends in digits is a session, not a unit.
-	assert.equal(jobKey('loon-inline-sess-1', 'sess-1'), 'loon-inline-sess-1');
-	assert.equal(jobKey('loon-inline-sess-1-1', 'sess-1'), 'loon-inline-sess-1');
-	// Somebody else's id is left alone.
-	assert.equal(jobKey('child-task-1', 'abc'), 'child-task-1');
+test('the card id is the job, numbered', () => {
+	assert.equal(jobCardId('abc', 1), 'loon-inline-abc-1');
+	assert.notEqual(jobCardId('abc', 1), jobCardId('abc', 2), 'two jobs never share a card');
 });

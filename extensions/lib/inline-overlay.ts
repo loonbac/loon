@@ -53,25 +53,16 @@ export interface OverlayThread {
 	limits: { maxItems: number; maxOutputChars: number };
 }
 
-/** The id of a session's job. One session is one job, so one card. */
-export function jobCardId(sessionId: string): string {
-	return 'loon-inline-' + sessionId;
-}
-
 /**
- * The job an id belongs to. Every inline id of a session is that session's job,
- * including the numbered ids an older LOON wrote one per unit, so a session that
- * ran the previous design still resolves to a single card.
- * @param {string} id
- * @param {string} [sessionId]
+ * The card id of a session's job, and the only key dedupe uses: a job is one
+ * numbered record, the live carrier and the history file share that id, and two
+ * jobs of the same session are two cards on purpose.
+ * @param {string} sessionId
+ * @param {number} job
  * @returns {string}
  */
-export function jobKey(id: string, sessionId?: string): string {
-	if (sessionId !== undefined && sessionId.length > 0) {
-		const job = jobCardId(sessionId);
-		if (id === job || id.startsWith(job + '-')) return job;
-	}
-	return id;
+export function jobCardId(sessionId: string, job: number): string {
+	return 'loon-inline-' + sessionId + '-' + job;
 }
 
 function readJson(path: string): unknown {
@@ -167,21 +158,24 @@ function liveCarrier(agentHome: string, sessionId: string, now: number): Overlay
 export function overlayTasks(agentHome: string, sessionId: string, known: string[] = [], now: number = Date.now()): OverlayTask[] {
 	try {
 		if (sessionId.length === 0) return [];
-		const job = jobCardId(sessionId);
-		// The store already serves this job: that card is the card. Adding ours on
-		// top of it would be the same work twice.
-		if (known.some((id) => jobKey(id, sessionId) === job)) return [];
-		// Everything that describes this job - the persisted records (one per unit
-		// in the previous design, one for the job now) and the live carrier - is one
-		// card, and the newest description of it is the true one: the carrier while
-		// a unit runs, the closed record when the turn ended.
-		const candidates = historyRecords(agentHome, sessionId);
+		const knownIds = new Set(known);
+		// One card per job: the persisted record of a closed job and the live
+		// carrier of the open one share an id, so they collapse into one, while two
+		// jobs of the same session stay two cards - that is the whole point of a
+		// job being the work and not the turn.
+		const byId = new Map<string, OverlayTask>();
+		for (const task of historyRecords(agentHome, sessionId)) {
+			if (knownIds.has(task.id)) continue;
+			if (!byId.has(task.id)) byId.set(task.id, task);
+		}
 		const live = liveCarrier(agentHome, sessionId, now);
-		if (live !== undefined) candidates.push(live);
-		if (candidates.length === 0) return [];
-		let newest = candidates[0] as OverlayTask;
-		for (const task of candidates) if (activity(task) > activity(newest)) newest = task;
-		return [{ ...newest, id: job }];
+		if (live !== undefined && !knownIds.has(live.id)) {
+			const seen = byId.get(live.id);
+			// A tie goes to the persisted record: when a job closes, both describe the
+			// same moment and the history file is the one that survives.
+			if (seen === undefined || activity(live) > activity(seen)) byId.set(live.id, live);
+		}
+		return [...byId.values()].sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 	} catch {
 		return [];
 	}

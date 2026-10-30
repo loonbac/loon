@@ -45,8 +45,8 @@ export function unitId(sessionId: string, unit: number): string {
  * @param {string} sessionId
  * @returns {string}
  */
-export function jobId(sessionId: string): string {
-	return carrierId(sessionId);
+export function jobId(sessionId: string, job: number): string {
+	return carrierId(sessionId) + '-' + job;
 }
 
 /** The divider written into the transcript where a new request began. */
@@ -156,7 +156,18 @@ export function addToolEnd(
  * @returns {UnitThread}
  */
 export function addDivider(thread: UnitThread): UnitThread {
-	return push(thread, { kind: 'note', text: DIVIDER_TEXT });
+	return addNote(thread, DIVIDER_TEXT);
+}
+
+/**
+ * Append a note the panel draws on its own line: a divider, or the reason a job
+ * was closed without the agent's signal.
+ * @param {UnitThread} thread
+ * @param {string} text
+ * @returns {UnitThread}
+ */
+export function addNote(thread: UnitThread, text: string): UnitThread {
+	return push(thread, { kind: 'note', text });
 }
 
 export function addText(thread: UnitThread, raw: string): UnitThread {
@@ -247,68 +258,6 @@ export function nextUnitNumber(agentHome: string, sessionId: string, floor = 0):
  * Write `{ task, thread }` where gentle-pi's `loadHistory` will find it. Atomic,
  * because a reader can open the panel mid-write.
  */
-/**
- * The previous design wrote one record per unit (`<job>-1.json`, `<job>-2.json`).
- * gentle-pi restores every file it finds, so a session from that design would
- * come back as one card per request. This merges those records into the job
- * record - their transcripts in order, with a divider between them - and then
- * removes the numbered files, which are ours and whose content is now in the
- * merged record.
- *
- * Runs once, at session start, and only when the session has no job record yet.
- * @param {string} agentHome
- * @param {string} sessionId
- * @returns {string | undefined} the job record it wrote, when it wrote one
- */
-export function consolidateLegacyHistory(agentHome: string, sessionId: string): string | undefined {
-	try {
-		const directory = historyDirectory(agentHome);
-		if (!existsSync(directory)) return undefined;
-		const job = jobId(sessionId);
-		if (existsSync(join(directory, job + '.json'))) return undefined;
-		const prefix = job + '-';
-		const legacy: { name: string; stored: { task: InlineCarrierRecord; thread: UnitThread } }[] = [];
-		for (const name of readdirSync(directory)) {
-			if (!name.startsWith(prefix) || !name.endsWith('.json')) continue;
-			const text = readFileSync(join(directory, name), 'utf8');
-			const parsed: unknown = JSON.parse(text);
-			if (typeof parsed !== 'object' || parsed === null) continue;
-			const stored = parsed as { task?: InlineCarrierRecord; thread?: UnitThread };
-			if (stored.task === undefined || !Array.isArray(stored.thread?.items)) continue;
-			if (stored.task.parentSessionId !== sessionId) continue;
-			legacy.push({ name, stored: { task: stored.task, thread: stored.thread } });
-		}
-		if (legacy.length === 0) return undefined;
-		legacy.sort((a, b) => (a.stored.task.createdAt ?? 0) - (b.stored.task.createdAt ?? 0));
-		let thread: UnitThread = emptyUnitThread();
-		for (const { stored } of legacy) {
-			if (thread.items.length > 0) thread = addDivider(thread);
-			for (const item of stored.thread.items) {
-				if (item.kind === 'tool') {
-					thread = addToolStart(thread, { callId: item.callId, name: item.name, args: item.args });
-					thread = addToolEnd(thread, { callId: item.callId, output: item.output, isError: item.isError });
-				} else if (item.kind === 'text') {
-					thread = addText(thread, item.text);
-				}
-			}
-		}
-		const newest = legacy[legacy.length - 1]?.stored.task;
-		if (newest === undefined) return undefined;
-		const record: InlineCarrierRecord = { ...newest, id: job, parentSessionId: sessionId };
-		writeUnitHistory(agentHome, record, thread);
-		for (const { name } of legacy) {
-			try {
-				unlinkSync(join(directory, name));
-			} catch {
-				// Leaving one behind costs a duplicate card at the next restart, never the session.
-			}
-		}
-		return join(directory, job + '.json');
-	} catch {
-		return undefined;
-	}
-}
-
 export function writeUnitHistory(agentHome: string, task: InlineCarrierRecord, thread: UnitThread): void {
 	const directory = historyDirectory(agentHome);
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
