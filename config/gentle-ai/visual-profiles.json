@@ -1,0 +1,30 @@
+{
+	"schema": "gentle-pi.visual-profiles/v1",
+	"profiles": [
+		{
+			"name": "loon",
+			"themeName": "Wallpaper (LOON)",
+			"animationPolicy": "quality",
+			"banner": {
+				"showRose": false,
+				"showTextLogo": false,
+				"color": "pink"
+			},
+			"visual": {
+				"statusPlacement": "auto",
+				"headerPlacement": "below-input",
+				"density": "comfortable",
+				"visibility": {
+					"changes": true,
+					"rdd": true,
+					"agents": true,
+					"todo": true,
+					"usageCost": true,
+					"modelDetails": true,
+					"contextWarning": true,
+					"stats": false
+				}
+			}
+		}
+	]
+}

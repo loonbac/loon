@@ -235,7 +235,12 @@ node --experimental-strip-types scripts/gentle-pi-patch.ts apply
 node --experimental-strip-types scripts/gentle-pi-patch.ts revert
 ```
 
-Qué cambia, solo en gentle-pi 4.5.1: cuatro archivos, cada uno por una razón:
+Qué cambia, siete archivos, cada uno por una razón. Ojo con lo que hoy mide `check`:
+**el parche no aplica a gentle-pi 4.6.0** —16 de 21 anclas resuelven, y `SHELL_ROWS`,
+`SHELL_MOUSE`, `SHELL_BAR_MARGIN_IMPORT`, `SHELL_CARD_4`, `SHELL_PROMPT_3` y
+`SHELL_PROMPT_4` se movieron—, así que tras la actualización la geometría LOON, la barra sin
+marca y las filas de banner **no están instaladas**. `check` las nombra una por una en vez de
+mentir; reanclar el parche es trabajo pendiente y propio del paquete, no de este documento.
 
 - `extensions/gentle-shell.ts`: `/gentle:customize` recibe una fila,
   `Banner: loon` / `Banner: rose` / `Banner: off`, que cicla al seleccionar.
@@ -288,6 +293,41 @@ importa la copia parcheada en un proceso hijo con el mismo cargador que usa pi *
 reemplazar nada, y guarda una copia de seguridad con marca de tiempo en
 `~/.pi/agent/backups/gentle-pi-banner-patch-*` que `revert` restaura y verifica. Aquí nada
 es obligatorio: sin parche, LOON funciona exactamente como antes.
+
+### El menú nuevo: qué ajuste vive en qué categoría
+
+gentle-pi 4.6.0 reorganizó `/gentle:customize` en doce categorías (`Animations, Banner,
+Themes, Editor, History, Notifications, Layout, Cards, Sections, Keymaps, Profiles, Reset`).
+Ningún ajuste cambió de archivo; sí de sitio en el menú, y apareció uno nuevo:
+
+| Ajuste | Archivo | Categoría |
+| --- | --- | --- |
+| tema `Wallpaper (LOON)` | `settings.theme` + `~/.pi/agent/themes/` | **Themes** |
+| banner rosa, sin rosa, sin logotipo | `banner.json` | **Banner** |
+| política de animación | `animations.json` | **Animations** |
+| colocación de estado, cabecera, densidad | `visual-customization.json` | **Layout** |
+| secciones visibles | `visual-customization.json`, `visibility` | **Sections** |
+| estilo y contenido de tarjeta | `card-style.json`, `card-content.json` | **Cards** |
+| perfil completo (nuevo en 4.6.0) | `visual-profiles.json` | **Profiles** |
+
+Ese directorio (`~/.pi/gentle-ai/`) es del dueño: lo controla una guarda que ninguna
+herramienta del modelo puede cruzar, así que el repositorio **publica** el payload y el
+dueño lo instala con una orden. Los dos archivos del payload validan con los parsers de
+gentle-pi, no con una copia de sus reglas:
+
+```sh
+node scripts/gentle-ai-payload.mjs show     # el payload y la orden
+node scripts/gentle-ai-payload.mjs verify   # lee el directorio vivo y enumera problemas
+node scripts/gentle-ai-payload.mjs apply    # copia (con backup) y verifica: lo corre el dueño
+```
+
+Por qué hacía falta: `card-style.json` guardaba `"loon"`, un estilo que gentle-pi nunca
+conoció —lo añadía el parche de más arriba—, así que el lector lo marcaba `malformed`,
+resolvía `float` y la categoría **Cards** se negaba a guardar nada. En stock 4.6.0 el único
+estilo que dibuja lo que el dueño venía viendo es `float`, y eso es lo que publica el
+payload. Y `visual-profiles.json` define el perfil `loon` con el tema, el banner, la
+animación y las ocho claves de `visibility` que el validador estricto exige, para que el
+perfil sobreviva a un guardado desde el menú.
 
 ### El trabajo inline, en el panel de Agents
 
