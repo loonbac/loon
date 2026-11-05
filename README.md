@@ -235,12 +235,19 @@ node --experimental-strip-types scripts/gentle-pi-patch.ts apply
 node --experimental-strip-types scripts/gentle-pi-patch.ts revert
 ```
 
-Qué cambia, siete archivos, cada uno por una razón. Ojo con lo que hoy mide `check`:
-**el parche no aplica a gentle-pi 4.6.0** —16 de 21 anclas resuelven, y `SHELL_ROWS`,
-`SHELL_MOUSE`, `SHELL_BAR_MARGIN_IMPORT`, `SHELL_CARD_4`, `SHELL_PROMPT_3` y
-`SHELL_PROMPT_4` se movieron—, así que tras la actualización la geometría LOON, la barra sin
-marca y las filas de banner **no están instaladas**. `check` las nombra una por una en vez de
-mentir; reanclar el parche es trabajo pendiente y propio del paquete, no de este documento.
+Qué cambia, siete archivos, cada una por una razón, contra **gentle-pi 4.6.0**. De las 32
+anclas, 26 son idénticas a 4.5.1 y 6 se movieron; cada una está justificada en
+`odd/tasks/gentle-pi-menu-map.md` (qué cambió en 4.6.0 en ese punto y por qué la nueva es el
+mismo sitio lógico). `check` nombra cualquier ancla que falte y el parche **se niega antes de
+escribir nada**: no hay aplicación parcial.
+
+**Un `pi update` borra este parche, siempre.** No hay re-aplicación automática al arrancar
+sesión, y eso es un problema abierto, no una nota al pie: tras cada actualización de gentle-pi, la
+geometría LOON, la barra sin marca y las filas de banner desaparecen hasta que alguien corra
+`apply`. Detectar el borrado desde el arranque es fácil y barato; **escribir** `node_modules` al
+iniciar sesión no lo es —una actualización a medias o un `npm ci` en paralelo convertirían el
+arranque en una escritura silenciosa sobre el paquete—, así que `apply` sigue siendo un acto
+explícito del dueño.
 
 - `extensions/gentle-shell.ts`: `/gentle:customize` recibe una fila,
   `Banner: loon` / `Banner: rose` / `Banner: off`, que cicla al seleccionar.
