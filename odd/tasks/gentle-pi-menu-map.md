@@ -20,6 +20,30 @@ S6. Ningún agente escribe en el directorio human-controlled: lo aplica el dueñ
     sola orden.
 S7. La documentación dice qué archivo de ajustes posee cada categoría del menú.
 
+## Corrección del coordinador (L5) y estado del port
+
+El coordinador corrigió su propia premisa: `loon` **sí** fue un estilo válido en la instalación
+parcheada de 4.5.1, y el fichero `card-style.json` **no hay que tocarlo**: la causa es que la
+actualización borró el parche. Medido aquí, coincide: cero marcas LOON en los archivos instalados
+y 8 anclas sin resolver. El plan cambia de «escribir `float`» a «reancolar el parche y reaplicarlo».
+
+Estado del reancolado, medido con `check`:
+
+| Destino | Anclas | 4.6.0 |
+| --- | --- | --- |
+| `extensions/gentle-shell.ts` | 4 | reancoladas: `shellRows` (el menú nuevo usa filas explícitas) y `shellMouse` (el editor ganó panel y filas superiores) |
+| `lib/visual-customize-view.ts` | 2 | intactas |
+| `extensions/startup-banner.ts` | 2 | intactas |
+| `lib/shell-bar.ts` | 11 | reancoladas: el import creció y las etapas ganaron el escalón de esfuerzo |
+| `lib/shell-card.ts` | 7 | reancoladas: `paintFloat` delega en `paintSurfaceRow` |
+| `lib/card-style-policy.ts` | 1 | intacta |
+| `lib/shell-prompt.ts` | 5 | reancolada: `PromptLayout` ganó `panel` |
+
+`apply` corrió sobre 4.6.0: los siete destinos leen `patched` y cada copia parcheada carga con
+jiti. Con eso, `loon` vuelve a ser un estilo válido y `card-style.json` del dueño se lee sin
+tocarlo. Pendiente: reancolar las aserciones de `tests/gentle-pi-patch.test.ts` a 4.6.0 (trece
+fallan porque describen el menú y las etapas de 4.5.1), y decidir si el parche se reaplica solo.
+
 ## Medido
 
 - gentle-pi instalado: **4.6.0**; el parche del repo está escrito contra 4.5.1.

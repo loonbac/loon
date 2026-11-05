@@ -6,7 +6,7 @@
  *
  * This edits another installed package, so it is deliberately paranoid:
  *
- *   - the files must be exactly the gentle-pi 4.5.1 build the patch was written
+ *   - the files must be exactly the gentle-pi 4.6.0 build the patch was written
  *     against (md5), or nothing is touched;
  *   - every anchor must appear exactly once, so a partial match cannot leave half
  *     a patch behind;
@@ -61,8 +61,8 @@ export interface TargetSpec {
 const SHELL_INIT_ANCHOR = "\t\t\tlet banner = await readBannerConfig(bannerHome).catch(error => { close(); throw error; });\n\t\t\tif (closed) return;";
 const SHELL_INIT_ADDITION = "\t\t\t// LOON banner patch v2: the banner source and the accent choice live in\n\t\t\t// LOON's own settings file, because writeBannerConfig() persists only this\n\t\t\t// file's three keys and would drop anything else written here.\n\t\t\tconst loonSettingsPath = join(process.env.PI_CODING_AGENT_DIR || join(os.homedir(), \".pi\", \"agent\"), \"loon-tui.json\");\n\t\t\tconst readLoonSettings = async (): Promise<Record<string, unknown>> => {\n\t\t\t\ttry {\n\t\t\t\t\tconst parsed: unknown = JSON.parse(await readFile(loonSettingsPath, \"utf8\"));\n\t\t\t\t\treturn typeof parsed === \"object\" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};\n\t\t\t\t} catch {\n\t\t\t\t\treturn {};\n\t\t\t\t}\n\t\t\t};\n\t\t\tlet loonSettings = await readLoonSettings();\n\t\t\tlet loonBannerSource: \"loon\" | \"rose\" | \"off\" = loonSettings.source === \"rose\" || loonSettings.source === \"off\" ? loonSettings.source : \"loon\";\n\t\t\tconst writeLoonSettings = async (next: Record<string, unknown>) => {\n\t\t\t\tconst { mkdir, rename, writeFile } = await import(\"node:fs/promises\");\n\t\t\t\tawait mkdir(dirname(loonSettingsPath), { recursive: true });\n\t\t\t\tconst temporary = `${loonSettingsPath}.${process.pid}.tmp`;\n\t\t\t\tawait writeFile(temporary, `${JSON.stringify(next, null, \"\\t\")}\\n`, { mode: 0o600 });\n\t\t\t\tawait rename(temporary, loonSettingsPath);\n\t\t\t\tloonSettings = next;\n\t\t\t};\n\t\t\tconst saveLoonBannerSource = async (source: \"loon\" | \"rose\" | \"off\") => {\n\t\t\t\tawait writeLoonSettings({ ...loonSettings, source });\n\t\t\t\tloonBannerSource = source;\n\t\t\t};\n\t\t\tconst saveLoonAccent = async (accent: \"theme\" | \"banner\" | \"wallpaper\") => {\n\t\t\t\tawait writeLoonSettings({ ...loonSettings, accent });\n\t\t\t};\n\t\t\tconst readWallpaperAccent = async (): Promise<{ hex: string; rgb: [number, number, number] } | undefined> => {\n\t\t\t\ttry {\n\t\t\t\t\tconst { readFile: readText } = await import(\"node:fs/promises\");\n\t\t\t\t\tconst home = process.env.HOME ?? os.homedir();\n\t\t\t\t\tconst raw = await readText(join(home, \".config\", \"mpvpaper\", \"accent.txt\"), \"utf8\");\n\t\t\t\t\tconst match = /^\\s*#?([0-9a-fA-F]{6})\\s*$/.exec(raw);\n\t\t\t\t\tif (match === null) return undefined;\n\t\t\t\t\tconst hex = match[1]!.toUpperCase();\n\t\t\t\t\treturn { hex: \"#\" + hex, rgb: [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)] };\n\t\t\t\t} catch {\n\t\t\t\t\treturn undefined;\n\t\t\t\t}\n\t\t\t};\n\t\t\tlet loonWallpaperAccent = await readWallpaperAccent();";
 
-const SHELL_ROWS_ANCHOR = "\t\t\tadd(() => `Banner rose: ${banner.showRose ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showRose = !next.showRose;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showRose: !banner.showRose }));\n\t\t\tadd(() => `Banner text logo: ${banner.showTextLogo ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showTextLogo = !next.showTextLogo;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showTextLogo: !banner.showTextLogo }));\n\t\t\tfor (const color of BANNER_COLORS) add(\n\t\t\t\t() => `Banner color: ${color}${banner.color === color ? \" (current)\" : \"\"}`,\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { const next = { ...await readBannerConfigForEdit(bannerHome), color }; await writeBannerConfig(next, bannerHome); banner = next; },\n\t\t\t\t() => bannerPreview({ ...banner, color }),\n\t\t\t);";
-const SHELL_ROWS_REPLACEMENT = "\t\t\t// LOON banner patch v2: one source row, three states, cycling on select.\n\t\t\tconst LOON_BANNER_SOURCES = [\"loon\", \"rose\", \"off\"] as const;\n\t\t\tconst nextLoonBannerSource = () => LOON_BANNER_SOURCES[(LOON_BANNER_SOURCES.indexOf(loonBannerSource) + 1) % LOON_BANNER_SOURCES.length];\n\t\t\tadd(() => `Banner: ${loonBannerSource}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tawait saveLoonBannerSource(nextLoonBannerSource());\n\t\t\t}, () => {\n\t\t\t\tconst next = nextLoonBannerSource();\n\t\t\t\tif (next === \"rose\") return bannerPreview(banner);\n\t\t\t\treturn next === \"off\"\n\t\t\t\t\t? { title: \"Banner \u00b7 off (static)\", sample: \"\u00b7  pi's own header at next startup\" }\n\t\t\t\t\t: { title: \"Banner \u00b7 LOON (static)\", sample: \"\u2588  LOON header at next startup\" };\n\t\t\t});\n\t\t\tif (loonBannerSource === \"rose\") add(() => `Banner text logo: ${banner.showTextLogo ? \"on\" : \"off\"}`, \"Banner saved; applies at next startup.\", async () => {\n\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome) };\n\t\t\t\tnext.showTextLogo = !next.showTextLogo;\n\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\tbanner = next;\n\t\t\t}, () => bannerPreview({ ...banner, showTextLogo: !banner.showTextLogo }));\n\t\t\t// LOON banner patch: the theme's own accent, so the banner can follow the\n\t\t\t// interface instead of the wallpaper deciding for it.\n\t\t\tadd(\n\t\t\t\t(labelWidth?: number) => {\n\t\t\t\t\tconst suffix = loonSettings.accent === \"theme\" ? \" (current)\" : \"\";\n\t\t\t\t\tconst full = \"Banner color: theme (LOON)\";\n\t\t\t\t\tconst short = \"Banner color: theme\";\n\t\t\t\t\tconst fits = labelWidth === undefined || labelWidth >= full.length + suffix.length;\n\t\t\t\t\treturn (fits ? full : short) + suffix;\n\t\t\t\t},\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { await saveLoonAccent(\"theme\"); },\n\t\t\t\t() => ({ title: \"Theme accent (static)\", sample: \"·  the active theme's accent role\" }),\n\t\t\t);\n\t\t\t// LOON banner patch v2: the four named colours also return the accent to\n\t\t\t// gentle-pi's palette, so picking pink after wallpaper is not a no-op.\n\t\t\tfor (const color of BANNER_COLORS) add(\n\t\t\t\t() => `Banner color: ${color}${loonSettings.accent !== \"wallpaper\" && loonSettings.accent !== \"theme\" && banner.color === color ? \" (current)\" : \"\"}`,\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { const next = { ...await readBannerConfigForEdit(bannerHome), color }; await writeBannerConfig(next, bannerHome); banner = next; await saveLoonAccent(\"banner\"); },\n\t\t\t\t() => bannerPreview({ ...banner, color }),\n\t\t\t);\n\t\t\tadd(\n\t\t\t\t(labelWidth?: number) => {\n\t\t\t\t\t// The marker is LOON's, and it is the first thing to go when the row\n\t\t\t\t\t// cannot hold the whole label: (current) is never sacrificed.\n\t\t\t\t\tconst suffix = loonSettings.accent === \"wallpaper\" ? \" (current)\" : \"\";\n\t\t\t\t\tconst full = \"Banner color: wallpaper (LOON)\";\n\t\t\t\t\tconst short = \"Banner color: wallpaper\";\n\t\t\t\t\tconst fits = labelWidth === undefined || labelWidth >= full.length + suffix.length;\n\t\t\t\t\treturn (fits ? full : short) + suffix;\n\t\t\t\t},\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { await saveLoonAccent(\"wallpaper\"); loonWallpaperAccent = await readWallpaperAccent(); },\n\t\t\t\t() => loonWallpaperAccent === undefined\n\t\t\t\t\t? { title: \"Wallpaper accent \u00b7 unavailable (static)\", sample: \"\u00b7  falls back to the theme accent\" }\n\t\t\t\t\t: { title: `Wallpaper accent \u00b7 ${loonWallpaperAccent.hex} (static)`, sample: `\\x1b[38;2;${loonWallpaperAccent.rgb[0]};${loonWallpaperAccent.rgb[1]};${loonWallpaperAccent.rgb[2]}m\u2588\\x1b[0m  wallpaper accent` },\n\t\t\t);\n\t\t\t// LOON banner patch: the mark is LOON's own switch. gentle-pi's showTextLogo\n\t\t\t// belongs to its own banner and never reaches this glyph.\n\t\t\tadd(() => `Mark: ${loonSettings.mark === false ? \"off\" : \"on\"}`, \"Mark saved.\", async () => {\n\t\t\t\tawait writeLoonSettings({ ...loonSettings, mark: loonSettings.mark === false });\n\t\t\t});";
+const SHELL_ROWS_ANCHOR = "\t\t\tfor (const [setting, key] of [[\"Banner rose\", \"showRose\"], [\"Banner text logo\", \"showTextLogo\"]] as const) {\n\t\t\t\tfor (const enabled of [true, false]) add(\n\t\t\t\t\t() => `${setting}: ${enabled ? \"on\" : \"off\"}${banner[key] === enabled ? \" (current)\" : \"\"}`,\n\t\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\t\tasync () => {\n\t\t\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome), [key]: enabled };\n\t\t\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\t\t\tbanner = next;\n\t\t\t\t\t},\n\t\t\t\t\t() => bannerPreview({ ...banner, [key]: enabled }),\n\t\t\t\t\texplicitChoice(setting, enabled ? \"on\" : \"off\", () => banner[key] === enabled),\n\t\t\t\t);\n\t\t\t}";
+const SHELL_ROWS_REPLACEMENT = "\t\t\t// LOON banner patch v3: the source is LOON's own setting, not banner.json, and\n\t\t\t// 4.6.0 wants one explicit row per value instead of a cycling one.\n\t\t\tconst LOON_BANNER_SOURCES = [\"loon\", \"rose\", \"off\"] as const;\n\t\t\tconst loonSourcePreview = (source: \"loon\" | \"rose\" | \"off\") => source === \"rose\"\n\t\t\t\t? bannerPreview(banner)\n\t\t\t\t: source === \"off\"\n\t\t\t\t\t? { title: \"Banner · off (static)\", sample: \"·  pi's own header at next startup\" }\n\t\t\t\t\t: { title: \"Banner · LOON (static)\", sample: \"█  LOON header at next startup\" };\n\t\t\tfor (const source of LOON_BANNER_SOURCES) add(\n\t\t\t\t() => `Banner: ${source}${loonBannerSource === source ? \" (current)\" : \"\"}`\n\t\t\t\t,\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { await saveLoonBannerSource(source); },\n\t\t\t\t() => loonSourcePreview(source),\n\t\t\t\t{ setting: \"Banner\", value: source, current: () => loonBannerSource === source, hint: \"Who paints the startup header\" },\n\t\t\t);\n\t\t\tif (loonBannerSource === \"rose\") for (const enabled of [true, false]) add(\n\t\t\t\t() => `Banner text logo: ${enabled ? \"on\" : \"off\"}${banner.showTextLogo === enabled ? \" (current)\" : \"\"}`\n\t\t\t\t,\n\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\tasync () => { const next = { ...await readBannerConfigForEdit(bannerHome), showTextLogo: enabled }; await writeBannerConfig(next, bannerHome); banner = next; },\n\t\t\t\t() => bannerPreview({ ...banner, showTextLogo: enabled }),\n\t\t\t\t{ setting: \"Banner text logo\", value: enabled ? \"on\" : \"off\", current: () => banner.showTextLogo === enabled, hint: \"gentle-pi's banner; LOON's mark has its own row\" },\n\t\t\t);";
 
 const BANNER_CONFIG_ANCHOR = "    const bannerConfig = await readBannerConfig();";
 const BANNER_CONFIG_ADDITION = "    // LOON banner patch: LOON's own setting decides who paints the header. \"rose\"\n    // - and a missing setting, so an unpatched LOON keeps working - leaves this\n    // banner in charge; \"loon\" and \"off\" both mean it must not install.\n    const loonBannerSource = await readLoonBannerSource();\n    if (loonBannerSource === \"loon\" || loonBannerSource === \"off\") return;";
@@ -140,8 +140,10 @@ const SHELL_BAR_USAGE_REPLACEMENT = [
 // loon gives the whole chrome one column of margin, and the bar is the last piece
 // outside it: column 0 stays unpainted, the painted block starts in column 1 and
 // still closes on the last column, exactly like the prompt band.
-const SHELL_BAR_MARGIN_IMPORT_ANCHOR = 'import { CARD_TONE, floatRows, panelInnerWidth, renderCard } from "./shell-card.ts";';
-const SHELL_BAR_MARGIN_IMPORT_REPLACEMENT = 'import { CARD_STYLE, CARD_TONE, cardStyle, floatRows, panelInnerWidth, renderCard } from "./shell-card.ts";';
+// 4.6.0 moved the per-row repaint and the surface opener into shell-card, so the
+// import this anchor pins grew. The patch needs the style and its geometry too.
+const SHELL_BAR_MARGIN_IMPORT_ANCHOR = 'import { CARD_TONE, floatRows, paintSurfaceRow, panelInnerWidth, renderCard, surfaceOpener } from "./shell-card.ts";';
+const SHELL_BAR_MARGIN_IMPORT_REPLACEMENT = 'import { CARD_STYLE, CARD_TONE, cardStyle, floatRows, paintSurfaceRow, panelInnerWidth, renderCard, surfaceOpener } from "./shell-card.ts";';
 
 const SHELL_BAR_MARGIN_ROW_ANCHOR = [
 	'\tconst { inner, open } = painted;',
@@ -234,6 +236,7 @@ const SHELL_BAR_STAGES_TAIL_ANCHOR = [
 	'\t\t[brand, location, withProfile],',
 	'\t\t[brand, location, withEffort],',
 	'\t\t[brand, location, modelOnly],',
+	'\t\t...(model.effort ? [[brand, withEffort]] : []),',
 	'\t\t[brand, modelOnly],',
 	'\t\t[brand],',
 	'\t];',
@@ -247,6 +250,7 @@ const SHELL_BAR_STAGES_TAIL_REPLACEMENT = [
 	'\t\twithBrand([location, withProfile]),',
 	'\t\twithBrand([location, withEffort]),',
 	'\t\twithBrand([location, modelOnly]),',
+	'\t\t...(model.effort ? [withBrand([withEffort])] : []),',
 	'\t\twithBrand([modelOnly]),',
 	'\t\t...(loon ? [] : [brandSegments]),',
 	'\t];',
@@ -268,8 +272,9 @@ const SHELL_CARD_2_ANCHOR = 'export function cardStyle(): CardStyle {\n\treturn 
 const SHELL_CARD_2_REPLACEMENT = '// Every style is one geometry: how far the panel is inset on each side, and whether it\n// paints a tone background at all. float and neon keep the numbers they always had; loon\n// puts the border in column 0 and the text in column 2, with two columns of air on the\n// right, so the chrome and the conversation share one content box.\ninterface CardGeometry {\n\tbackground: boolean;\n\tpadLeft: number;\n\tpadRight: number;\n}\n\nconst CARD_GEOMETRY: Record<CardStyle, CardGeometry> = {\n\tneon: { background: false, padLeft: 0, padRight: 0 },\n\tfloat: { background: true, padLeft: 1, padRight: 1 },\n\tloon: { background: true, padLeft: 1, padRight: 1 },\n};\n\nfunction cardGeometry(): CardGeometry {\n\treturn CARD_GEOMETRY[cardStyle()] ?? CARD_GEOMETRY.float;\n}\n\nexport function cardStyle(): CardStyle {\n\tconst stored = styleState[CARD_STYLE_SLOT];\n\treturn stored === CARD_STYLE.NEON || stored === CARD_STYLE.LOON ? stored : CARD_STYLE.FLOAT;\n}';
 const SHELL_CARD_3_ANCHOR = '\treturn cardStyle() === CARD_STYLE.FLOAT && Math.floor(width) >= FLOAT_MIN_WIDTH ? panelOpener(theme, tone) : "";';
 const SHELL_CARD_3_REPLACEMENT = '\treturn cardGeometry().background && Math.floor(width) >= FLOAT_MIN_WIDTH ? panelOpener(theme, tone) : "";';
-const SHELL_CARD_4_ANCHOR = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst margin = " ".repeat(FLOAT_MARGIN);\n\treturn rows.map((row) => `${margin}${open}${row.replace(BG_CLEARING, (reset) => reset + open)}${BG_RESET}${margin}`);\n}';
-const SHELL_CARD_4_REPLACEMENT = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst geometry = cardGeometry();\n\tconst left = " ".repeat(geometry.padLeft);\n\tconst right = " ".repeat(geometry.padRight);\n\t// A painted row may not begin with an escape: the first cell has to be printable, or a\n\t// consumer that trims that cell takes the ESC with it and the terminal prints the\n\t// parameter. Every painted geometry therefore keeps padLeft >= 1, and the test asserts\n\t// it from the rendered bytes rather than from this comment.\n\treturn rows.map((row) => `${left}${open}${row.replace(BG_CLEARING, (reset) => reset + open)}${BG_RESET}${right}`);\n}\n';
+// 4.6.0 moved the per-row repaint into paintSurfaceRow(); the geometry around it is ours.
+const SHELL_CARD_4_ANCHOR = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst margin = " ".repeat(FLOAT_MARGIN);\n\treturn rows.map((row) => `${margin}${paintSurfaceRow(row, open)}${margin}`);\n}';
+const SHELL_CARD_4_REPLACEMENT = 'function paintFloat(rows: readonly string[], open: string): string[] {\n\tconst geometry = cardGeometry();\n\tconst left = " ".repeat(geometry.padLeft);\n\tconst right = " ".repeat(geometry.padRight);\n\t// A painted row may not begin with an escape: the first cell has to be printable, or a\n\t// consumer that trims that cell takes the ESC with it and the terminal prints the\n\t// parameter. Every painted geometry therefore keeps padLeft >= 1, and the test asserts\n\t// it from the rendered bytes rather than from this comment.\n\treturn rows.map((row) => `${left}${paintSurfaceRow(row, open)}${right}`);\n}\n';
 const SHELL_CARD_5_ANCHOR = '\tconst inner = target - FLOAT_MARGIN * 2;';
 const SHELL_CARD_5_REPLACEMENT = '\tconst inner = target - cardGeometry().padLeft - cardGeometry().padRight;';
 const SHELL_CARD_6_ANCHOR = '\treturn floatOpener(theme, tone, width) ? cardInnerWidth(Math.floor(width) - FLOAT_MARGIN * 2) : cardInnerWidth(width);';
@@ -284,14 +289,15 @@ const SHELL_PROMPT_1_ANCHOR = '\tlet background = "";\n\tif (style === CARD_STYL
 const SHELL_PROMPT_1_REPLACEMENT = '\tlet background = "";\n\t// loon paints the same band as float; it only changes where the rule and the text\n\t// sit, which resolvePromptLayout reports through chrome below.\n\tconst painted = (style === CARD_STYLE.FLOAT || style === CARD_STYLE.LOON) && width >= 10 && bg;\n\tif (painted) {';
 const SHELL_PROMPT_2_ANCHOR = '\treturn { width, nativeWidth: Math.max(1, width - (background ? 5 : 2)), prefixWidth: background ? 3 : 1, background };';
 const SHELL_PROMPT_2_REPLACEMENT = '\t// float spends one column on a margin and two on the right edge; loon takes one on the\n\t// left, both on the right, and puts its rule inside the surface so the text column and\n\t// the right edge stay where the block has them.\n\tconst loon = style === CARD_STYLE.LOON;\n\tconst chrome = loon ? "loon" : "float";\n\tconst margin = loon ? 4 : 5;\n\treturn { width, nativeWidth: Math.max(1, width - (background ? margin : 2)), prefixWidth: background ? (loon ? 2 : 3) : 1, background, chrome };';
-const SHELL_PROMPT_3_ANCHOR = 'export interface PromptLayout {\n\twidth: number;\n\tnativeWidth: number;\n\tprefixWidth: number;\n\tbackground: string;\n}';
-const SHELL_PROMPT_3_REPLACEMENT = 'export interface PromptLayout {\n\twidth: number;\n\tnativeWidth: number;\n\tprefixWidth: number;\n\tbackground: string;\n\t/** Which painted chrome drew this row: float\'s margin, or loon\'s flush rule. */\n\tchrome?: "float" | "loon";\n}';
+// 4.6.0 added the wide IDE panel: a titled rule and a '›' prompt, no frame.
+const SHELL_PROMPT_3_ANCHOR = 'export interface PromptLayout {\n\twidth: number;\n\tnativeWidth: number;\n\tprefixWidth: number;\n\tbackground: string;\n\t/** The wide IDE chrome\'s editor: a titled rule and a `›` prompt, no frame. */\n\tpanel?: boolean;\n}';
+const SHELL_PROMPT_3_REPLACEMENT = 'export interface PromptLayout {\n\twidth: number;\n\tnativeWidth: number;\n\tprefixWidth: number;\n\tbackground: string;\n\t/** The wide IDE chrome\'s editor: a titled rule and a `›` prompt, no frame. */\n\tpanel?: boolean;\n\t/** Which painted chrome drew this row: float\'s margin, or loon\'s flush rule. */\n\tchrome?: "float" | "loon";\n}';
 const SHELL_PROMPT_4_ANCHOR = '\tconst clipped = truncateToWidth(line, layout.nativeWidth, "");\n\tconst content = borderColor("▎") + " " + clipped + " ".repeat(Math.max(0, layout.nativeWidth - visibleWidth(clipped))) + " ";\n\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m ";';
 const SHELL_PROMPT_4_REPLACEMENT = '\tconst clipped = truncateToWidth(line, layout.nativeWidth, "");\n\tconst padding = " ".repeat(Math.max(0, layout.nativeWidth - visibleWidth(clipped)));\n\tif (layout.chrome === "loon") {\n\t\t// The rule lives INSIDE the surface: column 0 is a plain margin, and the glyph is the\n\t\t// first painted cell. The rule is a quarter block, so a cell carrying no background\n\t\t// leaves a dark hole around it - the rule floats, brighter than the band it guards.\n\t\t// The row still starts with a bare space, for the same reason the float row does: a\n\t\t// row whose first cell is an escape loses its ESC when the prompt editor trims that\n\t\t// cell. The glyph takes a theme role, never the terminal default colour, so it cannot\n\t\t// outshine the band. Text keeps column 2 and the surface closes on the last column,\n\t\t// where the bar closes its own.\n\t\tconst content = borderColor("▎") + clipped + padding + "  ";\n\t\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m";\n\t}\n\tconst content = borderColor("▎") + " " + clipped + padding + " ";\n\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m ";';
 const SHELL_PROMPT_5_ANCHOR = '\tif (layout.background && lines.length >= 2) {\n\t\treturn [\n\t\t\tfloatPromptRow(floatPromptHint(lines[0], lines[lines.length - 1], options, layout.nativeWidth).slice(2), layout, options.borderColor),\n\t\t\t...lines.slice(1, -1).map((line) => floatPromptRow(line, layout, options.borderColor)),\n\t\t\tfloatPromptRow("", layout, options.borderColor),\n\t\t];\n\t}\n';
 const SHELL_PROMPT_5_REPLACEMENT = '\tif (layout.background && lines.length >= 2) {\n\t\t// The band opens and closes with an empty surface row. Without the one above, the\n\t\t// surface started on the hint itself, which reads as text pressed against the top\n\t\t// edge; both rows are painted at the same width, so nothing else moves.\n\t\treturn [\n\t\t\tfloatPromptRow("", layout, options.borderColor),\n\t\t\tfloatPromptRow(floatPromptHint(lines[0], lines[lines.length - 1], options, layout.nativeWidth).slice(2), layout, options.borderColor),\n\t\t\t...lines.slice(1, -1).map((line) => floatPromptRow(line, layout, options.borderColor)),\n\t\t\tfloatPromptRow("", layout, options.borderColor),\n\t\t];\n\t}\n';
-const SHELL_MOUSE_ANCHOR = '\thandleMouse(event: Parameters<CustomEditor["handleMouse"]>[0]): ReturnType<CustomEditor["handleMouse"]> {\n\t\tconst layout = this.floatMouseLayout;\n\t\tif (!layout) return super.handleMouse(event);\n\t\t// Row coordinates stay native: padding=0, content=1…N, hint=N+1.\n\t\t// Only float translates x; the existing neon/fallback path is unchanged.\n\t\tif (event.x < layout.prefixWidth || event.x >= layout.width - 1) return undefined;\n\t\treturn super.handleMouse({ ...event, x: event.x - layout.prefixWidth, width: layout.nativeWidth });\n\t}\n';
-const SHELL_MOUSE_REPLACEMENT = '\thandleMouse(event: Parameters<CustomEditor["handleMouse"]>[0]): ReturnType<CustomEditor["handleMouse"]> {\n\t\tconst layout = this.floatMouseLayout;\n\t\tif (!layout) return super.handleMouse(event);\n\t\t// Pi row model: padding=0, content=1…N, hint=N+1. The band now opens with an empty\n\t\t// surface row of its own, so native content starts one row lower than that model:\n\t\t// y loses exactly that row here. Only float translates; neon/fallback is untouched.\n\t\tif (event.x < layout.prefixWidth || event.x >= layout.width - 1) return undefined;\n\t\treturn super.handleMouse({ ...event, x: event.x - layout.prefixWidth, y: event.y - 1, width: layout.nativeWidth });\n\t}\n';
+const SHELL_MOUSE_ANCHOR = "\t\tconst layout = this.floatMouseLayout;\n\t\tif (!layout) return super.handleMouse(event);\n\t\t// Row coordinates stay native: padding=0, content=1…N, hint=N+1.\n\t\t// Float and panel translate x; the existing neon/fallback path is unchanged.\n\t\tif (event.x < layout.prefixWidth || event.x >= (layout.panel ? layout.prefixWidth + layout.nativeWidth : layout.width - 1)) return undefined;\n\t\treturn super.handleMouse({ ...event, x: event.x - layout.prefixWidth, width: layout.nativeWidth });";
+const SHELL_MOUSE_REPLACEMENT = "\t\tconst layout = this.floatMouseLayout;\n\t\tif (!layout) return super.handleMouse(event);\n\t\t// Row coordinates stay native: padding=0, content=1…N, hint=N+1.\n\t\t// Float, panel and loon translate x; loon's band closes flush on the last\n\t\t// column, so its clickable surface is one cell wider than float's.\n\t\tconst loon = layout.chrome === \"loon\";\n\t\tconst edge = layout.panel ? layout.prefixWidth + layout.nativeWidth : layout.width - (loon ? 0 : 1);\n\t\tif (event.x < layout.prefixWidth || event.x >= edge) return undefined;\n\t\treturn super.handleMouse({ ...event, x: event.x - layout.prefixWidth, width: layout.nativeWidth });";
 
 // The third Card style row needs its own preview line, or the menu prints an
 // undefined sample for it.
@@ -337,10 +343,11 @@ export const ANCHORS = {
 export const TARGETS: TargetSpec[] = [
 	{
 		file: 'extensions/gentle-shell.ts',
-		md5: 'ad1bfce79b655fc4f7cae71449d05d88',
+		md5: '870867458af13b1a6a411b4a4e3cd5b2',
 		// Newest first: the patch before the mark row, the patch before the theme accent,
 		// then the older patched states from before the v2 rows.
 		md5PatchedV1: [
+			'7da141c898257cf56230f735fe4c553e',
 			'ec03598026098aefe27e1cd4dcfe7393',
 			'b12919486a662d03f1587ee719d0bd73',
 			'f389ce976bc0a92e65b5d2f9e9b5dd3d',
@@ -349,7 +356,7 @@ export const TARGETS: TargetSpec[] = [
 			'b808107af050aa1778410fefa67974df',
 			'945363c38d21403cce653143e0305a6a',
 		],
-		md5Patched: '7da141c898257cf56230f735fe4c553e',
+		md5Patched: '1612ff6f33c2b8b6d438cd84216297a7',
 		v2Marker: 'Banner color: wallpaper',
 		edits: [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
@@ -362,8 +369,9 @@ export const TARGETS: TargetSpec[] = [
 		// The view calls a row's label with the width the row actually has, so a long
 		// label can choose a shorter wording instead of being cut mid-word.
 		file: 'lib/visual-customize-view.ts',
-		md5: '6f1b71a9aa898fcf55196d73634b0076',
-		md5Patched: '23bb9997b474842fe5f2a4d652c4178b',
+		md5: '5a052563d8d5dd86cb4781c0681c9a3c',
+		md5Patched: '506ab79c84daadff5925d7ef28a87677',
+		md5PatchedV1: ['23bb9997b474842fe5f2a4d652c4178b'],
 		edits: [
 			{ anchor: VIEW_LABEL_TYPE_ANCHOR, replacement: VIEW_LABEL_TYPE_REPLACEMENT },
 			{ anchor: VIEW_LABEL_CALL_ANCHOR, replacement: VIEW_LABEL_CALL_REPLACEMENT },
@@ -371,9 +379,10 @@ export const TARGETS: TargetSpec[] = [
 	},
 	{
 		file: 'extensions/startup-banner.ts',
-		md5: '028bd98910468c7076ef31c65f36e09f',
+		md5: 'c3fc54e35488c17c82a81ff2c4ed0271',
 		// Its patched bytes are the same in both versions: the guard did not change.
-		md5Patched: '79167d2ce9c12de796f7c751778d0b18',
+		md5Patched: '5d10cdb23b6c660d96bfd0d45f8a74df',
+		md5PatchedV1: ['79167d2ce9c12de796f7c751778d0b18'],
 		edits: [
 			{ anchor: BANNER_EVENT_ANCHOR, replacement: BANNER_EVENT_REPLACEMENT },
 			{ anchor: BANNER_CONFIG_ANCHOR, replacement: BANNER_CONFIG_ANCHOR + '\n' + BANNER_CONFIG_ADDITION },
@@ -383,9 +392,10 @@ export const TARGETS: TargetSpec[] = [
 		// The header bar's brand: a theme LOON generated says so in its name, and the
 		// brand gives way to it. Stock themes keep the bar exactly as it was.
 		file: 'lib/shell-bar.ts',
-		md5: 'c5b3819241a587f960834409312a72a0',
-		md5Patched: '5b43e3127eae0024d45b21eec34b1a95',
-		md5PatchedV1: ['36afe7b323c27f7c2753a22d08cb57fa', 'c4392741927c8da26d0b9d24142e3a41'],
+		md5: '19334914e8fc284b993fa2c148e3b697',
+		md5Patched: '2ddbe9f15fe16552ff98d0dd9ac17ff6',
+		md5PatchedV1: [
+			'5b43e3127eae0024d45b21eec34b1a95','36afe7b323c27f7c2753a22d08cb57fa', 'c4392741927c8da26d0b9d24142e3a41'],
 		edits: [
 			{ anchor: SHELL_BAR_BRAND_ANCHOR, replacement: SHELL_BAR_BRAND_ANCHOR + '\n\n' + SHELL_BAR_BRAND_ADDITION },
 			{ anchor: SHELL_BAR_MINIMAL_ANCHOR, replacement: SHELL_BAR_MINIMAL_REPLACEMENT },
@@ -403,9 +413,10 @@ export const TARGETS: TargetSpec[] = [
 	{
 		// Card style loon: lib/shell-card.ts
 		file: 'lib/shell-card.ts',
-		md5: 'd189f85262f41f5a5e8f590a0c57ed2d',
-		md5Patched: '8f3460ef6d3a5222d7a26662bb46b642',
-		md5PatchedV1: ['8dbecc2f2ac057b87ce5c344d7ba5241'],
+		md5: '2faa9cdac2e2358e5950a82d068708b4',
+		md5Patched: '7645215425b4c59bd3bbdf90fde97dbc',
+		md5PatchedV1: [
+			'8f3460ef6d3a5222d7a26662bb46b642','8dbecc2f2ac057b87ce5c344d7ba5241'],
 		edits: [
 			{ anchor: SHELL_CARD_1_ANCHOR, replacement: SHELL_CARD_1_REPLACEMENT },
 			{ anchor: SHELL_CARD_2_ANCHOR, replacement: SHELL_CARD_2_REPLACEMENT },
@@ -428,9 +439,10 @@ export const TARGETS: TargetSpec[] = [
 	{
 		// Card style loon: lib/shell-prompt.ts
 		file: 'lib/shell-prompt.ts',
-		md5: '6dccc1c4bf36e217d308a67c5e690c14',
-		md5Patched: '993a7f2237db3eb718b9d6ab05591bf1',
-		md5PatchedV1: ['fa3cc52522ee55195f48ceeee9c47259', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52', '0d07a750ae6162d2c8bbfbda7760e55f', 'ddb8bd748ae664cb28f9f0307e0917e5'],
+		md5: '70f028ae3d61ccd471f5e346b5111e9e',
+		md5Patched: 'afcd1b6ec35d955b45a565c2a5eb433b',
+		md5PatchedV1: [
+			'993a7f2237db3eb718b9d6ab05591bf1','fa3cc52522ee55195f48ceeee9c47259', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52', '0d07a750ae6162d2c8bbfbda7760e55f', 'ddb8bd748ae664cb28f9f0307e0917e5'],
 		edits: [
 			{ anchor: SHELL_PROMPT_1_ANCHOR, replacement: SHELL_PROMPT_1_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_2_ANCHOR, replacement: SHELL_PROMPT_2_REPLACEMENT },

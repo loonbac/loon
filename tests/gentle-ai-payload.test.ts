@@ -38,10 +38,28 @@ test('a card style gentle-pi does not know is reported as the defect the owner s
 	if (loaded === undefined) return t.skip('gentle-pi is not installed: ' + String(unavailable));
 	const dir = scratch();
 	try {
-		writeFileSync(join(dir, 'card-style.json'), JSON.stringify({ schema: 'gentle-pi.card-style/v1', style: 'loon' }));
+		writeFileSync(join(dir, 'card-style.json'), JSON.stringify({ schema: 'gentle-pi.card-style/v1', style: 'retro' }));
 		const { problems } = checkDirectory(dir, loaded.modules);
 		assert.equal(problems.length, 1, JSON.stringify(problems));
 		assert.match(problems[0] ?? '', /card-style\.json is not a valid/, problems[0]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test('the payload asks for the LOON geometry, and a stock install is told to patch first', (t) => {
+	if (loaded === undefined) return t.skip('gentle-pi is not installed: ' + String(unavailable));
+	const payloadStyle = JSON.parse(readFileSync(join(PAYLOAD, 'card-style.json'), 'utf8')).style;
+	assert.equal(payloadStyle, 'loon', 'the LOON card geometry is the point of the patch, not a preference');
+	const dir = scratch();
+	try {
+		// Measured, not assumed: a stock install rejects it and the message names the fix.
+		const { problems } = checkDirectory(dir, loaded.modules);
+		if (problems.length === 0) {
+			assert.equal(loaded.modules['card-style-policy'].parseCardStyleFile(readFileSync(join(dir, 'card-style.json'), 'utf8')), 'loon');
+			return;
+		}
+		assert.match(problems[0] ?? '', /gentle-pi-patch\.ts apply/, problems[0]);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -81,12 +99,19 @@ test('the payload names the schema gentle-pi declares, so a rename cannot pass s
 test('installing keeps a copy of what was there, so the owner can go back', () => {
 	const dir = mkdtempSync(join(tmpdir(), 'loon-payload-install-'));
 	try {
-		writeFileSync(join(dir, 'card-style.json'), JSON.stringify({ schema: 'gentle-pi.card-style/v1', style: 'loon' }));
+		writeFileSync(join(dir, 'card-style.json'), JSON.stringify({ schema: 'gentle-pi.card-style/v1', style: 'neon' }));
 		const done = install(dir);
 		assert.ok(done.some((line) => line.startsWith('backup ')), JSON.stringify(done));
-		assert.equal(JSON.parse(readFileSync(join(dir, 'card-style.json'), 'utf8')).style, 'float');
+		// A file that already says what LOON asks for is left untouched, not rewritten.
+		const second = install(dir);
+		assert.deepEqual(
+			second.filter((line) => line.includes('card-style.json')),
+			['kept ' + join(dir, 'card-style.json')],
+			JSON.stringify(second),
+		);
+		assert.equal(JSON.parse(readFileSync(join(dir, 'card-style.json'), 'utf8')).style, 'loon');
 		const backup = done.find((line) => line.startsWith('backup '))!.slice('backup '.length);
-		assert.equal(JSON.parse(readFileSync(backup, 'utf8')).style, 'loon', 'the old value survives in the backup');
+		assert.equal(JSON.parse(readFileSync(backup, 'utf8')).style, 'neon', 'the old value survives in the backup');
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}

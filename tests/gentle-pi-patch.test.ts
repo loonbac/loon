@@ -367,10 +367,10 @@ test('the band opens with a row and the mouse shift follows it', () => {
 	);
 });
 
-/* A digest nobody checks is a digest that drifts. These fixtures are the pristine 4.5.1
+/* A digest nobody checks is a digest that drifts. These fixtures are the pristine 4.6.0
  * sources of the seven targets, committed so the test reads neither git history nor the
  * user's install: every anchor occurs once and the edits must produce the pinned digest. */
-const PRISTINE = join(dirname(new URL(import.meta.url).pathname), 'fixtures', 'gentle-pi-4.5.1');
+const PRISTINE = join(dirname(new URL(import.meta.url).pathname), 'fixtures', 'gentle-pi-4.6.0');
 
 test('every pinned digest is what the patch produces from the pristine file', () => {
 	for (const target of TARGETS) {

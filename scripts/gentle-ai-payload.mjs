@@ -93,13 +93,28 @@ export async function loadGentlePi(root = gentlePiRoot()) {
 export function checkDirectory(home, modules) {
 	const problems = [];
 	const fixes = [];
+	// Whether this install carries LOON's third card style. Stock gentle-pi knows two.
+	const loonKnown =
+		modules['card-style-policy'].parseCardStyleFile(JSON.stringify({ schema: modules['card-style-policy'].CARD_STYLE_SCHEMA, style: 'loon' })) === 'loon';
 	const cardStylePath = join(home, 'card-style.json');
 	if (!existsSync(cardStylePath)) {
 		problems.push('card-style.json is missing: Cards cannot save a style');
 	} else {
 		const style = modules['card-style-policy'].parseCardStyleFile(readFileSync(cardStylePath, 'utf8'));
 		if (style === undefined) {
-			problems.push('card-style.json is not a valid gentle-pi.card-style/v1 file: Cards will read it as malformed and refuse to save');
+			const wantsLoon = (() => {
+				try {
+					return JSON.parse(readFileSync(cardStylePath, 'utf8')).style === 'loon';
+				} catch {
+					return false;
+				}
+			})();
+			problems.push(
+				'card-style.json is not a valid gentle-pi.card-style/v1 file: Cards will read it as malformed and refuse to save' +
+					(wantsLoon && !loonKnown
+						? ' — it asks for the LOON geometry and this install does not carry it: run node --experimental-strip-types scripts/gentle-pi-patch.ts apply first'
+						: ''),
+			);
 		} else {
 			fixes.push('card style reads as ' + style);
 		}
@@ -137,9 +152,23 @@ export function install(home, payload = PAYLOAD) {
 	mkdirSync(home, { recursive: true });
 	const stamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
 	const done = [];
+	const source = (name) => JSON.stringify(JSON.parse(readFileSync(join(payload, name), 'utf8')));
 	for (const name of PAYLOAD_FILES) {
 		const target = join(home, name);
+		// A file that already says exactly this is left alone: the owner's value wins as
+		// long as it is the value LOON asks for, and rewriting it would only churn a
+		// timestamp without changing anything.
 		if (existsSync(target)) {
+			let same = false;
+			try {
+				same = JSON.stringify(JSON.parse(readFileSync(target, 'utf8'))) === source(name);
+			} catch {
+				same = false;
+			}
+			if (same) {
+				done.push('kept ' + target);
+				continue;
+			}
 			const backup = target + '.bak-' + stamp;
 			cpSync(target, backup);
 			done.push('backup ' + backup);
