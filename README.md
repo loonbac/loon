@@ -366,6 +366,17 @@ La tabla de marcas se compara en un test con los destinos del parche: añadir un
 parche sin añadirlo al aviso rompe la suite, en vez de dejar un archivo cuya pérdida nadie
 cuenta.
 
+**Y una regla que salió de un error propio: nunca se vendoriza un paquete ajeno dentro de un
+commit de trabajo.** Los bytes prístinos contra los que se miden los digests del parche no están
+en el repositorio —llegaron a ser 6.900 de 7.779 líneas de un candidato y lo sacaron del
+presupuesto del revisor—, sino que se resuelven en tiempo de ejecución
+(`tests/support/pristine.ts`), en este orden: `GENTLE_PI_ROOT`, el backup más nuevo del parche, y
+el paquete instalado **solo mientras esté sin parchear**. Lo que se commitea es
+`tests/fixtures/pristine-digests.json`: un SHA-256 por archivo. Cada archivo se hashea antes de
+usarse; si falta, el test se **salta con su motivo**; si un byte no coincide, el test **falla**,
+porque no son los bytes que se midieron. En la caja, sin paquete, `GENTLE_PI_ROOT` apunta a una
+copia prístina; sin eso esos tests se saltan, nunca pasan por no haber podido comprobar.
+
 ### El trabajo inline, en el panel de Agents
 
 Cuando el orquestador programa inline —sin lanzar un subagente— ese trabajo no tiene

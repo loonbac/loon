@@ -24,6 +24,10 @@ import {
 	verifyPatched,
 	type TargetSpec,
 } from '../scripts/gentle-pi-patch.ts';
+import { pristineSource, readPristine } from './support/pristine.ts';
+
+/** The committed records: digests, not bytes. */
+const FIXTURES = join(dirname(new URL(import.meta.url).pathname), 'fixtures');
 
 const spec = (file: string, text: string, anchors: string[]): TargetSpec => {
 	const base: TargetSpec = {
@@ -367,14 +371,16 @@ test('the band opens with a row and the mouse shift follows it', () => {
 	);
 });
 
-/* A digest nobody checks is a digest that drifts. These fixtures are the pristine 4.6.0
- * sources of the seven targets, committed so the test reads neither git history nor the
- * user's install: every anchor occurs once and the edits must produce the pinned digest. */
-const PRISTINE = join(dirname(new URL(import.meta.url).pathname), 'fixtures', 'gentle-pi-4.6.0');
+/* A digest nobody checks is a digest that drifts. The pristine 4.6.0 sources are NOT
+ * committed - a whole foreign package once cost 6,900 of 7,779 reviewed lines - so they are
+ * resolved at run time and hashed against the committed record before use. No source means a
+ * visible skip with its reason; bytes that do not hash right are a failure. */
+const PRISTINE = pristineSource();
 
-test('every pinned digest is what the patch produces from the pristine file', () => {
+test('every pinned digest is what the patch produces from the pristine file', { skip: !PRISTINE.ok && PRISTINE.reason }, () => {
+	if (!PRISTINE.ok) return;
 	for (const target of TARGETS) {
-		const pristine = readFileSync(join(PRISTINE, target.file), 'utf8');
+		const pristine = readPristine(PRISTINE.source, target.file);
 		assert.equal(md5(pristine), target.md5, target.file + ': the fixture is not the pinned pristine build');
 		const patched = patchText(pristine, target);
 		assert.ok(patched.ok, target.file + ': the patch no longer applies to the pristine fixture');
@@ -423,7 +429,8 @@ test('every pinned digest is what the patch produces from the pristine file', ()
  * never reads git. What the test proves is the thing that matters here - the recorded edits
  * still reproduce the digest. Read the commit as 'where this set was taken from', never as a
  * guarantee that some object still exists today. */
-test('every accepted digest is produced by the edit set recorded for it', async () => {
+test('every accepted digest is produced by the edit set recorded for it', { skip: !PRISTINE.ok && PRISTINE.reason }, async () => {
+	if (!PRISTINE.ok) return;
 	const accepted: Array<{ file: string; digest: string }> = [];
 	for (const target of TARGETS) {
 		accepted.push({ file: target.file, digest: target.md5Patched ?? '' });
@@ -432,7 +439,7 @@ test('every accepted digest is produced by the edit set recorded for it', async 
 
 	// The lineage: the edit set that reproduced each accepted digest, recorded in the fixture
 	// so this test reads no git. Recomputing needs only the pristine sources and these strings.
-	const lineage = JSON.parse(readFileSync(join(PRISTINE, 'digest-lineage.json'), 'utf8')) as Array<{
+	const lineage = JSON.parse(readFileSync(join(FIXTURES, 'digest-lineage.json'), 'utf8')) as Array<{
 		digest: string;
 		file: string;
 		commit: string;
@@ -457,7 +464,7 @@ test('every accepted digest is produced by the edit set recorded for it', async 
 	assert.ok(current.length > 0, 'no recorded edit set was measured against gentle-pi ' + GENTLE_PI_VERSION);
 	for (const entry of lineage) {
 		if ((entry.pristine ?? '4.5.1') !== GENTLE_PI_VERSION) continue;
-		const pristine = readFileSync(join(PRISTINE, entry.file), 'utf8');
+		const pristine = readPristine(PRISTINE.source, entry.file);
 		const patched = patchText(pristine, { file: entry.file, md5: '', edits: entry.edits } as TargetSpec);
 		assert.ok(patched.ok, entry.digest.slice(0, 8) + ': the recorded edit set no longer applies to ' + entry.file);
 		assert.equal(
@@ -475,7 +482,7 @@ test('every accepted digest is produced by the edit set recorded for it', async 
  * The rule now: an accepted digest that no commit produces is not accepted. The record names
  * the commit that produced each one, and the next test recomputes it there. */
 test('every digest that shipped is still accepted', () => {
-	const recorded = JSON.parse(readFileSync(join(PRISTINE, '..', 'patch-digests.json'), 'utf8')) as {
+	const recorded = JSON.parse(readFileSync(join(FIXTURES, 'patch-digests.json'), 'utf8')) as {
 		version: string;
 		targets: Record<string, { md5Patched: string; md5PatchedV1: string[] }>;
 	};

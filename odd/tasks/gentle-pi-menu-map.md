@@ -73,6 +73,28 @@ son los que prueban esto, y **estaban en rojo con 4.6.0 sin parche**:
 Corren con `tmux` en el PATH (`tmux` está en esta máquina; en la caja no, y por eso allí fallan
 dos de `probe-frame`). Con el parche aplicado, la suite local queda en **303/303, cero saltados**.
 
+## Regla: no vendorizar un paquete ajeno en un commit de trabajo
+
+Aprendido midiendo: el candidato de revisión de este port fueron **7.779 líneas, 6.900 de ellas
+copias byte a byte de `lib/` de gentle-pi** en `tests/fixtures/gentle-pi-4.6.0/`. El proveedor
+nativo rechazó el START con `lens_context_budget_exceeded`: el cambio real eran unas 880 líneas y
+quedó **sin segunda vista** por culpa del relleno.
+
+Así que, a partir de aquí:
+
+- **Nunca se commitea un paquete ajeno dentro de un commit de trabajo.** El candidato se mide en
+  líneas propias; meter un paquete entero lo saca del presupuesto del revisor.
+- Los bytes prístinos se **resuelven en tiempo de ejecución** (`tests/support/pristine.ts`) desde
+  fuentes en orden explícito: `GENTLE_PI_ROOT`, el backup más nuevo del parche, y el paquete
+  instalado **solo mientras esté sin parchear**.
+- Lo que se commitea es **el hash**: `tests/fixtures/pristine-digests.json`, un SHA-256 por
+  archivo. Unos cientos de bytes que hacen verificable la procedencia.
+- **Verificar antes de usar**: cada archivo se hashea contra el registro. Un archivo ausente es un
+  *skip visible* con su motivo; un byte distinto es **rojo**, porque no son los bytes medidos y
+  recalcular un digest contra ellos sería mentir.
+- En la caja, donde no hay paquete, se apunta `GENTLE_PI_ROOT` a una copia prístina (el backup):
+  sin eso, esos tests se saltan con motivo en vez de fingir verde.
+
 ## Medido
 
 - gentle-pi instalado: **4.6.0**; el parche del repo está escrito contra 4.5.1.

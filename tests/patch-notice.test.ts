@@ -11,9 +11,10 @@ import {
 	patchNoticeText,
 	repoRootOf,
 } from '../extensions/lib/patch-notice.ts';
+import { pristineSource, readPristine } from './support/pristine.ts';
 
-/** The committed pristine 4.6.0 sources: a real, unpatched package to point at. */
-const PRISTINE = join(dirname(new URL(import.meta.url).pathname), 'fixtures', 'gentle-pi-4.6.0');
+/** The pristine 4.6.0 sources, resolved and hash-verified at run time; never committed. */
+const PRISTINE = pristineSource();
 import { TARGETS } from '../scripts/gentle-pi-patch.ts';
 import { createLoonExtension } from '../extensions/loon-startup.ts';
 import { DEFAULT_GENTLE_SETTINGS } from '../extensions/lib/gentle-config.ts';
@@ -128,15 +129,17 @@ async function started(missing: () => string[]): Promise<[string, unknown][]> {
  */
 function stockPackage(): string {
 	const root = mkdtempSync(join(tmpdir(), 'loon-stock-'));
+	if (!PRISTINE.ok) throw new Error('stockPackage needs pristine sources: ' + PRISTINE.reason);
 	for (const { file } of PATCH_MARKERS) {
 		mkdirSync(dirname(join(root, file)), { recursive: true });
-		cpSync(join(PRISTINE, file), join(root, file));
+		writeFileSync(join(root, file), readPristine(PRISTINE.source, file));
 	}
 	writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.6.0' }));
 	return root;
 }
 
-test('a lost patch is announced in a status key that survives the scrollback', async () => {
+test('a lost patch is announced in a status key that survives the scrollback', { skip: !PRISTINE.ok && PRISTINE.reason }, async () => {
+	if (!PRISTINE.ok) return;
 	const stock = stockPackage();
 	try {
 		// The real detection over the real files; only the root is chosen by the test.
