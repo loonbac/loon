@@ -15,7 +15,10 @@ export const PATCH_NOTICE_KEY = 'loon:patch';
  * so a new target cannot be forgotten here.
  */
 export const PATCH_MARKERS: ReadonlyArray<{ file: string; marker: string }> = [
-	{ file: 'extensions/gentle-shell.ts', marker: 'LOON_BANNER_SOURCES' },
+	// `loonBannerSource` and not `LOON_BANNER_SOURCES`: the cycling list is gone, and a marker
+	// the patch no longer writes would report a healthy install as lost. This identifier is in
+	// every version of the patch, so an older install stays quiet and a stock one still speaks.
+	{ file: 'extensions/gentle-shell.ts', marker: 'loonBannerSource' },
 	{ file: 'lib/visual-customize-view.ts', marker: 'row.label(rightWidth)' },
 	{ file: 'extensions/startup-banner.ts', marker: 'readLoonBannerSource' },
 	{ file: 'lib/shell-bar.ts', marker: 'loonThemeActive' },

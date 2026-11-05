@@ -124,8 +124,14 @@ test('the menu keeps gentle-pi\'s Banner loop and adds values, never a second ro
 
 	// The regression this test exists for: the patch replaced the native loop, and the menu
 	// lost its radio groups. The native loop must survive byte for byte.
-	assert.ok(text.includes(ANCHORS.shellSource), 'the native rose/text-logo loop was replaced');
-	assert.ok(text.includes('"Banner text logo"'), 'the native text-logo value is gone');
+	// The native loop is not rewritten, it is kept behind the source that gives it meaning.
+	assert.ok(text.includes('["Banner rose", "showRose"], ["Banner text logo", "showTextLogo"]'), 'the native rose/text-logo values are gone');
+	assert.ok(text.includes('if (loonBannerSource === "rose") {'), 'the native loop is not tied to the source that uses it');
+	assert.equal(
+		text.split('["Banner rose", "showRose"]').length - 1,
+		1,
+		'the native loop was copied instead of guarded, so its rows would be drawn twice',
+	);
 	// No LOON row may be conditional on the source any more: in loon mode those rows vanished.
 	assert.ok(!text.includes('if (loonBannerSource === "rose") add('), 'a row still hides behind rose mode');
 	assert.ok(!text.includes('const LOON_BANNER_SOURCES'), 'the cycling list survived');
@@ -303,6 +309,73 @@ test('every Banner row names its setting, and each setting is one row', { skip: 
 
 	assert.ok(text.includes('mark: mark === "on"'), 'the mark row does not set the setting');
 	assert.ok(text.includes('Mark saved.'), 'the mark row reports nothing when it saves');
+});
+
+/* The truth table, measured from the patch's own guards. A row that governs nothing is the
+ * defect the owner called "por las puras": it offers a setting the current banner source never
+ * reads. The sets below are the exact rows the menu must draw in each state. */
+test('each banner source draws exactly the rows that govern it', { skip: pristineSourceSkip() }, () => {
+	const source = pristineSource();
+	if (!source.ok) return;
+	const shell = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
+	const patched = patchText(readPristine(source.source, shell.file), shell);
+	assert.ok(patched.ok);
+	const text = patched.text;
+	const start = text.indexOf('category = "Banner";');
+	const end = text.indexOf('category = "Themes";');
+	assert.ok(start > 0 && end > start);
+	const section = text.slice(start, end);
+
+	// The guards run in order, so each block owns the text up to the next one. Braces are not
+	// counted: the rows are template literals full of ${}, and counting them breaks the nest.
+	const guardAt: number[] = [];
+	for (let at = section.indexOf('if (loonBannerSource '); at >= 0; at = section.indexOf('if (loonBannerSource ', at + 1)) guardAt.push(at);
+
+	const blocks = guardAt.map((at, index) => {
+		const header = section.slice(at, section.indexOf('{', at));
+		const body = section.slice(section.indexOf('{', at) + 1, index + 1 < guardAt.length ? guardAt[index + 1] : section.length);
+		const is = /loonBannerSource === "(\w+)"/.exec(header);
+		const not = /loonBannerSource !== "(\w+)"/.exec(header);
+		assert.ok(is !== null || not !== null, 'a guard the test cannot read: ' + header);
+		return {
+			rows: body,
+			guard: header.trim(),
+			needs: is !== null ? (state: string) => state === is[1]! : (state: string) => state !== not![1]!,
+		};
+	});
+	const unguarded = section.slice(0, guardAt[0] ?? section.length);
+
+	const settingsIn = (chunk: string): string[] => [
+		...chunk.matchAll(/explicitChoice\("([^"]+)"/g),
+		...chunk.matchAll(/setting: "([^"]+)"/g),
+		...chunk.matchAll(/\["(Banner [a-z ]+)", "\w+"\]/g),
+	].map((match) => match[1]!);
+
+	const visible = (state: string) => {
+		const shown = [unguarded, ...blocks.filter((block) => block.needs(state)).map((block) => block.rows)];
+		return {
+			names: [...new Set(shown.flatMap((chunk) => settingsIn(chunk)))].sort(),
+			// The native colour loop renders one value per BANNER_COLORS entry; LOON's two
+			// accents are single values.
+			colours: shown.reduce((total, chunk) => total + (chunk.includes('BANNER_COLORS') ? 4 : 0)
+				+ chunk.split('explicitChoice("Banner color", "').length - 1, 0),
+		};
+	};
+
+	// Three guards, one per dependency: gentle-pi's own rows need rose, LOON's need loon, and
+	// the colour setting needs something painting at all.
+	assert.deepEqual(blocks.map((block) => block.guard), [
+		'if (loonBannerSource === "rose")',
+		'if (loonBannerSource !== "off")',
+		'if (loonBannerSource === "loon")',
+	]);
+
+	// LOON paints: its source, its six colours (four native, theme and wallpaper) and its mark.
+	assert.deepEqual(visible('loon'), { names: ['Banner color', 'Banner source', 'Mark'], colours: 6 });
+	// gentle-pi paints: its own two toggles and its four colours. LOON's mark is dead here.
+	assert.deepEqual(visible('rose'), { names: ['Banner color', 'Banner rose', 'Banner source', 'Banner text logo'], colours: 4 });
+	// Nothing paints: only the switch that can turn something back on.
+	assert.deepEqual(visible('off'), { names: ['Banner source'], colours: 0 });
 });
 
 /**

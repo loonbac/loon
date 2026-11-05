@@ -236,3 +236,33 @@ Reglas que salen de esto, para el próximo parche:
   `‹ pink › 1/6` por diseño nativo; no es regresión.
 - El frame no sustituye a los tests: los tests fijan la estructura (un `add(` por ajuste, una
   regla por dato) y el frame fija lo que se dibuja. Hacen falta los dos.
+L7 (dueño, verbatim): «si el banner source es loon entonces por lógica banner rose estará en
+off, sin embargo ahí aún sigue saliendo también banner text logo […] si tengo loon entonces la
+rosa ya no va a salir, por las puras está esa opción». Y su palabra sobre las inertes:
+«por las puras» — el defecto es **ocultarlas**, no mostrarlas deshabilitadas.
+
+La clase, no la instancia: **una fila que gobierna algo que la fuente actual no dibuja**. La
+tabla de verdad, medida en el código, no razonada:
+
+| `source` | quién pinta | filas vivas | por qué |
+| --- | --- | --- | --- |
+| `loon` | LOON (`extensions/loon-startup.ts:364,392`: `loonPaints = enabled && source === 'loon'`) | `Banner source`, `Banner color` (seis valores), `Mark` | `mark` es el interruptor de LOON (`extensions/lib/loon-config.ts:45`); `showRose`/`showTextLogo` los lee solo `parseBannerConfig` de gentle-pi (`startup-banner.ts:81-83`), que aquí no dibuja |
+| `rose` | gentle-pi (`loon-startup.ts:392-395`: devuelve el slot y no lo reclama) | `Banner source`, `Banner rose`, `Banner text logo`, `Banner color` (cuatro valores) | `startup-banner.ts` lee `showRose`, `showTextLogo` y `color`; `Mark` es de LOON y LOON no pinta; los dos acentos (`theme`, `wallpaper`) solo los usa LOON |
+| `off` | nadie | `Banner source` | sin banner no hay color, ni mark, ni toggles: solo el interruptor que enciende algo otra vez |
+
+Implementación: el bucle nativo de gentle-pi **no se reescribe**, se pone detrás de su fuente
+(`if (loonBannerSource === "rose")`); el bucle de color detrás de «algo pinta»
+(`!== "off"`); los acentos y el mark detrás de `=== "loon"`. Una regla, un guard, por
+dependencia.
+
+Dos defectos que el proceso encontró, y que valen como advertencia:
+- El primer intento duplicó el bucle nativo (constante que aún concatenaba el ancla), y el
+  frame en `rose` lo mostró: `Banner · 1/6` con `Banner rose` dos veces. El test estático no
+  lo vio porque atribuía la cola al último bloque; el test de duplicados y el frame sí.
+- El marcador del aviso era `LOON_BANNER_SOURCES`, un identificador que el parche ya no
+  escribe: una instalación sana habría anunciado «parche LOON perdido». Ahora es
+  `loonBannerSource`, presente en todas las versiones del parche y en ninguna stock.
+
+Frames, 170 columnas, copia temporal del paquete, config del dueño en solo lectura: `loon`
+→ `Banner · 1/3`; `rose` → `Banner · 1/4`; `off` → `Banner · 1/1`. `check` idéntico antes y
+después y los cuatro md5 de la config coincidentes.
