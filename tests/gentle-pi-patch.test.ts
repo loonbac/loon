@@ -40,7 +40,7 @@ const spec = (file: string, text: string, anchors: string[]): TargetSpec => {
 	return patched.ok ? { ...base, md5Patched: md5(patched.text) } : base;
 };
 
-const shellFixture = ['// head', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '// preview', ANCHORS.shellCardPreview, '// tail', '', 'export class Editor {', ANCHORS.shellMouse, '}'].join('\n');
+const shellFixture = ['// head', ANCHORS.shellInit, '// between', ANCHORS.shellSource, ANCHORS.shellAccent, ANCHORS.shellColor, '// preview', ANCHORS.shellCardPreview, '// tail', '', 'export class Editor {', ANCHORS.shellMouse, '}'].join('\n');
 const bannerFixture = ['// head', ANCHORS.bannerEvent, '// body', ANCHORS.bannerConfig, '// tail'].join('\n');
 
 test('the patch targets the gentle-pi build it was written for', () => {
@@ -64,7 +64,7 @@ test('the patch targets the gentle-pi build it was written for', () => {
 });
 
 test('a file is classified by what it is', () => {
-	const shell = spec('shell.ts', shellFixture, [ANCHORS.shellInit, ANCHORS.shellRows]);
+	const shell = spec('shell.ts', shellFixture, [ANCHORS.shellInit, ANCHORS.shellSource, ANCHORS.shellAccent, ANCHORS.shellColor]);
 	assert.equal(classify(undefined, shell), 'missing');
 	assert.equal(classify(shellFixture, shell), 'clean');
 	assert.equal(classify('something else entirely', shell), 'different-version');
@@ -74,7 +74,7 @@ test('a file is classified by what it is', () => {
 });
 
 test('the patch is idempotent', () => {
-	const shell = spec('shell.ts', shellFixture, [ANCHORS.shellInit, ANCHORS.shellRows]);
+	const shell = spec('shell.ts', shellFixture, [ANCHORS.shellInit, ANCHORS.shellSource, ANCHORS.shellAccent, ANCHORS.shellColor]);
 	const first = patchText(shellFixture, shell);
 	assert.ok(first.ok);
 	assert.equal(first.changed, true);
@@ -86,13 +86,13 @@ test('the patch is idempotent', () => {
 });
 
 test('an anchor that is missing or repeated refuses instead of half-patching', () => {
-	const missing = spec('shell.ts', 'no anchors here', [ANCHORS.shellRows]);
+	const missing = spec('shell.ts', 'no anchors here', [ANCHORS.shellSource]);
 	const missingResult = patchText('no anchors here', missing);
 	assert.equal(missingResult.ok, false);
 	if (!missingResult.ok) assert.match(missingResult.reason, /appears 0 time/);
 
-	const doubled = shellFixture + '\n' + ANCHORS.shellRows;
-	const doubledResult = patchText(doubled, spec('shell.ts', doubled, [ANCHORS.shellRows]));
+	const doubled = shellFixture + '\n' + ANCHORS.shellSource;
+	const doubledResult = patchText(doubled, spec('shell.ts', doubled, [ANCHORS.shellSource]));
 	assert.equal(doubledResult.ok, false);
 	if (!doubledResult.ok) assert.match(doubledResult.reason, /appears 2 time/);
 });
@@ -116,25 +116,19 @@ test('the banner patch stops the install unless rose is asked for', () => {
 	assert.ok(text.includes('loon-tui.json'), 'the source is read from LOON\'s own file');
 });
 
-test('the menu patch leaves one Banner row and no rose or text-logo row', () => {
+test('the menu keeps gentle-pi\'s Banner loop and adds values, never a second row per setting', () => {
 	const shell = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
 	const result = patchText(shellFixture, shell);
 	assert.ok(result.ok);
 	const text = result.text;
 
-	assert.ok(!text.includes('Banner rose:'), 'the old rose row survived');
-	// The text-logo row survives, but only inside rose mode: in loon it does nothing.
-	assert.equal(text.split('Banner text logo:').length - 1, 1, 'the text logo row must appear exactly once');
-	assert.ok(
-		text.includes('if (loonBannerSource === "rose") add('),
-		'the text-logo row is not conditional',
-	);
-	assert.ok(text.includes('add(() => `Banner: ${loonBannerSource}`'), 'the cycling row is missing');
-	assert.ok(text.includes('const LOON_BANNER_SOURCES = ["loon", "rose", "off"] as const;'));
-	assert.ok(
-		text.includes('if (loonBannerSource === "rose") add('),
-		'the text-logo row must only appear in rose mode',
-	);
+	// The regression this test exists for: the patch replaced the native loop, and the menu
+	// lost its radio groups. The native loop must survive byte for byte.
+	assert.ok(text.includes(ANCHORS.shellSource), 'the native rose/text-logo loop was replaced');
+	assert.ok(text.includes('"Banner text logo"'), 'the native text-logo value is gone');
+	// No LOON row may be conditional on the source any more: in loon mode those rows vanished.
+	assert.ok(!text.includes('if (loonBannerSource === "rose") add('), 'a row still hides behind rose mode');
+	assert.ok(!text.includes('const LOON_BANNER_SOURCES'), 'the cycling list survived');
 	assert.ok(text.includes('saveLoonBannerSource'), 'the choice is not persisted');
 	assert.ok(text.includes('rename('), 'the settings write is not atomic');
 });
@@ -166,7 +160,7 @@ function shellStand(): string {
 	// The mouse anchor is a class method, so it has to stand inside one: a method body in a
 	// plain function is a parse error, and the gate validates the bytes it is about to write.
 	return [
-		'export default async function stand() {', ANCHORS.shellInit, '// between', ANCHORS.shellRows, '// preview', ANCHORS.shellCardPreview, '}',
+		'export default async function stand() {', ANCHORS.shellInit, '// between', ANCHORS.shellSource, ANCHORS.shellAccent, ANCHORS.shellColor, '// preview', ANCHORS.shellCardPreview, '}',
 		'',
 		'export class Editor {', ANCHORS.shellMouse, '}',
 		'',
@@ -179,7 +173,7 @@ function bannerStand(): string {
 
 test('a file patched by the previous version is reported as patched-v1', () => {
 	const pristine = shellStand();
-	const v1 = pristine.replace(ANCHORS.shellRows, '// LOON banner patch v1\n// Banner: loon');
+	const v1 = pristine.replace(ANCHORS.shellSource, '// LOON banner patch v1\n// Banner: loon');
 	const specWithV1: TargetSpec = { ...shellSpec, md5: md5(pristine), md5PatchedV1: [md5(v1)] };
 	assert.equal(classify(v1, specWithV1), 'patched-v1');
 
@@ -212,44 +206,86 @@ test('the view hands each row the width it really has', () => {
 	assert.ok(text.includes('row.label(rightWidth)'), 'the view never passes the row width');
 });
 
-test('the v2 rows add the wallpaper colour and return the accent to banner', () => {
+test('the v2 values join the Banner color setting and return the accent to banner', () => {
 	const result = patchText(shellStand(), shellSpec);
 	assert.ok(result.ok);
 	const text = result.text;
 
 	assert.ok(text.includes('Banner color: wallpaper (LOON)'), 'the (LOON) marker is missing from the label');
-	assert.ok(text.includes('labelWidth?: number'), 'the row cannot see the width the layout gives it');
 	assert.ok(text.includes('Wallpaper accent'), 'the preview title is missing');
 	assert.ok(text.includes('saveLoonAccent("wallpaper")'), 'the row does not store the choice');
+	// Choosing a named colour has to return the accent to gentle-pi, or picking pink after
+	// wallpaper is a no-op. It belongs in the native row's run, not in a duplicate row.
 	assert.ok(
 		text.includes('await saveLoonAccent("banner")'),
-		'the four named colours must return the accent to gentle-pi, or picking pink is a no-op',
+		'the four named colours must return the accent to gentle-pi',
 	);
-	assert.ok(
-		text.includes('loonSettings.accent !== "wallpaper" && loonSettings.accent !== "theme" && banner.color === color'),
-		'a named colour claims (current) while the accent is the theme colour',
+	assert.equal(
+		text.split('for (const color of BANNER_COLORS)').length - 1,
+		1,
+		'a second copy of the native colour loop is a second row for one setting',
 	);
-	// The theme accent is a menu choice too: without it the only way to ask for it is
+	// The theme accent is a menu value too: without it the only way to ask for it is
 	// a command, and the commands are going away.
-	assert.ok(text.includes('Banner color: theme (LOON)'), 'the theme accent has no row in the menu');
-	assert.ok(text.includes('await saveLoonAccent("theme")'), 'the theme row does not store the choice');
+	assert.ok(text.includes('Banner color: theme (LOON)'), 'the theme accent has no value in the menu');
+	assert.ok(text.includes('explicitChoice("Banner color", "theme"'), 'the theme value is not a choice');
+	assert.ok(text.includes('explicitChoice("Banner color", "wallpaper"'), 'the wallpaper value is not a choice');
+	assert.ok(text.includes('await saveLoonAccent("theme")'), 'the theme value does not store the choice');
 	assert.ok(
 		text.includes('async (accent: "theme" | "banner" | "wallpaper")'),
 		'the menu cannot store the theme accent at all',
 	);
 	assert.ok(text.includes('accent.txt'), 'the wallpaper accent is not read');
-	// The marker is the first thing to go when the row is too narrow; (current) never is.
-	assert.ok(
-		text.includes('labelWidth >= full.length + suffix.length'),
-		'the label must decide on the width the layout reports',
-	);
-	assert.ok(text.includes('return (fits ? full : short) + suffix;'), 'the fallback label is missing');
 	// The mark is LOON's own switch, and it has to be reachable from the menu: the
-	// command that used to carry it is going away.
-	assert.ok(text.includes('Mark: '), 'the menu has no mark row');
-	assert.ok(text.includes('mark: loonSettings.mark === false'), 'the mark row does not toggle the setting');
+	// command that used to carry it is going away. One setting, two values.
+	assert.ok(text.includes('explicitChoice("Mark", mark'), 'the mark row is not a choice');
+});
+
+/** Why this machine cannot check pristine bytes, or undefined when it can. */
+function pristineSourceSkip(): string | undefined {
+	const resolved = pristineSource();
+	return resolved.ok ? undefined : resolved.reason;
+}
+
+/* The structural rule that keeps the flat menu from coming back. gentle-pi 4.6.0 groups rows
+ * by the setting they name: one row per setting, one radio per value. A row without that
+ * descriptor is its own row, so adding rows without it is how five settings became seven
+ * loose values with no radios. */
+test('every Banner row names its setting, and each setting is one row', { skip: pristineSourceSkip() }, () => {
+	const source = pristineSource();
+	if (!source.ok) return;
+	const shell = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
+	const patched = patchText(readPristine(source.source, shell.file), shell);
+	assert.ok(patched.ok);
+	const text = patched.text;
+	const start = text.indexOf('category = "Banner";');
+	const end = text.indexOf('category = "Themes";');
+	assert.ok(start > 0 && end > start, 'the Banner section is not where the patch expects it');
+	const section = text.slice(start, end);
+
+	// Every add( call in the section must hand gentle-pi a setting descriptor. A call
+	// without one renders as its own row, which is the shape this patch must never ship.
+	const calls = section.split('add(').length - 1;
+	const described = section.split('explicitChoice(').length - 1 + section.split('{ setting: "').length - 1;
+	assert.equal(described, calls, 'a Banner row names no setting, so it draws as a loose row of its own');
+	assert.ok(calls >= 6, 'the Banner section lost rows: ' + calls);
+
+	// Five settings and no sixth: rose and text logo from gentle-pi, source, colour and
+	// mark from LOON.
+	const settings = new Set<string>();
+	for (const match of section.matchAll(/setting: "([^"]+)"/g)) settings.add(match[1]!);
+	for (const match of section.matchAll(/explicitChoice\("([^"]+)"/g)) settings.add(match[1]!);
+	for (const match of section.matchAll(/\["(Banner [a-z ]+)", "\w+"\]/g)) settings.add(match[1]!);
+	assert.deepEqual([...settings].sort(), ['Banner color', 'Banner rose', 'Banner source', 'Banner text logo', 'Mark']);
+	// Those two sites must sit next to the native colours, or the layout cannot draw them
+	// as one row: the values are grouped by adjacency as well as by name.
+	const nativeColors = text.indexOf('for (const color of BANNER_COLORS)');
+	const themeValue = text.indexOf('Banner color: theme (LOON)');
+	const themes = text.indexOf('category = "Themes";');
+	assert.ok(nativeColors < themeValue && themeValue < themes, 'the LOON colour values are not adjacent to the native ones');
+
+	assert.ok(text.includes('mark: mark === "on"'), 'the mark row does not set the setting');
 	assert.ok(text.includes('Mark saved.'), 'the mark row reports nothing when it saves');
-	assert.ok(!text.includes('Banner rose:'), 'the old rose row survived');
 });
 
 /**
@@ -630,8 +666,8 @@ test('a refusal never blames a healthy anchor, and the notice counts them', () =
 
 	// A drifted target: one anchor moved, nothing else.
 	const pristine = shellStand();
-	const moved = ANCHORS.shellRows.slice(0, 20) + 'X' + ANCHORS.shellRows.slice(21);
-	const drifted = pristine.replace(ANCHORS.shellRows, moved);
+	const moved = ANCHORS.shellSource.slice(0, 20) + 'X' + ANCHORS.shellSource.slice(21);
+	const drifted = pristine.replace(ANCHORS.shellSource, moved);
 	const path = join(install, 'extensions', 'gentle-shell.ts');
 	writeFileSync(path, drifted);
 
@@ -709,8 +745,8 @@ test('the four patch states, end to end on a copy of the package', async () => {
 	assert.ok(readFileSync(shellPath, 'utf8').includes('Banner color: wallpaper'));
 
 	// a build whose anchors moved is refused and left alone; the digest is not the gate
-	const moved = ANCHORS.shellRows.slice(0, 20) + 'X' + ANCHORS.shellRows.slice(21);
-	const altered = shellText.replace(ANCHORS.shellRows, moved);
+	const moved = ANCHORS.shellSource.slice(0, 20) + 'X' + ANCHORS.shellSource.slice(21);
+	const altered = shellText.replace(ANCHORS.shellSource, moved);
 	writeFileSync(shellPath, altered);
 	assert.equal(apply(paths, standTargets), 2);
 	assert.equal(readFileSync(shellPath, 'utf8'), altered, 'a refused apply modified the file');
