@@ -2,7 +2,7 @@
 	"version": "4.6.0",
 	"targets": {
 		"extensions/gentle-shell.ts": {
-			"md5Patched": "14bc306579491b3fcaa496c147724bb8",
+			"md5Patched": "bc7197600a9f1482ed4e86bd1119b4d8",
 			"md5PatchedV1": [
 				"7da141c898257cf56230f735fe4c553e",
 				"ec03598026098aefe27e1cd4dcfe7393",
@@ -14,7 +14,9 @@
 				"945363c38d21403cce653143e0305a6a",
 				"3075925c2f5ac762bf8a545e1ee33915",
 				"cf86ef5ca39a5e1d4135e01b379b469c",
-				"d3c362b675260233fd87ac0850f608bd"
+				"d3c362b675260233fd87ac0850f608bd",
+				"14bc306579491b3fcaa496c147724bb8",
+				"2bc6883c2ad02abea7d7c8e4c6ca2c42"
 			]
 		},
 		"lib/visual-customize-view.ts": {
