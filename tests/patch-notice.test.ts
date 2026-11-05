@@ -1,15 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
 	PATCH_MARKERS,
 	PATCH_NOTICE_KEY,
+	installedGentlePi,
 	missingPatches,
 	patchNoticeText,
 	repoRootOf,
 } from '../extensions/lib/patch-notice.ts';
+
+/** The committed pristine 4.6.0 sources: a real, unpatched package to point at. */
+const PRISTINE = join(dirname(new URL(import.meta.url).pathname), 'fixtures', 'gentle-pi-4.6.0');
 import { TARGETS } from '../scripts/gentle-pi-patch.ts';
 import { createLoonExtension } from '../extensions/loon-startup.ts';
 import { DEFAULT_GENTLE_SETTINGS } from '../extensions/lib/gentle-config.ts';
@@ -118,17 +122,49 @@ async function started(missing: () => string[]): Promise<[string, unknown][]> {
 	return calls.filter(([key]) => key === PATCH_NOTICE_KEY);
 }
 
+/**
+ * A real, unpatched gentle-pi on disk: the committed 4.6.0 fixture, copied file by file.
+ * The condition comes from putting the package there, never from handing the test a list.
+ */
+function stockPackage(): string {
+	const root = mkdtempSync(join(tmpdir(), 'loon-stock-'));
+	for (const { file } of PATCH_MARKERS) {
+		mkdirSync(dirname(join(root, file)), { recursive: true });
+		cpSync(join(PRISTINE, file), join(root, file));
+	}
+	writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.6.0' }));
+	return root;
+}
+
 test('a lost patch is announced in a status key that survives the scrollback', async () => {
-	const announced = await started(() => ['lib/shell-card.ts', 'lib/shell-bar.ts']);
-	assert.equal(announced.length, 1, 'the notice was not set once: ' + JSON.stringify(announced));
-	const [, text] = announced[0]!;
-	assert.equal(typeof text, 'string');
-	assert.match(String(text), /parche LOON perdido/);
-	assert.match(String(text), /gentle-pi-patch\.ts apply/, 'the notice does not say what to run');
+	const stock = stockPackage();
+	try {
+		// The real detection over the real files; only the root is chosen by the test.
+		assert.equal(
+			missingPatches(stock).length,
+			PATCH_MARKERS.length,
+			'a stock package must lose every marker, or this test is not measuring a stock package',
+		);
+		const announced = await started(() => missingPatches(stock));
+		assert.equal(announced.length, 1, 'the notice was not set once: ' + JSON.stringify(announced));
+		const [, text] = announced[0]!;
+		assert.equal(typeof text, 'string', 'a stock package produced no notice: ' + JSON.stringify(announced));
+		assert.match(String(text), /parche LOON perdido/);
+		assert.match(String(text), /7 de 7 archivos/, 'the notice does not count the files it found: ' + text);
+		assert.match(String(text), /geometría de tarjetas/, 'the notice does not say what was lost: ' + text);
+		assert.match(String(text), /scripts\/gentle-pi-patch\.ts apply/, 'the notice does not carry the absolute command: ' + text);
+	} finally {
+		rmSync(stock, { recursive: true, force: true });
+	}
 });
 
 test('a repaired patch clears the notice, so a stale one cannot keep lying', async () => {
-	const announced = await started(() => []);
+	// The installed package is the output of `apply` itself: pointing the same detection at
+	// it is what "the notice clears when apply runs" means, and it is a real tree.
+	const installed = installedGentlePi();
+	if (installed === undefined) return; // the box has no package; the fixture case still runs
+	assert.deepEqual(missingPatches(installed), [], 'the installed package lost a marker while this suite ran');
+	const announced = await started(() => missingPatches(installed));
 	assert.deepEqual(announced, [[PATCH_NOTICE_KEY, undefined]], 'a healthy install must clear the key, not leave it set');
 });
 
