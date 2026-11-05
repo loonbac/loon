@@ -328,13 +328,43 @@ node scripts/gentle-ai-payload.mjs verify   # lee el directorio vivo y enumera p
 node scripts/gentle-ai-payload.mjs apply    # copia (con backup) y verifica: lo corre el dueño
 ```
 
-Por qué hacía falta: `card-style.json` guardaba `"loon"`, un estilo que gentle-pi nunca
-conoció —lo añadía el parche de más arriba—, así que el lector lo marcaba `malformed`,
-resolvía `float` y la categoría **Cards** se negaba a guardar nada. En stock 4.6.0 el único
-estilo que dibuja lo que el dueño venía viendo es `float`, y eso es lo que publica el
-payload. Y `visual-profiles.json` define el perfil `loon` con el tema, el banner, la
-animación y las ocho claves de `visibility` que el validador estricto exige, para que el
-perfil sobreviva a un guardado desde el menú.
+Por qué hacía falta: `card-style.json` guardaba `"loon"`, el estilo que añade el parche de
+más arriba, y cuando una actualización borró el parche el lector lo marcó `malformed`,
+resolvió `float` y la categoría **Cards** se negó a guardar nada. Con el parche puesto,
+`loon` vuelve a ser válido y el archivo del dueño **no se toca**: el payload publica `loon`
+y `apply` se niega a escribir un estilo que la instalación no sepa leer, diciendo el comando
+que falta.
+
+Y `visual-profiles.json` define el perfil `loon` con el tema, el banner, la animación y las
+ocho claves de `visibility` que el validador estricto exige, para que el perfil sobreviva a
+un guardado desde el menú. Su `banner` (**`showRose`: false, `showTextLogo`: false, `pink`)
+son valores **inertes**, no los valores por defecto de nada: un perfil no puede omitir esa
+clave —el esquema exige las cinco exactas—, y mientras `loon-tui.json` diga
+`source: loon` u `off`, el banner parcheado de gentle-pi ni siquiera se instala, así que el
+perfil no manda ahí. La autoridad es `loon-tui.json`; los valores están puestos para que, si
+algún día cambia la fuente a `rose`, se vea lo que el perfil dice y no una sorpresa.
+
+### Cuando una actualización borra el parche, se avisa
+
+`pi update` reemplaza los archivos parcheados, **siempre**. Eso deja al dueño sin geometría
+de tarjetas, sin barra sin marca y sin filas de banner, y la vez que pasó se enteró horas
+después. Así que al arrancar sesión LOON lo dice, en una **clave de estado** (`loon:patch`,
+`ctx.ui.setStatus`) que sobrevive al scrollback en vez de ser una línea que se va:
+
+- lee los siete archivos del paquete y busca la marca que solo escribe el parche
+  (`extensions/lib/patch-notice.ts`); si falta alguna, nombra **qué** se perdió, cuántos
+  archivos son y el **comando exacto con la ruta absoluta** del repositorio;
+- se limpia solo: en el primer arranque en que las marcas están de vuelta —esto es, después
+  de que `apply` haya corrido— la clave se borra, así que un aviso viejo no se queda
+  mintiendo;
+- **no escribe nada**: es lectura pura. Escribir `node_modules` al arrancar sesión
+  convertiría una actualización a medias o un `npm ci` en paralelo en una escritura
+  silenciosa sobre el paquete, que es el mismo fallo con otra cara. `apply` sigue siendo un
+  acto explícito del dueño.
+
+La tabla de marcas se compara en un test con los destinos del parche: añadir un archivo al
+parche sin añadirlo al aviso rompe la suite, en vez de dejar un archivo cuya pérdida nadie
+cuenta.
 
 ### El trabajo inline, en el panel de Agents
 

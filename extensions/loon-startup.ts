@@ -20,6 +20,7 @@ import {
 	type GentleSettings,
 } from './lib/gentle-config.ts';
 import { collectPiCommandNames, formatCwd, formatModelLabel, pickSlashCommandTips } from './lib/layout.ts';
+import { PATCH_NOTICE_KEY, installedGentlePi, missingPatches, patchNoticeText, repoRootOf } from './lib/patch-notice.ts';
 import {
 	ACCENT_SOURCES,
 	type AccentSource,
@@ -262,6 +263,11 @@ export interface LoonState {
  */
 export interface LoonDeps {
 	read(): LoonState;
+	/**
+	 * Which patch targets lost their LOON marker, read-only. Undefined means "do not
+	 * ask": a session without the package has nothing to report.
+	 */
+	patchMissing?(): string[];
 	write(settings: LoonSettings): void;
 	/** Report every change to either config home; returns the disposer. */
 	watch(onChange: () => void): () => void;
@@ -279,6 +285,12 @@ export const defaultLoonDeps: LoonDeps = {
 		writeLoonSettings(settings, piConfigHome());
 	},
 	wallpaper: () => readWallpaperAccent(),
+	// Read-only by construction: the notice never writes into the package, because a
+	// write during session start is exactly how a half-finished update goes silent.
+	patchMissing: () => {
+		const install = installedGentlePi();
+		return install === undefined ? [] : missingPatches(install);
+	},
 	ensureTheme: (accent) =>
 		ensureWallpaperTheme({
 			accent,
@@ -310,6 +322,35 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 		watchdog?.stop();
 		watchdog = undefined;
 	};
+
+	/**
+	 * Say, in a status key that survives the scrollback, that the patch is gone — and
+	 * say what to run. It clears itself the moment the markers are back, so a stale
+	 * notice can never keep claiming a loss that was repaired.
+	 */
+	function announcePatch(ctx: ExtensionContext): void {
+		if (ctx.mode !== 'tui' || !ctx.hasUI) return;
+		// A host without status keys has nowhere to put the notice; say nothing rather than
+		// fail the session over a message.
+		if (typeof ctx.ui.setStatus !== 'function') return;
+		const clear = (): void => {
+			try {
+				ctx.ui.setStatus(PATCH_NOTICE_KEY, undefined);
+			} catch {
+				// Giving up on a notice must never take the session with it.
+			}
+		};
+		try {
+			const missing = deps.patchMissing?.() ?? [];
+			if (missing.length === 0) {
+				clear();
+				return;
+			}
+			ctx.ui.setStatus(PATCH_NOTICE_KEY, patchNoticeText(missing, repoRootOf(import.meta.url)));
+		} catch {
+			clear();
+		}
+	}
 
 	/** Give back exactly the slot LOON took, and nothing else. */
 	function release(ctx: ExtensionContext): void {
@@ -391,6 +432,7 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 		health.lastRenderAt = 0;
 		timer = setTimeout(() => {
 			timer = undefined;
+			announcePatch(ctx);
 			refresh(ctx);
 			// Follow the files for the rest of the session, so a change made in
 			// gentle-pi's own menu lands without restarting pi.
