@@ -266,3 +266,18 @@ Dos defectos que el proceso encontró, y que valen como advertencia:
 Frames, 170 columnas, copia temporal del paquete, config del dueño en solo lectura: `loon`
 → `Banner · 1/3`; `rose` → `Banner · 1/4`; `off` → `Banner · 1/1`. `check` idéntico antes y
 después y los cuatro md5 de la config coincidentes.
+
+L8 (corrección del orquestador, verbatim): «no es que el frame certifique lo que el usuario ve,
+es que **el frame encontró un defecto que el test estático no podía ver** […] Un frame no es
+solo la prueba final; es una prueba con otro punto ciego».
+
+- L6 dice qué certifica un frame; L8 dice **qué encuentra**. El duplicado del bucle nativo
+  (`Banner · 1/6` con `Banner rose` dos veces) pasó el test estático porque el parser atribuía
+  la cola al último bloque guardado: el texto sobrante quedaba dentro de un bloque que nunca
+  se dibuja en `rose`. El frame lo vio al primer intento.
+- El residuo correcto de un defecto que solo vio el frame es una **aserción estática que lo
+  vuelva a atrapar** (`text.split('["Banner rose", "showRose"]').length - 1 === 1`), no confiar
+  en acordarse de mirar el frame la próxima vez.
+- Y la regla de medición, que se rompió tres veces en este hilo: la frase «lo que lleva su
+  instalación» **solo** se escribe después de un `md5sum`, cada vez. `3075925c…` es lo que
+  llevaba antes de aplicar; lo que lleva hoy es `14bc3065…`, medido.
