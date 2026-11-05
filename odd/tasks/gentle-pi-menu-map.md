@@ -219,3 +219,20 @@ Guardia estructural nueva (`every Banner row names its setting, and each setting
 en la sección Banner, cada `add(` debe nombrar su `setting`, el conjunto de ajustes debe ser
 exactamente los cinco, y los valores de color de LOON deben caer junto a los nativos. Con eso,
 «varias opciones sueltas en una lista» no puede mergearse.
+L6 (método, adoptado del dueño): **una afirmación sobre lo que el usuario ve se
+certifica renderizándola**, no leyéndola.
+
+El defecto de las dos marcas de «current» no estaba en el código: estaba en el cruce de dos
+fuentes que por separado eran correctas (la fila nativa de gentle-pi y el acento de LOON). Leer
+cada una por separado no lo mostraba; dibujarlas juntas sí.
+
+Reglas que salen de esto, para el próximo parche:
+- El frame se captura con una **copia temporal** del paquete parcheado (`npm pack
+  gentle-pi@<versión>`), nunca parcheando la instalación real: `check` antes y después debe
+  salir idéntico, y el md5 de la config del dueño debe coincidir.
+- El frame lee la **configuración real** del dueño, en solo lectura. Un frame con config
+  sintética no representa lo que el dueño verá.
+- Ventana de referencia: **170 columnas**. A 120 la fila de seis valores colapsa a
+  `‹ pink › 1/6` por diseño nativo; no es regresión.
+- El frame no sustituye a los tests: los tests fijan la estructura (un `add(` por ajuste, una
+  regla por dato) y el frame fija lo que se dibuja. Hacen falta los dos.
