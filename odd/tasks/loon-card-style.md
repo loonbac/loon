@@ -67,3 +67,13 @@ style: LOON hay que crear uno nuevo y ahi poner nuestra customizacion de las car
 L2: the human chose the complete `loon` card style over aligning the indents only.
 L3: measurement of the current geometry (notices 1, bar 2, band rule 1 / text 3, band
 1..118 and bar 2..117 at 120 columns).
+
+L4: gentle-pi 4.5.1 → 4.6.0 replaced the patched files, so `CARD_STYLE.LOON` no longer
+exists in the installed package and the surviving `card-style.json` reads as malformed
+(Cards cannot save). Measured: 16 of 21 patch anchors resolve; `SHELL_ROWS`, `SHELL_MOUSE`,
+`SHELL_BAR_MARGIN_IMPORT`, `SHELL_CARD_4`, `SHELL_PROMPT_3` and `SHELL_PROMPT_4` moved, so the
+patch cannot be applied at all and the style is not merely unsupported, it is absent. The
+config payload therefore publishes `float` today
+(`config/gentle-ai/card-style.json`, validated with gentle-pi's own parser in
+`tests/gentle-ai-payload.test.ts`). Restoring the `loon` geometry means re-anchoring this
+patch against 4.6.0; it is not a configuration value.
