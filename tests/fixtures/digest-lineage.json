@@ -846,7 +846,7 @@
 	{
 		"digest": "14bc306579491b3fcaa496c147724bb8",
 		"file": "extensions/gentle-shell.ts",
-		"commit": "PENDING",
+		"commit": "0fba491",
 		"pristine": "4.6.0",
 		"edits": [
 			{
