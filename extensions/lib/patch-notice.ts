@@ -45,7 +45,16 @@ export function repoRootOf(moduleUrl: string): string {
 	return dirname(dir);
 }
 
-/** Where the patch lives in this repository. */
+/**
+ * The command the notice hands over, relative to this repository.
+ *
+ * It is completed with `repoRootOf()` because the notice is pasted from any cwd. Note what
+ * that root is: **the repository that loads this extension**, not the directory the
+ * gentle-pi package was installed from. They are the same today, and they need not be — the
+ * script reads the installed package itself (from its own lookup, or `PI_CODING_AGENT_DIR`),
+ * so a package installed elsewhere is still patched by this repository's command. Treat the
+ * path as "where the patch lives", never as the package's canonical location.
+ */
 export const PATCH_COMMAND = 'node --experimental-strip-types scripts/gentle-pi-patch.ts apply';
 
 /** Where an installed gentle-pi may be, newest layout first. */

@@ -66,6 +66,22 @@ test('the notice names what was lost and the exact command, not a vague warning'
 	assert.equal(text.includes('\n'), false, 'a status line is one line');
 });
 
+test('the command a reader pastes points at a script that is really there', () => {
+	// The whole value of the notice is that the pasted command runs. Its path is absolute and
+	// belongs to the repository that loads the extension, not to the package's install path.
+	const here = repoRootOf(new URL('../extensions/loon-startup.ts', import.meta.url).href);
+	const text = patchNoticeText(['lib/shell-card.ts'], here);
+	const match = /cd (\S+) && node --experimental-strip-types (\S+) apply/.exec(text);
+	assert.ok(match, 'the notice does not carry a runnable command: ' + text);
+	const [, root, script] = match;
+	assert.ok(root!.startsWith('/'), 'the path in the notice is not absolute: ' + root);
+	assert.equal(root, here, 'the notice points at another repository than the one that loads the extension');
+	assert.ok(existsSync(join(here, script!)), 'the notice points at a script that does not exist: ' + script);
+	// A root the extension is not loaded from is passed through untouched, not rewritten:
+	// the notice reports where the patch lives, and never invents a canonical package path.
+	assert.ok(patchNoticeText(['lib/shell-card.ts'], '/srv/other').includes('cd /srv/other && node'));
+});
+
 test('the repository root is derived from the module, whatever the cwd is', () => {
 	// Whatever depth the module sits at, the answer is the directory that holds the
 	// patch: the command in the notice has to run from there.
