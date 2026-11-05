@@ -18,6 +18,7 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -143,6 +144,36 @@ export function checkDirectory(home, modules) {
 }
 
 /**
+ * Where the routing repository lives, when it is installed next to this one.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {string} [here]
+ * @returns {string | undefined}
+ */
+export function routingRepository(env = process.env, here = HERE) {
+	const explicit = env.LOON_ROUTING_REPO;
+	if (explicit !== undefined && explicit.trim() !== '') return resolve(explicit.trim());
+	const sibling = resolve(here, '..', '..', 'loon-routing');
+	return existsSync(join(sibling, 'scripts', 'gentle-pi-patch.mjs')) ? sibling : undefined;
+}
+
+/**
+ * Apply the routing patches *now*, as part of installing, instead of at the next session start.
+ *
+ * Pi loads an extension when a session starts, so a patch written from that session's own hook can only
+ * take effect on the following one — the owner saw that as "I restarted and nothing changed", twice. The
+ * hook keeps its auto-apply as a safety net for `pi update` replacing the file; doing it here is what
+ * removes the second restart.
+ * @param {string} repository
+ * @returns {{ ok: boolean, output: string }}
+ */
+export function applyRoutingPatch(repository) {
+	const script = join(repository, 'scripts', 'gentle-pi-patch.mjs');
+	const result = spawnSync(process.execPath, [script, 'apply'], { encoding: 'utf8' });
+	const output = ((result.stdout ?? '') + (result.stderr ?? '')).trimEnd();
+	return { ok: result.status === 0, output };
+}
+
+/**
  * Install the payload, keeping a copy of whatever was there first.
  * @param {string} home
  * @param {string} [payload]
@@ -201,6 +232,17 @@ async function main() {
 		}
 		if (command === 'apply') {
 			for (const line of install(home)) console.log(line);
+			// The routing patches edit the extension file this install just wrote, so they belong here and
+			// not in a session that has already loaded it. A missing or failing sibling is reported, never
+			// fatal: LOON's own install must not depend on another repository being present.
+			const routing = routingRepository();
+			if (routing === undefined) {
+				console.log('note: no loon-routing repository next to this one (set LOON_ROUTING_REPO to it): its review patches will be applied by the next Pi start and need one more restart');
+			} else {
+				const routed = applyRoutingPatch(routing);
+				for (const line of routed.output.split('\n')) if (line !== '') console.log('routing ' + line);
+				if (!routed.ok) console.log('PROBLEM the loon-routing patch did not apply: the next Pi start will retry it and ask for a restart');
+			}
 			const { problems, fixes } = checkDirectory(home, modules);
 			for (const fix of fixes) console.log('ok ' + fix);
 			for (const problem of problems) console.log('PROBLEM ' + problem);
