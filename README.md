@@ -378,11 +378,18 @@ porque no son los bytes que se midieron. En la caja, sin paquete, `GENTLE_PI_ROO
 copia prístina; sin eso esos tests se saltan, nunca pasan por no haber podido comprobar.
 
 El repo no declara CI: "verde en la caja" es `npm test` dentro de una instabox, y la
-transferencia de prístinos es un paso **explícito** del procedimiento
-(`odd/tasks/gentle-pi-menu-map.md`): una copia del backup del parche a
-`/data/workspace/pristine46` y `GENTLE_PI_ROOT` apuntando ahí. Con el paso hecho, los tres tests
-de digests **pasan**; sin él **se saltan**. Los demás saltos de una caja son
-`gentle-pi is not installed here`: los que cargan el paquete instalado.
+transferencia de prístinos la hace **el script**, no la memoria de quien lo corre:
+
+```sh
+scripts/box-verify.sh <caja>
+```
+
+Resuelve la copia prístina, la transfiere, **la hashea contra el registro antes de correr nada** y
+solo entonces ejecuta `typecheck` y la suite con `GENTLE_PI_ROOT` puesto. Una copia incompleta o
+con un byte distinto detiene el run con el motivo, en vez de convertir los digests en saltos que
+una línea de resumen lee como verde. Con la copia verificada, los tres tests de digests **pasan**;
+los demás saltos de una caja son `gentle-pi is not installed here`, es decir los que cargan el
+paquete instalado — y esos no se arreglan transfiriendo prístinos.
 
 ### El trabajo inline, en el panel de Agents
 

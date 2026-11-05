@@ -101,13 +101,22 @@ El repo no declara CI: "verde en la caja" es `npm test` dentro de una instabox. 
 prístinos no están en el repo, así que el paso que **no** puede ser tácito es la transferencia:
 
 ```sh
-# 1. una copia prístina desde el backup del parche (son los bytes que había antes de parchear)
-rm -rf /tmp/pristine46 && mkdir -p /tmp/pristine46
-cp -r ~/.pi/agent/backups/gentle-pi-banner-patch-<marca>/. /tmp/pristine46/
-tar czf /tmp/pristine46.tgz -C /tmp pristine46
+scripts/box-verify.sh <caja>     # por defecto: port
+```
 
-# 2. a la caja, y la suite con la fuente declarada
-instabox ssh <caja> -- 'mkdir -p /data/workspace/pristine46 && tar xzf - -C /data/workspace' < /tmp/pristine46.tgz
+El script hace **todo** el procedimiento, y la copia prístina no depende de que alguien lea
+esto: resuelve la fuente, la transfiere, y **la hashea antes de correr nada**
+(`scripts/box-pristine.mjs verify`). Si un solo archivo no llegó o no coincide, el run se
+detiene con el motivo; no hay «verde» posible con una copia a medias. Después corre
+`typecheck` y la suite con `GENTLE_PI_ROOT` puesto, y lista los tests de digests, los saltos
+con su motivo y los fallos.
+
+Sin script, el procedimiento manual equivalente — por si alguien necesita hacerlo a mano:
+
+```sh
+node scripts/box-pristine.mjs prepare          # la ruta de la copia prístina a transferir
+instabox ssh <caja> -- 'mkdir -p /data/workspace/pristine46 && tar xzf - -C /data/workspace' < pristine.tgz
+instabox ssh <caja> -- 'cd /data/workspace/loon && node scripts/box-pristine.mjs verify /data/workspace/pristine46'
 instabox ssh <caja> -- 'cd /data/workspace/loon && GENTLE_PI_ROOT=/data/workspace/pristine46 npm test'
 ```
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { PRISTINE_FILES, PRISTINE_SHA, PRISTINE_VERSION, pristineSource, readPristine } from './support/pristine.ts';
+import { PRISTINE_FILES, PRISTINE_SHA, PRISTINE_VERSION, pristineSource, readPristine, verifyDirectory } from './support/pristine.ts';
 import { TARGETS } from '../scripts/gentle-pi-patch.ts';
 
 /**
@@ -65,6 +65,23 @@ test('one corrupted byte fails loudly instead of silently re-measuring', () => {
 			/lib\/shell-bar\.ts hashes to [0-9a-f]{64}, the record says [0-9a-f]{64}/,
 			'a corrupted pristine file was accepted',
 		);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('a transferred copy is judged by its hashes, which is what the box procedure trusts', () => {
+	// The box script runs this before anything else, so an incomplete or wrong copy stops the
+	// run instead of turning the digest tests into skips that read as a pass.
+	const root = copyOfReal();
+	try {
+		assert.deepEqual(verifyDirectory(root), { missing: [], wrong: [] });
+		rmSync(join(root, 'lib', 'shell-prompt.ts'));
+		assert.deepEqual(verifyDirectory(root).missing, ['lib/shell-prompt.ts']);
+		writeFileSync(join(root, 'lib', 'shell-prompt.ts'), readPristine(REAL.ok ? REAL.source : { root, label: 'x' }, 'lib/shell-bar.ts').replace('export', 'exporT'));
+		const after = verifyDirectory(root);
+		assert.equal(after.wrong.length, 1, JSON.stringify(after));
+		assert.equal(after.wrong[0]?.file, 'lib/shell-prompt.ts');
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
