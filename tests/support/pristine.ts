@@ -41,8 +41,13 @@ export function sha256(path: string): string {
 	return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
-/** The files of `root` that are missing or whose bytes are not the pinned build. */
-function inspect(root: string): { missing: string[]; wrong: Array<{ file: string; expected: string; found: string }> } {
+/**
+ * The files of `root` that are missing or whose bytes are not the pinned build.
+ *
+ * Exported because the box procedure needs the same judgement as the tests: the transfer of
+ * a pristine copy is checked by hashing, not by trusting that the copy worked.
+ */
+export function verifyDirectory(root: string): { missing: string[]; wrong: Array<{ file: string; expected: string; found: string }> } {
 	const missing: string[] = [];
 	const wrong: Array<{ file: string; expected: string; found: string }> = [];
 	for (const file of PRISTINE_FILES) {
@@ -95,7 +100,7 @@ export function pristineSource(env: NodeJS.ProcessEnv = process.env): PristineRe
 	const checked: string[] = [];
 	const explicit = env.GENTLE_PI_ROOT;
 	if (explicit !== undefined && explicit.length > 0) {
-		const { missing, wrong } = inspect(explicit);
+		const { missing, wrong } = verifyDirectory(explicit);
 		if (missing.length > 0) {
 			return { ok: false, reason: `GENTLE_PI_ROOT=${explicit} holds ${missing.length} of ${PRISTINE_FILES.length} prístinos (falta ${missing[0]})` };
 		}
@@ -115,13 +120,13 @@ export function pristineSource(env: NodeJS.ProcessEnv = process.env): PristineRe
 		return { ok: true, source: { root: explicit, label: 'GENTLE_PI_ROOT' } };
 	}
 	for (const root of backups()) {
-		const { missing, wrong } = inspect(root);
+		const { missing, wrong } = verifyDirectory(root);
 		if (missing.length === 0 && wrong.length === 0) return { ok: true, source: { root, label: 'backup ' + root.split('/').pop() } };
 		checked.push(root + (missing.length > 0 ? ' (incompleto)' : ' (otros bytes)'));
 	}
 	for (const root of installedRoots()) {
 		if (!existsSync(join(root, 'package.json'))) continue;
-		const { missing, wrong } = inspect(root);
+		const { missing, wrong } = verifyDirectory(root);
 		if (missing.length === 0 && wrong.length === 0) return { ok: true, source: { root, label: 'installed ' + root } };
 		checked.push(root + (missing.length > 0 ? ' (incompleto)' : ' (parcheado u otra versión)'));
 	}
