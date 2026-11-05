@@ -377,6 +377,13 @@ usarse; si falta, el test se **salta con su motivo**; si un byte no coincide, el
 porque no son los bytes que se midieron. En la caja, sin paquete, `GENTLE_PI_ROOT` apunta a una
 copia prístina; sin eso esos tests se saltan, nunca pasan por no haber podido comprobar.
 
+El repo no declara CI: "verde en la caja" es `npm test` dentro de una instabox, y la
+transferencia de prístinos es un paso **explícito** del procedimiento
+(`odd/tasks/gentle-pi-menu-map.md`): una copia del backup del parche a
+`/data/workspace/pristine46` y `GENTLE_PI_ROOT` apuntando ahí. Con el paso hecho, los tres tests
+de digests **pasan**; sin él **se saltan**. Los demás saltos de una caja son
+`gentle-pi is not installed here`: los que cargan el paquete instalado.
+
 ### El trabajo inline, en el panel de Agents
 
 Cuando el orquestador programa inline —sin lanzar un subagente— ese trabajo no tiene

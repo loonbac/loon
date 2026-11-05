@@ -95,6 +95,32 @@ Así que, a partir de aquí:
 - En la caja, donde no hay paquete, se apunta `GENTLE_PI_ROOT` a una copia prístina (el backup):
   sin eso, esos tests se saltan con motivo en vez de fingir verde.
 
+### Procedimiento de la caja, con la transferencia escrita
+
+El repo no declara CI: "verde en la caja" es `npm test` dentro de una instabox. Los bytes
+prístinos no están en el repo, así que el paso que **no** puede ser tácito es la transferencia:
+
+```sh
+# 1. una copia prístina desde el backup del parche (son los bytes que había antes de parchear)
+rm -rf /tmp/pristine46 && mkdir -p /tmp/pristine46
+cp -r ~/.pi/agent/backups/gentle-pi-banner-patch-<marca>/. /tmp/pristine46/
+tar czf /tmp/pristine46.tgz -C /tmp pristine46
+
+# 2. a la caja, y la suite con la fuente declarada
+instabox ssh <caja> -- 'mkdir -p /data/workspace/pristine46 && tar xzf - -C /data/workspace' < /tmp/pristine46.tgz
+instabox ssh <caja> -- 'cd /data/workspace/loon && GENTLE_PI_ROOT=/data/workspace/pristine46 npm test'
+```
+
+Sin el paso 1 y 2, los tests que dependen de prístinos **se saltan** y el verde no comprueba los
+digests: es un skip visible, pero conviene saber cuál es cuál. Medido en la última corrida con la
+fuente puesta: `ok 105`, `ok 106`, `ok 107` — los tres tests de digests **pasaron**, no se
+saltaron. Los 21 saltos son todos `gentle-pi is not installed here`: los tests que cargan el
+paquete **instalado** (geometría de tarjetas, overlay del panel, parsers del payload, la marca de
+la barra), que en una caja no existe.
+
+Si algún día se quiere que esos 21 también corran en la caja, hace falta instalar gentle-pi
+**parcheado** allí, que es otra cosa que transferir prístinos y no se hace por accidente.
+
 ## Medido
 
 - gentle-pi instalado: **4.6.0**; el parche del repo está escrito contra 4.5.1.
