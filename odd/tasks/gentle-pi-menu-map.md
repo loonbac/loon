@@ -199,3 +199,23 @@ L4: `"loon"` como estilo de tarjeta es trabajo real de este repositorio, impleme
 el parche sobre `lib/` de gentle-pi. En stock 4.6.0 no existe mientras el parche no se
 reancle, así que el payload publica `float` — exactamente lo que hoy se dibuja, cambio
 visual cero.
+L5 (corrección del dueño, verbatim): «tiene que usar el formato nuevo de gentle-pi, no
+retroceder, adaptarnos nosotros al nuevo gentle-pi no adaptar gentle-pi a nosotros».
+
+El parche había re-apuntado `shellRows` a 4.6.0 y **sustituido** el bucle nativo de
+`Banner rose` / `Banner text logo` por filas planas. En 4.6.0 ese bucle ya pasa un descriptor
+(`explicitChoice(setting, valor, current)`), y la vista agrupa por `choice.setting` solo filas
+**consecutivas** (`visual-customize-view.ts:344`). Al quitar el descriptor, cada fila es su
+propia fila: sin radios, y el menú pasó de 5 ajustes a 8 valores sueltos.
+
+Corrección, no re-adaptación: el ancla se **retira**, no se re-apunta. El bucle nativo queda
+intacto; LOON solo **añade valores**: `Banner source` (loon/rose/off), dos valores más de
+`Banner color` (theme/wallpaper, pegados a los cuatro nativos para que caigan en la misma
+fila) y `Mark` (on/off). Regla de método para este repo: si un ancla dejó de existir porque el
+bloque ya no debe sustituirse, se borra del parche. Sustituir un bloque que funciona es la
+regresión.
+
+Guardia estructural nueva (`every Banner row names its setting, and each setting is one row`):
+en la sección Banner, cada `add(` debe nombrar su `setting`, el conjunto de ajustes debe ser
+exactamente los cinco, y los valores de color de LOON deben caer junto a los nativos. Con eso,
+«varias opciones sueltas en una lista» no puede mergearse.
