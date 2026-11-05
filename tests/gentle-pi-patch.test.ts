@@ -230,11 +230,22 @@ test('the v2 values join the Banner color setting and return the accent to banne
 	assert.ok(text.includes('Banner color: theme (LOON)'), 'the theme accent has no value in the menu');
 	assert.ok(text.includes('explicitChoice("Banner color", "theme"'), 'the theme value is not a choice');
 	assert.ok(text.includes('explicitChoice("Banner color", "wallpaper"'), 'the wallpaper value is not a choice');
-	// One current mark per row. A frame showed pink and wallpaper both filled, because
-	// gentle-pi's own marker and LOON's accent were answering the same question.
+	// One current mark per row, and one rule behind it. A frame showed pink and wallpaper
+	// both filled: the descriptor and the label each had their own idea of "current". Both
+	// now read the same helper, which is defined once.
+	assert.equal(
+		text.split('const loonBannerColorCurrent = (color: string) =>').length - 1,
+		1,
+		'the current-colour rule is not defined exactly once',
+	);
+	assert.equal(
+		text.split('loonBannerColorCurrent(color)').length - 1,
+		2,
+		'the label and the descriptor must both read the one rule',
+	);
 	assert.ok(
-		text.includes('loonSettings.accent !== "theme" && loonSettings.accent !== "wallpaper" && banner.color === color'),
-		'a named colour marks itself current while LOON set an accent, so the row has two currents',
+		!text.includes('${banner.color === color ? " (current)" : ""}'),
+		'the label kept a second definition of current',
 	);
 	assert.ok(text.includes('await saveLoonAccent("theme")'), 'the theme value does not store the choice');
 	assert.ok(
