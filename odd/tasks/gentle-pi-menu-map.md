@@ -20,6 +20,59 @@ S6. Ningún agente escribe en el directorio human-controlled: lo aplica el dueñ
     sola orden.
 S7. La documentación dice qué archivo de ajustes posee cada categoría del menú.
 
+## Corrección del coordinador (L5) y estado del port
+
+El coordinador corrigió su propia premisa: `loon` **sí** fue un estilo válido en la instalación
+parcheada de 4.5.1, y el fichero `card-style.json` **no hay que tocarlo**: la causa es que la
+actualización borró el parche. Medido aquí, coincide: cero marcas LOON en los archivos instalados
+y 8 anclas sin resolver. El plan cambia de «escribir `float`» a «reancolar el parche y reaplicarlo».
+
+Estado del reancolado, medido con `check`:
+
+| Destino | Anclas | 4.6.0 |
+| --- | --- | --- |
+| `extensions/gentle-shell.ts` | 4 | reancoladas: `shellRows` (el menú nuevo usa filas explícitas) y `shellMouse` (el editor ganó panel y filas superiores) |
+| `lib/visual-customize-view.ts` | 2 | intactas |
+| `extensions/startup-banner.ts` | 2 | intactas |
+| `lib/shell-bar.ts` | 11 | reancoladas: el import creció y las etapas ganaron el escalón de esfuerzo |
+| `lib/shell-card.ts` | 7 | reancoladas: `paintFloat` delega en `paintSurfaceRow` |
+| `lib/card-style-policy.ts` | 1 | intacta |
+| `lib/shell-prompt.ts` | 5 | reancolada: `PromptLayout` ganó `panel` |
+
+`apply` corrió sobre 4.6.0: los siete destinos leen `patched` y cada copia parcheada carga con
+jiti. Con eso, `loon` vuelve a ser un estilo válido y `card-style.json` del dueño se lee sin
+tocarlo. Pendiente: reancolar las aserciones de `tests/gentle-pi-patch.test.ts` a 4.6.0 (trece
+fallan porque describen el menú y las etapas de 4.5.1), y decidir si el parche se reaplica solo.
+
+## Las seis anclas que se movieron, y por qué la nueva es el mismo sitio lógico
+
+Medido: de 32 anclas, **6** no existen en 4.6.0 — `shellRows`, `shellMouse`,
+`shellBarMarginImport`, `shellBarStagesTail`, `shellcard4`, `shellprompt3`. Las otras 26 son
+idénticas byte a byte. (El coordinador incluyó `SHELL_PROMPT_4` en la lista; **no** se movió: la
+fila de la banda es idéntica en 4.6.0. Lo que cambió es la interfaz, `SHELL_PROMPT_3`.)
+
+| Ancla | Qué cambió en 4.6.0 | Por qué la nueva es el mismo sitio |
+| --- | --- | --- |
+| `shellRows` | Las dos filas propias del banner (`Banner rose`, `Banner text logo`) pasaron de dos `add(…)` sueltos a **un bucle** `for (const [setting, key] of …) { for (const enabled of [true,false]) add(…, explicitChoice(…)) }`, con un quinto argumento `meta` que el menú nuevo usa para dibujar una elección explícita en vez de un ciclo. | Es el bloque que declara las filas del banner de gentle-pi y nada más. La sustitución conserva la disposición de LOON **literal**: una fila `Banner:` que cicla la fuente, la fila del logotipo solo dentro de `rose`, las filas de acento de tema y wallpaper con etiqueta que mira el ancho, los cuatro colores con nombre devolviendo el acento, y `Mark:`. No inventamos `meta`: es opcional y las propias filas de temas de 4.6.0 no lo llevan. |
+| `shellMouse` | El override de `handleMouse` ganó hover del panel, botón de panel y el bloque de filas superiores; el trayecto que traduce la coordenada sobrevivió con la misma forma. | El ancla vuelve a ser **el método entero** (miembro de clase, así que se sostiene en el fixture), y la sustitución cambia solo la cola: el único punto que decide cómo entra un clic en la banda. Respeta el `layout.panel` que escribió upstream y conserva el desplazamiento de fila que la banda ya necesitaba. |
+| `shellBarMarginImport` | El import de `./shell-card.ts` creció: 4.6.0 centralizó el pintado de superficie y añadió `paintSurfaceRow` y `surfaceOpener`. | Es el único import de la geometría de tarjeta en la barra. La sustitución añade `CARD_STYLE` y `cardStyle` a esa misma lista. |
+| `shellcard4` | `paintFloat` ya no re-arma el fondo: esa fila se movió a `paintSurfaceRow`, y `paintFloat` solo pone los márgenes. | Es la función que envuelve **toda** fila pintada. La sustitución conserva la envoltura, toma izquierda y derecha de `cardGeometry()` y delega el repintado en `paintSurfaceRow`: exactamente la capa que eligió upstream, sin duplicar el re-armado. |
+| `shellBarStagesTail` | La cascada de etapas del header ganó un escalón: `...(model.effort ? [[brand, withEffort]] : [])` — esfuerzo sin ubicación. | Es la lista de etapas que la barra cae cuando no cabe. La sustitución mapea el escalón nuevo con `withBrand` como los demás, así que la cascada conserva su forma y el tema LOON sigue eliminando la etapa de marca sola. |
+| `shellprompt3` | `PromptLayout` ganó `panel?: boolean` para el editor ancho del IDE. | Es la interfaz que transporta `prefixWidth`, el valor que leen la banda y el ratón. La sustitución conserva `panel` y añade `chrome`. |
+
+## Verificación con frames reales, no con el diff
+
+La geometría no se declara desde el parche: la miden los tests de `tests/probe-frame.test.ts`,
+que dibujan frames reales y cuentan secuencias de fondo y distribución de columnas. Tres de ellos
+son los que prueban esto, y **estaban en rojo con 4.6.0 sin parche**:
+
+- `no painted row starts with an escape, in any card style`
+- `the loon band surface ends where the bar surface ends`
+- `the band opens with an empty surface row and the hint is not the first row`
+
+Corren con `tmux` en el PATH (`tmux` está en esta máquina; en la caja no, y por eso allí fallan
+dos de `probe-frame`). Con el parche aplicado, la suite local queda en **303/303, cero saltados**.
+
 ## Medido
 
 - gentle-pi instalado: **4.6.0**; el parche del repo está escrito contra 4.5.1.

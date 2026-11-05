@@ -1,10 +1,10 @@
 {
-	"version": "4.5.1",
+	"version": "4.6.0",
 	"targets": {
 		"extensions/gentle-shell.ts": {
-			"md5": "ad1bfce79b655fc4f7cae71449d05d88",
-			"md5Patched": "7da141c898257cf56230f735fe4c553e",
+			"md5Patched": "3075925c2f5ac762bf8a545e1ee33915",
 			"md5PatchedV1": [
+				"7da141c898257cf56230f735fe4c553e",
 				"ec03598026098aefe27e1cd4dcfe7393",
 				"b12919486a662d03f1587ee719d0bd73",
 				"f389ce976bc0a92e65b5d2f9e9b5dd3d",
@@ -15,39 +15,40 @@
 			]
 		},
 		"lib/visual-customize-view.ts": {
-			"md5": "6f1b71a9aa898fcf55196d73634b0076",
-			"md5Patched": "23bb9997b474842fe5f2a4d652c4178b",
-			"md5PatchedV1": []
+			"md5Patched": "506ab79c84daadff5925d7ef28a87677",
+			"md5PatchedV1": [
+				"23bb9997b474842fe5f2a4d652c4178b"
+			]
 		},
 		"extensions/startup-banner.ts": {
-			"md5": "028bd98910468c7076ef31c65f36e09f",
-			"md5Patched": "79167d2ce9c12de796f7c751778d0b18",
-			"md5PatchedV1": []
+			"md5Patched": "5d10cdb23b6c660d96bfd0d45f8a74df",
+			"md5PatchedV1": [
+				"79167d2ce9c12de796f7c751778d0b18"
+			]
 		},
 		"lib/shell-bar.ts": {
-			"md5": "c5b3819241a587f960834409312a72a0",
-			"md5Patched": "5b43e3127eae0024d45b21eec34b1a95",
+			"md5Patched": "2ddbe9f15fe16552ff98d0dd9ac17ff6",
 			"md5PatchedV1": [
+				"5b43e3127eae0024d45b21eec34b1a95",
 				"36afe7b323c27f7c2753a22d08cb57fa",
 				"c4392741927c8da26d0b9d24142e3a41"
 			]
 		},
 		"lib/shell-card.ts": {
-			"md5": "d189f85262f41f5a5e8f590a0c57ed2d",
-			"md5Patched": "8f3460ef6d3a5222d7a26662bb46b642",
+			"md5Patched": "7645215425b4c59bd3bbdf90fde97dbc",
 			"md5PatchedV1": [
+				"8f3460ef6d3a5222d7a26662bb46b642",
 				"8dbecc2f2ac057b87ce5c344d7ba5241"
 			]
 		},
 		"lib/card-style-policy.ts": {
-			"md5": "2833f69f68273d351a09fd1d39424756",
 			"md5Patched": "874f4ca140cf3c951af7f3403a57b4ee",
 			"md5PatchedV1": []
 		},
 		"lib/shell-prompt.ts": {
-			"md5": "6dccc1c4bf36e217d308a67c5e690c14",
-			"md5Patched": "993a7f2237db3eb718b9d6ab05591bf1",
+			"md5Patched": "afcd1b6ec35d955b45a565c2a5eb433b",
 			"md5PatchedV1": [
+				"993a7f2237db3eb718b9d6ab05591bf1",
 				"fa3cc52522ee55195f48ceeee9c47259",
 				"040c2b8c8ca1f727aa937ca6e5204375",
 				"0618298301450ad9811a4d7b287bc3cd",

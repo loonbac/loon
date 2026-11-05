@@ -40,21 +40,21 @@ const shellFixture = ['// head', ANCHORS.shellInit, '// between', ANCHORS.shellR
 const bannerFixture = ['// head', ANCHORS.bannerEvent, '// body', ANCHORS.bannerConfig, '// tail'].join('\n');
 
 test('the patch targets the gentle-pi build it was written for', () => {
-	assert.equal(GENTLE_PI_VERSION, '4.5.1');
+	assert.equal(GENTLE_PI_VERSION, '4.6.0');
 	assert.deepEqual(
 		TARGETS.map((target) => [target.file, target.md5]),
 		[
-			['extensions/gentle-shell.ts', 'ad1bfce79b655fc4f7cae71449d05d88'],
+			['extensions/gentle-shell.ts', '870867458af13b1a6a411b4a4e3cd5b2'],
 			// The view is patched only to hand each row the width it really has.
-			['lib/visual-customize-view.ts', '6f1b71a9aa898fcf55196d73634b0076'],
-			['extensions/startup-banner.ts', '028bd98910468c7076ef31c65f36e09f'],
+			['lib/visual-customize-view.ts', '5a052563d8d5dd86cb4781c0681c9a3c'],
+			['extensions/startup-banner.ts', 'c3fc54e35488c17c82a81ff2c4ed0271'],
 			// The header bar's brand gives way to a theme LOON generated.
-			['lib/shell-bar.ts', 'c5b3819241a587f960834409312a72a0'],
+			['lib/shell-bar.ts', '19334914e8fc284b993fa2c148e3b697'],
 			// Card style loon: the enum and the geometry that cards, panels and the bar read.
-			['lib/shell-card.ts', 'd189f85262f41f5a5e8f590a0c57ed2d'],
+			['lib/shell-card.ts', '2faa9cdac2e2358e5950a82d068708b4'],
 			['lib/card-style-policy.ts', '2833f69f68273d351a09fd1d39424756'],
 			// The prompt band picks its geometry by style name, so loon needs this file too.
-			['lib/shell-prompt.ts', '6dccc1c4bf36e217d308a67c5e690c14'],
+			['lib/shell-prompt.ts', '70f028ae3d61ccd471f5e346b5111e9e'],
 		],
 	);
 });
@@ -302,7 +302,7 @@ test('a drifted target is refused with the file, the anchor and the address to f
 		assert.ok(output.includes(target.file), target.file + ': the failure does not name the target');
 		assert.ok(output.includes(spec.md5), target.file + ': the failure does not print the expected md5');
 		assert.ok(output.includes(md5(drifted)), target.file + ': the failure does not print the md5 it found');
-		assert.ok(output.includes('pinned to 4.5.1'), target.file + ': the failure does not name the pinned version');
+		assert.ok(output.includes('pinned to 4.6.0'), target.file + ': the failure does not name the pinned version');
 		assert.ok(output.includes('nothing was written'), target.file + ': the failure does not say nothing was written');
 		assert.ok(
 			output.includes('scripts/gentle-pi-patch.ts:'),
@@ -367,10 +367,10 @@ test('the band opens with a row and the mouse shift follows it', () => {
 	);
 });
 
-/* A digest nobody checks is a digest that drifts. These fixtures are the pristine 4.5.1
+/* A digest nobody checks is a digest that drifts. These fixtures are the pristine 4.6.0
  * sources of the seven targets, committed so the test reads neither git history nor the
  * user's install: every anchor occurs once and the edits must produce the pinned digest. */
-const PRISTINE = join(dirname(new URL(import.meta.url).pathname), 'fixtures', 'gentle-pi-4.5.1');
+const PRISTINE = join(dirname(new URL(import.meta.url).pathname), 'fixtures', 'gentle-pi-4.6.0');
 
 test('every pinned digest is what the patch produces from the pristine file', () => {
 	for (const target of TARGETS) {
@@ -436,6 +436,8 @@ test('every accepted digest is produced by the edit set recorded for it', async 
 		digest: string;
 		file: string;
 		commit: string;
+		/** The pristine build this edit set was measured against. */
+		pristine?: string;
 		edits: Array<{ anchor: string; replacement: string }>;
 	}>;
 	const registered = new Set(lineage.map((entry) => entry.digest));
@@ -448,7 +450,13 @@ test('every accepted digest is produced by the edit set recorded for it', async 
 	const unused = lineage.filter((entry) => !accepted.some((item) => item.digest === entry.digest));
 	assert.deepEqual(unused.map((entry) => entry.digest.slice(0, 8)), [], 'recorded edit sets for digests that are no longer accepted');
 
+	// A digest may only be recomputed against the pristine bytes it came from: a patch
+	// written for an older build cannot be reproduced from this one, and pretending
+	// otherwise would be the lie this record exists to prevent.
+	const current = lineage.filter((entry) => (entry.pristine ?? '4.5.1') === GENTLE_PI_VERSION);
+	assert.ok(current.length > 0, 'no recorded edit set was measured against gentle-pi ' + GENTLE_PI_VERSION);
 	for (const entry of lineage) {
+		if ((entry.pristine ?? '4.5.1') !== GENTLE_PI_VERSION) continue;
 		const pristine = readFileSync(join(PRISTINE, entry.file), 'utf8');
 		const patched = patchText(pristine, { file: entry.file, md5: '', edits: entry.edits } as TargetSpec);
 		assert.ok(patched.ok, entry.digest.slice(0, 8) + ': the recorded edit set no longer applies to ' + entry.file);
@@ -511,14 +519,16 @@ test('check shows the installed version beside the pinned one', async () => {
 	mkdirSync(join(install, 'extensions'), { recursive: true });
 	const shellText = shellStand();
 	writeFileSync(join(install, 'extensions', 'gentle-shell.ts'), shellText.replace('// head', '// head, edited by a newer gentle-pi'));
-	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.6.0' }));
+	// A build that is not the pinned one: the version notice is about a mismatch, so the
+	// stand-in has to be one version ahead of the pin.
+	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.6.1' }));
 
 	const { code, output } = captureOutput(() => report({ install, backups: join(root, 'backups') }, [shellSpec]));
 
 	// Visible before anyone tries to apply, which is the whole point of check: the build
 	// is not the pinned one, the anchors are intact, so it is patchable and untested.
-	assert.match(output, /gentle-pi installed: 4\.6\.0/);
-	assert.match(output, /patch pinned to 4\.5\.1/);
+	assert.match(output, /gentle-pi installed: 4\.6\.1/);
+	assert.match(output, /patch pinned to 4\.6\.0/);
 	assert.match(output, /not the build this patch was written against/);
 	assert.match(output, /extensions\/gentle-shell\.ts: clean \(anchors intact: \d+ checked; md5 [0-9a-f]{32} is not the pinned [0-9a-f]{32}/);
 	assert.equal(code, 0, 'check reports, it does not fail the shell');
@@ -531,7 +541,7 @@ test('a change outside the anchors does not block the patch', () => {
 	const install = join(root, 'gentle-pi');
 	const backups = join(root, 'backups');
 	mkdirSync(join(install, 'extensions'), { recursive: true });
-	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.6.0' }));
+	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.6.1' }));
 	const pristine = shellStand();
 	const edited = pristine + '\n// a comment a newer gentle-pi added\n';
 	const path = join(install, 'extensions', 'gentle-shell.ts');
@@ -543,7 +553,7 @@ test('a change outside the anchors does not block the patch', () => {
 	assert.equal(code, 0, 'a change that misses every anchor must not block the patch');
 	assert.match(readFileSync(path, 'utf8'), /LOON banner patch/, 'the file was not patched');
 	assert.equal(readFileSync(path, 'utf8').endsWith('// a comment a newer gentle-pi added\n'), true, 'the patch dropped the new tail');
-	assert.match(output, /gentle-pi 4\.6\.0: \d+ anchors intact, version not tested/);
+	assert.match(output, /gentle-pi 4\.6\.1: \d+ anchors intact, version not tested/);
 });
 
 test('an anchor that occurs twice is refused as ambiguous', () => {
@@ -609,7 +619,7 @@ test('a refusal never blames a healthy anchor, and the notice counts them', () =
 	const install = join(root, 'gentle-pi');
 	const backups = join(root, 'backups');
 	mkdirSync(join(install, 'extensions'), { recursive: true });
-	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.6.0' }));
+	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.6.1' }));
 
 	// A drifted target: one anchor moved, nothing else.
 	const pristine = shellStand();
@@ -632,7 +642,7 @@ test('a refusal never blames a healthy anchor, and the notice counts them', () =
 	assert.equal(applied.code, 0, 'a healthy anchor set must not be refused');
 	assert.match(
 		applied.output,
-		new RegExp('gentle-pi 4\\.6\\.0: ' + shellSpec.edits.length + ' anchors intact, version not tested'),
+		new RegExp('gentle-pi 4\\.6\\.1: ' + shellSpec.edits.length + ' anchors intact, version not tested'),
 		'the notice does not say how many anchors were checked',
 	);
 });
@@ -653,7 +663,7 @@ test('the four patch states, end to end on a copy of the package', async () => {
 	writeFileSync(shellPath, shellText);
 	writeFileSync(bannerPath, bannerText);
 
-	// The stand-ins are not the 4.5.1 build, so the run uses targets pinned to them;
+	// The stand-ins are not the 4.6.0 build, so the run uses targets pinned to them;
 	// everything else - anchors, backup, jiti gate, atomic write - is the real path.
 	const shellV2 = patchText(shellText, shellSpec);
 	assert.ok(shellV2.ok);
@@ -772,7 +782,7 @@ function plantBackup(backups: string, stamp: string, files: Record<string, strin
 	const recorded = Object.entries(files).map(([file, text]) => ({ file, md5: md5(text) }));
 	writeFileSync(
 		join(backups, stamp, 'manifest.json'),
-		JSON.stringify({ version: '4.5.1', at: '2026-01-01T00:00:00.000Z', files: recorded }),
+		JSON.stringify({ version: '4.6.0', at: '2026-01-01T00:00:00.000Z', files: recorded }),
 	);
 }
 
@@ -981,10 +991,13 @@ test('a stock theme keeps the brand, and its header stages, exactly as before', 
 	const model = { modelId: 'gpt-5', effort: 'high', profile: 'reviewer' };
 
 	assert.deepEqual(barBrandSegments(theme, '✿ Gentle Shell', { bold: true }), ['✿ Gentle Shell']);
+	// 4.6.0 added a stage between location and model-only: the brand with the effort
+	// and no location. The patch maps it like every other stage.
 	assert.deepEqual(headerLeftStages(model, theme, true), [
 		['✿ Gentle Shell', '~/proj', 'gpt-5 high · reviewer'],
 		['✿ Gentle Shell', '~/proj', 'gpt-5 high'],
 		['✿ Gentle Shell', '~/proj', 'gpt-5'],
+		['✿ Gentle Shell', 'gpt-5 high'],
 		['✿ Gentle Shell', 'gpt-5'],
 		['✿ Gentle Shell'],
 	]);
@@ -1014,6 +1027,7 @@ test('a theme LOON generated hides the brand without leaving an empty stage', as
 		['~/proj', 'gpt-5 high · reviewer'],
 		['~/proj', 'gpt-5 high'],
 		['~/proj', 'gpt-5'],
+		['gpt-5 high'],
 		['gpt-5'],
 	]);
 	for (const stage of stages) {
