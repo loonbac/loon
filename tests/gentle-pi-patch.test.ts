@@ -118,7 +118,7 @@ test('the banner patch stops the install unless rose is asked for', () => {
 
 test('the menu keeps gentle-pi\'s Banner loop and adds values, never a second row per setting', () => {
 	const shell = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
-	const result = patchText(shellFixture, shell);
+	const result = patchText(shellStand(), shell);
 	assert.ok(result.ok);
 	const text = result.text;
 
@@ -163,12 +163,21 @@ test('the real installed files still match the anchors, when they are here', () 
 const shellSpec = TARGETS.find((target) => target.file === 'extensions/gentle-shell.ts')!;
 
 function shellStand(): string {
-	// The mouse anchor is a class method, so it has to stand inside one: a method body in a
-	// plain function is a parse error, and the gate validates the bytes it is about to write.
+	// Every anchor of the target stands inside something that parses, because the gate
+	// imports the bytes it is about to write: a method anchor needs a method, an interface
+	// field needs an interface, a property needs an object. The import anchor cannot be a
+	// real import here - this stand-in is not a package, and a bare import of an absent file
+	// would make the gate refuse it - so it is held as the text the anchor is made of.
 	return [
-		'export default async function stand() {', ANCHORS.shellInit, '// between', ANCHORS.shellSource, ANCHORS.shellAccent, ANCHORS.shellColor, '// preview', ANCHORS.shellCardPreview, '}',
+		'export default async function stand() {', ANCHORS.shellInit, '// between', ANCHORS.shellSource, ANCHORS.shellAccent, ANCHORS.shellColor, '// preview', ANCHORS.shellCardPreview, '// mark decisions', ANCHORS.shellMarksDecision, '}',
 		'',
-		'export class Editor {', ANCHORS.shellMouse, '}',
+		`const STAND_IMPORT = '${ANCHORS.shellMarksImport}';`,
+		'',
+		'interface StandDeps {', ANCHORS.shellMarksDeps, '}',
+		'',
+		'function standDeps(): StandDeps {', '\treturn {', ANCHORS.shellMarksFactory, '\t};', '}',
+		'',
+		'export class Editor {', ANCHORS.shellMouse, 'render() {', '\t\tconst options = {', ANCHORS.shellMarksFrame, '\t\t};', ANCHORS.shellMarksTopRows, '}', '}',
 		'',
 	].join('\n');
 }
