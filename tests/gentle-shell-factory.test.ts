@@ -32,6 +32,9 @@ const available =
 		? undefined
 		: 'no pristine gentle-pi 4.6.0 sources or no installed package to build them in';
 
+/** The gate's input, chosen by the test rather than inherited from whoever runs it. */
+const WITHOUT_HERDR: NodeJS.ProcessEnv = {};
+
 const SCRATCH: string[] = [];
 after(() => {
 	for (const root of SCRATCH) rmSync(root, { recursive: true, force: true });
@@ -113,6 +116,26 @@ const FLOWERS = ['✿', '❀', '❁', '✾'];
  * id - and the fake host is only what the editor touches while rendering.
  */
 function renderWorkingPrompt(
+	installer: Installer,
+	phases: PhaseRegistry,
+	themeName: string | undefined,
+	env: NodeJS.ProcessEnv = WITHOUT_HERDR,
+): string[] {
+	// The Herdr gate is process-wide (`keepNativeWorkingRow()` reads process.env), so the test
+	// sets it instead of inheriting it: run under a Herdr pane, the product correctly paints no
+	// activity row and an inherited environment would fail a test about the row's content.
+	const saved = process.env.HERDR_ENV;
+	if (env.HERDR_ENV === undefined) delete process.env.HERDR_ENV;
+	else process.env.HERDR_ENV = env.HERDR_ENV;
+	try {
+		return renderWorkingPromptIn(installer, phases, themeName);
+	} finally {
+		if (saved === undefined) delete process.env.HERDR_ENV;
+		else process.env.HERDR_ENV = saved;
+	}
+}
+
+function renderWorkingPromptIn(
 	installer: Installer,
 	phases: PhaseRegistry,
 	themeName: string | undefined,
@@ -225,4 +248,15 @@ test('the mark decision is declared once, inside installPrompt', () => {
 		1,
 		'the installer body is not where the decision is anchored',
 	);
+});
+
+test('under Herdr the row is pi\'s and gentle-pi paints none of its own', { skip: available }, async () => {
+	const { installer, phases } = await loadExtension(patchedPackage());
+	// The gate is declared, not incidental: there pi already draws a loader row, and a second
+	// one would say the same fact twice. Pinned so the choice cannot drift back silently.
+	const rows = renderWorkingPrompt(installer, phases.oddPhaseRegistry, 'Wallpaper (LOON)', { HERDR_ENV: '1' }).map(strip);
+	for (const row of rows) {
+		assert.ok(!AGENT_MARKS.some((mark) => row.includes(mark)), 'gentle-pi painted a mark where that row is pi\'s: ' + JSON.stringify(row));
+		assert.ok(!row.includes('exploring…'), 'gentle-pi painted the activity label twice under Herdr: ' + JSON.stringify(row));
+	}
 });
