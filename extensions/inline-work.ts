@@ -112,6 +112,32 @@ export const INLINE_HEAVY_CALLS = 3;
 export const INLINE_ACCOUNTING_TOOLS: readonly string[] = ['todo', 'mem_', 'orchestrator_'];
 
 /**
+ * The tools that write to the repository: the agent is programming.
+ *
+ * The reasoning collapse turns on here and nowhere else. The owner's rule is
+ * about what the turn *is*, not how busy it looks: a turn of reads, greps and
+ * layout checks is the agent finding out what to do, and hiding its thinking
+ * while it thinks is hiding the answer. Only when it starts changing code does
+ * the block stop being the turn and become work the panel keeps.
+ *
+ * A tool that writes code is a tool that writes code: `edit`, `write` and the
+ * patch appliers. A shell command is not here, because the same `bash` runs
+ * `git status` and `npm test`; counting it would file the reasoning of every
+ * verification turn.
+ */
+export const INLINE_CODING_TOOLS: readonly string[] = ['edit', 'write', 'apply_patch', 'multiedit'];
+
+/**
+ * Whether a tool call is the agent programming rather than inspecting.
+ * @param {string} name the tool name pi reports
+ * @returns {boolean}
+ */
+export function isCodingTool(name: string): boolean {
+	const tool = typeof name === 'string' ? name.trim() : '';
+	return INLINE_CODING_TOOLS.some((entry) => tool === entry);
+}
+
+/**
  * Whether a tool call keeps the record rather than working on the repository.
  * @param {string} name the tool name pi reports
  * @returns {boolean}
@@ -294,6 +320,10 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		// Calls in this turn only: the weight that decides whether its prose is
 		// narration or work. Reset when a turn opens and when one ends.
 		let toolCallsInTurn = 0;
+		// Whether this turn has reached code. Its own flag, because the reasoning
+		// collapse asks a different question than the prose one: not how many calls,
+		// but whether anything is being written. Reset with the count.
+		let codingInTurn = false;
 		let tokens = 0;
 		let cost = 0;
 		// No card exists until the session actually works: an idle session must not
@@ -331,6 +361,9 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			// transcript forever, because a decision is sticky.
 			isLive: () => sessionId !== undefined && !closed && !historyUnread,
 			isHeavy: () => toolCallsInTurn >= INLINE_HEAVY_CALLS,
+			// Reading and verifying are thinking, not programming: a turn that has not
+			// touched code keeps its reasoning in full however many calls it takes.
+			isCoding: () => codingInTurn,
 			closingText: () => closingFull,
 			onThinking: (text: string, streaming: boolean): void => {
 				// Collapsing is not losing: the transcript keeps one line, and the panel
@@ -545,6 +578,7 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			turns = 0;
 			toolCalls = 0;
 			toolCallsInTurn = 0;
+			codingInTurn = false;
 			tokens = 0;
 			cost = 0;
 			written = false;
@@ -588,6 +622,9 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 			toolCalls += 1;
 			// Bookkeeping is not weight: it is the record, not the work.
 			if (!isAccountingTool(event.toolName)) toolCallsInTurn += 1;
+			// The turn is programming from the first write on, and stays so: the
+			// reasoning that follows the edit is the work the panel is for.
+			if (isCodingTool(event.toolName)) codingInTurn = true;
 			// The thread is the transcription the owner opens in the panel: one item
 			// per top-level call, with the arguments that name it.
 			thread = addToolStart(thread, {
@@ -648,8 +685,10 @@ export function createInlineWork(pi: ExtensionAPI, deps: InlineWorkDeps = {}): v
 		}));
 
 		pi.on('agent_end', safeHandler((event: AgentEndEvent, ctx: ExtensionContext): void => {
-			// The turn is over whatever we do next: the next one starts at zero calls.
+			// The turn is over whatever we do next: the next one starts at zero calls,
+			// and having programmed once does not make the next turn programming.
 			toolCallsInTurn = 0;
+			codingInTurn = false;
 			if (closed || !jobOpen) return;
 			const at = now();
 			turnOpen = false;
