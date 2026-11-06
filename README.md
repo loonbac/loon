@@ -76,19 +76,63 @@ aplicado. Sin ese parche no hay interfaz, y la configuración se edita en su arc
 
 ## Instalación
 
-Cárgalo directamente desde un checkout:
-
-```sh
-pi -e /home/loonbac/Proyectos/pi-loon/loon
-```
-
-O instálalo como paquete y lístalo en `packages` en tus ajustes de pi:
+**Gentle-pi es requisito, no opción.** LOON es una capa sobre gentle-pi: lee sus archivos
+(`~/.pi/gentle-ai/`), se engancha a su menú `/gentle:customize` y a su panel de Agents, y
+varias de sus piezas no tienen dónde existir sin él. Si no lo tienes instalado, instalar
+LOON no tiene sentido.
 
 ```sh
 pi install /home/loonbac/Proyectos/pi-loon/loon
 ```
 
-`package.json` declara una extensión (`./extensions/loon-startup.ts`) y ningún tema,
+O cárgalo desde un checkout, sin instalarlo:
+
+```sh
+pi -e /ruta/a/loon
+```
+
+Se instala **completo**. No hay variantes ni un perfil al que le falte algo: banner, color
+automático, barras, tema derivado, las filas de LOON en `/gentle:customize`, el card style
+y el trabajo inline en el panel de Agents.
+
+### El parche se aplica solo, y se repara solo
+
+LOON edita archivos de gentle-pi, y **no hay un paso manual para eso**: instalar LOON es el
+consentimiento. En cada arranque comprueba si sus marcadores siguen ahí y, si no están, los
+vuelve a poner. Eso incluye el caso que antes rompía todo: un `npm update` de gentle-pi o de
+pi reemplaza esos archivos por el build de stock, y el arranque siguiente los repara.
+
+- Si los marcadores están, no cuesta nada: no se lanza ningún proceso.
+- Si cambió gentle-pi de forma y las anclas ya no encajan, **no escribe nada**, conserva la
+  copia de seguridad y te dice el archivo y el motivo. Eso es señal de que hace falta un
+  LOON nuevo.
+- Un fallo del parche nunca impide arrancar: el banner no depende de él.
+
+```
+$ node --experimental-strip-types scripts/gentle-pi-patch.ts check
+extensions/gentle-shell.ts: patched
+lib/shell-bar.ts: patched
+...
+```
+
+### El color no depende de mi escritorio
+
+El acento automático sale de un archivo con una línea `#RRGGBB`. Por defecto se lee el que
+publica mi script de wallpaper, pero puedes apuntar a donde tú generes el color:
+
+```json
+{ "accent": "file", "accentFile": "/ruta/a/tu/color.txt" }
+```
+
+en `~/.pi/agent/loon-tui.json`. Sin configurar nada, la fuente `banner` manda y el acento es
+el que ya elegiste en el menú de gentle-pi. No hay integraciones por herramienta (pywal,
+matugen, wallust): una ruta, y el formato ya está resuelto.
+
+El tema generado se deriva del **tema activo**, así que con `Gruvbox` activo se escribe
+`Gruvbox (LOON)` y pi lo activa. Sin tema activo cae a `Wallpaper (LOON)`, que es lo que las
+instalaciones existentes ya tienen.
+
+`package.json` declara dos extensiones (`loon-startup.ts` e `inline-work.ts`) y ningún tema,
 imagen ni prompt.
 
 ## Pruebas

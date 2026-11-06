@@ -66,8 +66,8 @@ S8. El router no es un acoplamiento: LOON no lo referencia, y ningún otro plugi
 | T1 | S6 | inline | `52e4249` |
 | T2 | S4 | inline | `52e4249` |
 | T3 | S5 | inline | `8bae220` |
-| T4 | S1, S2, S2b, S7 | inline | pendiente de commit |
-| T5 | S1-S7 | inline | — |
+| T4 | S1, S2, S2b, S7 | inline | `b2a90fb` (#219) |
+| T5 | S1-S7 | inline | pendiente |
 
 **Slice boundary.** T1 y T2 cierran el primer slice (`52e4249`, 471 líneas): el parche
 viaja en el paquete y el acento deja de ser propiedad privada de mpvpaper. T3-T5 van en
