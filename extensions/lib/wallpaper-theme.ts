@@ -22,6 +22,37 @@ export const WALLPAPER_THEME_BASE = 'Wallpaper';
 /** The generated theme's name: `Wallpaper (LOON)`. */
 export const WALLPAPER_THEME_NAME = loonThemeName(WALLPAPER_THEME_BASE);
 
+/**
+ * The base name the generated theme is written for. pi activates the theme its settings
+ * name, so the generated theme has to carry the **active** theme's name, not a fixed one:
+ * a person whose active theme is `Gruvbox` needs `Gruvbox (LOON)`, and a file named
+ * `Wallpaper (LOON)` would be written and never seen.
+ *
+ * A name that is absent, empty, or already one of ours is not a base to derive from: an
+ * active LOON theme would nest the suffix on every run, so it keeps today's `Wallpaper`.
+ */
+export function generatedThemeBase(activeTheme: unknown): string {
+	const active = typeof activeTheme === 'string' ? activeTheme.trim() : '';
+	// `isLoonThemeName` is a type predicate that claims the name IS one of ours, so it
+	// narrows `active` to `never` afterwards. The suffix test is written out here instead,
+	// which keeps `active` a plain string for the file-name checks below.
+	if (active.length === 0 || active.endsWith(LOON_THEME_SUFFIX)) return WALLPAPER_THEME_BASE;
+	// The name becomes a file name, and the write happens inside `refresh()`, on the
+	// startup path. A separator would escape the themes directory; a length past the
+	// filesystem's limit would make the write throw there and cost the whole extension.
+	// Both are refused, with the fallback, rather than sanitised into something the person
+	// never chose.
+	if (active.includes('/') || active.includes('\\') || active === '.' || active === '..') return WALLPAPER_THEME_BASE;
+	if (Buffer.byteLength(loonThemeName(active)) > MAX_THEME_FILE_BYTES - '.json'.length) return WALLPAPER_THEME_BASE;
+	return active;
+}
+
+/**
+ * The longest theme file name most filesystems accept, in bytes. `NAME_MAX` is 255 on ext4,
+ * APFS and XFS; the `.json` suffix is subtracted where it is compared.
+ */
+const MAX_THEME_FILE_BYTES = 255;
+
 /** Apply the naming rule once, so a name and its file cannot drift apart. */
 export function loonThemeName(base: string): string {
 	return base.trim() + LOON_THEME_SUFFIX;
@@ -273,12 +304,13 @@ function selectionSurface(hue: number, chroma: number, background: Rgb, ink: Rgb
 	}
 	return best ?? paint(0.3, chroma, hue);
 }/**
- * Derive the whole palette from one accent colour.
+ * Derive the whole palette from one accent colour, named for `base`.
  *
  * Deterministic: the same accent always yields the same theme, and the result is
- * a plain object, so it can be written as JSON or compared in a test.
+ * a plain object, so it can be written as JSON or compared in a test. `base` defaults
+ * to `Wallpaper`, which is the fallback when no active theme is available.
  */
-export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
+export function deriveWallpaperTheme(accent: Rgb, base: string = WALLPAPER_THEME_BASE): LoonThemeFile {
 	const source = rgbToOklch(accent);
 	const H = source.H;
 	// The wallpaper's own chroma, tamed: a neon wallpaper must not turn the
@@ -378,7 +410,7 @@ export function deriveWallpaperTheme(accent: Rgb): LoonThemeFile {
 
 	return {
 		$schema: SCHEMA,
-		name: WALLPAPER_THEME_NAME,
+		name: loonThemeName(base),
 		vars,
 		colors,
 		export: { pageBg: 'bg', cardBg: 'bgElement', infoBg: 'bgPanel' },

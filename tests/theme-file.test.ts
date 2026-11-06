@@ -9,7 +9,13 @@ import {
 	readThemeFile,
 	themesDir,
 } from '../extensions/lib/theme-file.ts';
-import { CARD_SURFACE_CONTRAST, WALLPAPER_THEME_NAME, deriveWallpaperTheme, themeFileName } from '../extensions/lib/wallpaper-theme.ts';
+import {
+	CARD_SURFACE_CONTRAST,
+	WALLPAPER_THEME_NAME,
+	deriveWallpaperTheme,
+	loonThemeName,
+	themeFileName,
+} from '../extensions/lib/wallpaper-theme.ts';
 
 const dir = () => mkdtempSync(join(tmpdir(), 'loon-themes-'));
 const ACCENT: [number, number, number] = [213, 169, 240];
@@ -22,14 +28,51 @@ test('the themes directory is pi’s own agent directory plus /themes', () => {
 	assert.equal(themesDir({ PI_CODING_AGENT_DIR: '/tmp/agent' }, '/home/someone'), join('/tmp/agent', 'themes'));
 });
 
-test('a missing theme is written under the name the rule fixes', () => {
+test('a missing theme is written under the name the rule derives from the active theme', () => {
+	// Inverted by S5: this used to assert the hardcoded `Wallpaper (LOON)` for every
+	// install, which is exactly the defect - pi activates the theme its settings name,
+	// so a person whose active theme was `Gruvbox` got a file nobody ever saw. The rule
+	// now derives `<active> (LOON)`; the `Wallpaper` fallback is asserted below.
+	const active = 'Gruvbox';
+	const expected = loonThemeName(active);
 	const dirPath = dir();
-	const result = ensureWallpaperTheme({ accent: ACCENT, dir: dirPath });
+	const result = ensureWallpaperTheme({ accent: ACCENT, dir: dirPath, activeTheme: active });
 	assert.equal(result.result, 'written');
-	assert.equal(result.path, join(dirPath, themeFileName(WALLPAPER_THEME_NAME)));
+	assert.equal(result.path, join(dirPath, themeFileName(expected)));
+	const written = JSON.parse(readFileSync(result.path, 'utf8')) as { name: string };
+	assert.equal(written.name, expected);
+	assert.deepEqual(readdirSync(dirPath), [themeFileName(expected)], 'a temporary file survived');
+});
+
+/* S5: the active theme names the file; an absent or empty name keeps today's file. */
+
+test('an unavailable or empty active theme falls back to Wallpaper (LOON)', () => {
+	for (const activeTheme of [undefined, '', '   ', null]) {
+		const dirPath = dir();
+		const result = ensureWallpaperTheme({ accent: ACCENT, dir: dirPath, activeTheme });
+		assert.equal(result.path, join(dirPath, themeFileName(WALLPAPER_THEME_NAME)), String(activeTheme));
+		const written = JSON.parse(readFileSync(result.path, 'utf8')) as { name: string };
+		assert.equal(written.name, WALLPAPER_THEME_NAME, String(activeTheme));
+	}
+});
+
+test('an active theme that is already ours is not derived from itself', () => {
+	const dirPath = dir();
+	const result = ensureWallpaperTheme({ accent: ACCENT, dir: dirPath, activeTheme: WALLPAPER_THEME_NAME });
+	assert.equal(result.path, join(dirPath, themeFileName(WALLPAPER_THEME_NAME)), 'the suffix nested');
 	const written = JSON.parse(readFileSync(result.path, 'utf8')) as { name: string };
 	assert.equal(written.name, WALLPAPER_THEME_NAME);
-	assert.deepEqual(readdirSync(dirPath), [themeFileName(WALLPAPER_THEME_NAME)], 'a temporary file survived');
+});
+
+test('a theme belonging to another name is never rewritten or removed', () => {
+	const dirPath = dir();
+	const previous = ensureWallpaperTheme({ accent: ACCENT, dir: dirPath });
+	const before = readFileSync(previous.path, 'utf8');
+	const next = ensureWallpaperTheme({ accent: ACCENT, dir: dirPath, activeTheme: 'Gruvbox' });
+	assert.equal(next.result, 'written');
+	assert.notEqual(next.path, previous.path);
+	assert.equal(readFileSync(previous.path, 'utf8'), before, 'the previous theme was rewritten or removed');
+	assert.deepEqual(readdirSync(dirPath).sort(), [themeFileName(loonThemeName('Gruvbox')), themeFileName(WALLPAPER_THEME_NAME)].sort());
 });
 
 test('a fresh theme is left alone, a stale one is regenerated', () => {
