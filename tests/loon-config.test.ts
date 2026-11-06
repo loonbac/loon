@@ -7,6 +7,7 @@ import {
 	ACCENT_SOURCES,
 	BANNER_SOURCES,
 	DEFAULT_LOON_SETTINGS,
+	defaultAccentFile,
 	LOON_CONFIG_FILE_NAME,
 	parseLoonSettings,
 	piConfigHome,
@@ -21,15 +22,21 @@ const home = () => mkdtempSync(join(tmpdir(), 'loon-config-'));
 
 test('a missing file means the defaults', () => {
 	assert.deepEqual(readLoonSettings('/nonexistent/pi-home'), DEFAULT_LOON_SETTINGS);
-	assert.deepEqual(DEFAULT_LOON_SETTINGS, { enabled: true, accent: 'banner', mark: true, source: 'loon' });
+	assert.deepEqual(DEFAULT_LOON_SETTINGS, {
+		enabled: true,
+		accent: 'banner',
+		accentFile: defaultAccentFile(),
+		mark: true,
+		source: 'loon',
+	});
 	assert.deepEqual(parseLoonSettings(undefined), DEFAULT_LOON_SETTINGS);
 });
 
 test('malformed or foreign content falls back per field', () => {
 	assert.deepEqual(parseLoonSettings('{ broken'), DEFAULT_LOON_SETTINGS);
 	assert.deepEqual(parseLoonSettings('[1,2,3]'), DEFAULT_LOON_SETTINGS);
-	assert.deepEqual(parseLoonSettings(JSON.stringify({ enabled: false })), { enabled: false, accent: 'banner', mark: true, source: 'loon' });
-	assert.deepEqual(parseLoonSettings(JSON.stringify({ mark: false })), { enabled: true, accent: 'banner', mark: false, source: 'loon' });
+	assert.deepEqual(parseLoonSettings(JSON.stringify({ enabled: false })), { ...DEFAULT_LOON_SETTINGS, enabled: false });
+	assert.deepEqual(parseLoonSettings(JSON.stringify({ mark: false })), { ...DEFAULT_LOON_SETTINGS, mark: false });
 	// gentle-pi's menu owns `source`; anything it cannot mean is LOON's default.
 	assert.deepEqual(parseLoonSettings(JSON.stringify({ source: 'rose' })), { ...DEFAULT_LOON_SETTINGS, source: 'rose' });
 	assert.deepEqual(parseLoonSettings(JSON.stringify({ source: 'off' })), { ...DEFAULT_LOON_SETTINGS, source: 'off' });
@@ -38,18 +45,18 @@ test('malformed or foreign content falls back per field', () => {
 	assert.deepEqual(parseLoonSettings(JSON.stringify({ mark: 'off' })), DEFAULT_LOON_SETTINGS);
 	assert.deepEqual(parseLoonSettings(JSON.stringify({ accent: 'neon' })), DEFAULT_LOON_SETTINGS);
 	assert.deepEqual(parseLoonSettings(JSON.stringify({ enabled: 'off', accent: 'theme', extra: 1 })), {
+		...DEFAULT_LOON_SETTINGS,
 		enabled: true,
 		accent: 'theme',
-		mark: true,
-		source: 'loon',
 	});
 });
 
 test('what is written is what is read back', () => {
 	const dir = home();
-	const path = writeLoonSettings({ enabled: false, accent: 'theme', mark: false, source: 'rose' }, dir);
+	const written = { ...DEFAULT_LOON_SETTINGS, enabled: false, accent: 'theme' as const, mark: false, source: 'rose' as const };
+	const path = writeLoonSettings(written, dir);
 	assert.equal(path, join(dir, LOON_CONFIG_FILE_NAME));
-	assert.deepEqual(readLoonSettings(dir), { enabled: false, accent: 'theme', mark: false, source: 'rose' });
+	assert.deepEqual(readLoonSettings(dir), written);
 	assert.equal(JSON.parse(readFileSync(path, 'utf8')).enabled, false);
 	assert.equal(JSON.parse(readFileSync(path, 'utf8')).mark, false);
 });
@@ -72,7 +79,9 @@ test('an unreadable file is the defaults, not a crash', () => {
 test('the settings file lives in pi’s own config home', () => {
 	assert.equal(piConfigHome({ PI_CODING_AGENT_DIR: '/tmp/agent' }, '/home/someone'), '/tmp/agent');
 	assert.equal(piConfigHome({}, '/home/someone'), join('/home/someone', '.pi', 'agent'));
-	assert.deepEqual([...ACCENT_SOURCES], ['theme', 'banner', 'wallpaper']);
+	// The set is closed on purpose: a source that is not read is not a source. `file`
+	// joined it when the accent stopped being mpvpaper's private property.
+	assert.deepEqual([...ACCENT_SOURCES], ['theme', 'banner', 'wallpaper', 'file']);
 	assert.deepEqual(parseLoonSettings(JSON.stringify({ accent: 'wallpaper' })), {
 		...DEFAULT_LOON_SETTINGS,
 		accent: 'wallpaper',

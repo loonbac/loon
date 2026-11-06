@@ -11,7 +11,12 @@ import { VERSION, type ExtensionAPI, type ExtensionContext } from '@earendil-wor
 import type { Component, TUI } from '@earendil-works/pi-tui';
 import { renderBanner } from './lib/banner.ts';
 import { watchConfigDirs } from './lib/config-watch.ts';
-import { readWallpaperAccent, wallpaperAccentDir, wallpaperAccentPath } from './lib/wallpaper-accent.ts';
+import {
+	accentPath,
+	accentWatchDirs,
+	readAccentFrom,
+	wallpaperAccentPath,
+} from './lib/wallpaper-accent.ts';
 import { ensureWallpaperTheme, themesDir, type EnsureOutcome } from './lib/theme-file.ts';
 import {
 	gentleConfigHome,
@@ -208,8 +213,14 @@ interface HeaderDeps {
 	accent(): AccentSource;
 	/** LOON's own mark switch, read per render. */
 	mark(): boolean;
-	/** The wallpaper accent, already parsed; undefined falls back to the theme. */
-	wallpaper(): Rgb | undefined;
+	/** The configured accent file, read per render so a change lands on the next paint. */
+	accentFile(): string;
+	/**
+	 * The accent of the *selected* source, already parsed: the configured `accentFile`
+	 * for `file`, the wallpaper script's own file for `wallpaper`. Undefined falls back
+	 * to the theme, which is what a machine with neither gets.
+	 */
+	wallpaper(settings: Pick<LoonSettings, 'accent' | 'accentFile'>): Rgb | undefined;
 	/** Read per render so a theme change is picked up without reinstalling. */
 	theme(): LoonTheme & { name?: string };
 	/** Shared with the watchdog: a render is the proof that we own the header. */
@@ -229,12 +240,14 @@ class LoonHeader implements Component {
 		const gentle = this.deps.gentle();
 		const bannerRgb = gentle.accentColor === undefined ? undefined : ACCENT_RGB[gentle.accentColor];
 		const theme = this.deps.theme();
-		const wallpaperRgb = this.deps.wallpaper();
+		const accent = this.deps.accent();
+		const accentFile = this.deps.accentFile();
+		const wallpaperRgb = this.deps.wallpaper({ accent, accentFile });
 		// The setting alone decides, whatever theme is active: a shortcut that made the
 		// generated theme follow the wallpaper left `accent: theme` with no effect at all,
 		// and it went stale the moment the generated theme lifted its accent for contrast.
 		// Derived at paint time; the setting file is never rewritten for it.
-		const accentRgb = resolveAccentRgb(this.deps.accent(), bannerRgb, wallpaperRgb);
+		const accentRgb = resolveAccentRgb(accent, bannerRgb, wallpaperRgb);
 		return renderBanner({
 			width,
 			version: snapshot.version,
@@ -269,14 +282,26 @@ export interface LoonDeps {
 	 */
 	patchMissing?(): string[];
 	write(settings: LoonSettings): void;
-	/** Report every change to either config home; returns the disposer. */
-	watch(onChange: () => void): () => void;
-	/** The wallpaper accent, parsed; undefined falls back to the theme. */
-	wallpaper(): Rgb | undefined;
+	/** Report every change to either config home or the accent file's; returns the disposer. */
+	watch(onChange: () => void, settings: Pick<LoonSettings, 'accent' | 'accentFile'>): () => void;
+	/**
+	 * The accent of the source the settings select, parsed. Undefined falls back to the
+	 * theme. The settings are the argument because the path depends on `accent` and
+	 * `accentFile`, and a reader bound at construction would freeze the old path.
+	 */
+	wallpaper(settings: Pick<LoonSettings, 'accent' | 'accentFile'>): Rgb | undefined;
 	/** Make sure the generated theme exists and matches this accent. */
-	ensureTheme(accent: Rgb | undefined): EnsureOutcome;
+	ensureTheme(accent: Rgb | undefined, settings: Pick<LoonSettings, 'accent' | 'accentFile'>): EnsureOutcome;
 	/** Seam for the tests: the watchdog's clock. */
 	clock?: WatchdogClock;
+}
+
+/**
+ * The mtime the theme freshness check compares against. A source that reads no file has
+ * no mtime, and `undefined` is exactly what "always regenerate" means there.
+ */
+function modifiedAtOf(path: string | undefined): number | undefined {
+	return path === undefined ? undefined : accentModifiedAt(path);
 }
 
 export const defaultLoonDeps: LoonDeps = {
@@ -284,22 +309,23 @@ export const defaultLoonDeps: LoonDeps = {
 	write: (settings) => {
 		writeLoonSettings(settings, piConfigHome());
 	},
-	wallpaper: () => readWallpaperAccent(),
+	wallpaper: (settings) => readAccentFrom(accentPath(settings)),
 	// Read-only by construction: the notice never writes into the package, because a
 	// write during session start is exactly how a half-finished update goes silent.
 	patchMissing: () => {
 		const install = installedGentlePi();
 		return install === undefined ? [] : missingPatches(install);
 	},
-	ensureTheme: (accent) =>
+	ensureTheme: (accent, settings) =>
 		ensureWallpaperTheme({
 			accent,
 			dir: themesDir(),
-			accentModifiedAt: accentModifiedAt(wallpaperAccentPath()),
+			accentModifiedAt: modifiedAtOf(accentPath(settings)),
 		}),
 	// The wallpaper script replaces accent.txt atomically, so its inode changes on
 	// every wallpaper: the directory is watched, never the file.
-	watch: (onChange) => watchConfigDirs([gentleConfigHome(), piConfigHome(), wallpaperAccentDir()], onChange),
+	watch: (onChange, settings) =>
+		watchConfigDirs([gentleConfigHome(), piConfigHome(), ...accentWatchDirs(settings)], onChange),
 };
 
 export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
@@ -384,6 +410,7 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 				gentle: () => state?.gentle ?? gentle,
 				accent: () => state?.loon.accent ?? loon.accent,
 				mark: () => state?.loon.mark ?? loon.mark,
+				accentFile: () => state?.loon.accentFile ?? loon.accentFile,
 				wallpaper: () => wallpaperRgb,
 				theme: () => ctx.ui.theme ?? fallbackTheme,
 				health,
@@ -412,11 +439,12 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 		cancelPending();
 		health.lastRenderAt = 0;
 		state = deps.read();
-		wallpaperRgb = deps.wallpaper();
+		const currentSettings = state.loon;
+		wallpaperRgb = deps.wallpaper(currentSettings);
 		// Regenerate the theme when it is missing or older than the accent it came
 		// from; on a wallpaper change this runs again, which is what makes the open
 		// session recolour through pi's own theme watcher.
-		deps.ensureTheme(wallpaperRgb);
+		deps.ensureTheme(wallpaperRgb, currentSettings);
 		const applied = apply(ctx);
 		cancelWatchdog();
 		if (applied && ownsTopSlot()) {
@@ -439,11 +467,11 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 			disposeWatch?.();
 			disposeWatch = deps.watch(() => {
 				const next = deps.read();
-				const nextWallpaper = deps.wallpaper();
+				const nextWallpaper = deps.wallpaper(next.loon);
 				const sameSettings = state !== undefined && sameLoonSettings(state.loon, next.loon) && sameGentleSettings(state.gentle, next.gentle);
 				if (sameSettings && sameRgb(wallpaperRgb, nextWallpaper)) return;
 				refresh(ctx);
-			});
+			}, state?.loon ?? deps.read().loon);
 		}, 0);
 		timer.unref?.();
 	});
