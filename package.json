@@ -23,6 +23,9 @@
   },
   "files": [
     "extensions",
+    "scripts/gentle-pi-patch.ts",
+    "scripts/apply-inline-carrier-patch.mjs",
+    "scripts/inline-job.mjs",
     "NOTICE",
     "README.md",
     "LICENSE"

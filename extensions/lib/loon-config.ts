@@ -7,11 +7,27 @@
  */
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 /** Where pi keeps its own agent configuration. */
 export function piConfigHome(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
 	return env.PI_CODING_AGENT_DIR || join(home, '.pi', 'agent');
+}
+
+/**
+ * Where the agent keeps its own state, which is also where a person may drop the accent
+ * file. gentle-pi moves this directory too, so both overrides are honoured.
+ */
+export function piAgentHome(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
+	for (const candidate of [env.PI_CODING_AGENT_DIR, env.GENTLE_PI_AGENT_HOME]) {
+		if (candidate !== undefined && candidate !== '' && isAbsolute(candidate)) return candidate;
+	}
+	return join(home, '.pi', 'agent');
+}
+
+/** The accent file LOON reads when nobody configured one. */
+export function defaultAccentFile(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
+	return join(piAgentHome(env, home), 'state', 'loon-accent.txt');
 }
 
 export const LOON_CONFIG_FILE_NAME = 'loon-tui.json';
@@ -21,7 +37,7 @@ export const LOON_CONFIG_FILE_NAME = 'loon-tui.json';
  * or the wallpaper accent published by the desktop. `banner` stays the default, so
  * a colour already chosen in gentle-pi's menu is honoured.
  */
-export const ACCENT_SOURCES = ['theme', 'banner', 'wallpaper'] as const;
+export const ACCENT_SOURCES = ['theme', 'banner', 'wallpaper', 'file'] as const;
 
 export type AccentSource = (typeof ACCENT_SOURCES)[number];
 
@@ -42,6 +58,12 @@ export interface LoonSettings {
 	/** When false, LOON paints nothing and never reclaims the header. */
 	enabled: boolean;
 	accent: AccentSource;
+	/**
+	 * An absolute path to a file holding one `#RRGGBB` line, read when `accent` is
+	 * `file`. A relative path is not a path here: it would resolve against whatever cwd
+	 * pi happened to start in, so it is refused rather than half-honoured.
+	 */
+	accentFile: string;
 	/** The Pi mark. LOON's own switch: gentle-pi's `showTextLogo` is not this. */
 	mark: boolean;
 	/** Who paints the banner. LOON paints only when this is `loon`. */
@@ -52,7 +74,13 @@ export interface LoonSettings {
  * gentle-pi's `banner.json` already carries a colour the person picked in its own
  * menu, so that colour wins until someone asks for the theme's accent instead.
  */
-export const DEFAULT_LOON_SETTINGS: LoonSettings = { enabled: true, accent: 'banner', mark: true, source: 'loon' };
+export const DEFAULT_LOON_SETTINGS: LoonSettings = {
+	enabled: true,
+	accent: 'banner',
+	accentFile: defaultAccentFile(),
+	mark: true,
+	source: 'loon',
+};
 
 export function loonConfigPath(home: string): string {
 	return join(home, LOON_CONFIG_FILE_NAME);
@@ -78,12 +106,16 @@ export function parseLoonSettings(raw: string | undefined): LoonSettings {
 		typeof parsed.accent === 'string' && (ACCENT_SOURCES as readonly string[]).includes(parsed.accent)
 			? (parsed.accent as AccentSource)
 			: DEFAULT_LOON_SETTINGS.accent;
+	const accentFile =
+		typeof parsed.accentFile === 'string' && isAbsolute(parsed.accentFile) && parsed.accentFile !== ''
+			? parsed.accentFile
+			: DEFAULT_LOON_SETTINGS.accentFile;
 	const mark = typeof parsed.mark === 'boolean' ? parsed.mark : DEFAULT_LOON_SETTINGS.mark;
 	const source =
 		typeof parsed.source === 'string' && (BANNER_SOURCES as readonly string[]).includes(parsed.source)
 			? (parsed.source as BannerSource)
 			: DEFAULT_LOON_SETTINGS.source;
-	return { enabled, accent, mark, source };
+	return { enabled, accent, accentFile, mark, source };
 }
 
 export function readLoonSettings(home: string): LoonSettings {
@@ -117,5 +149,11 @@ export function writeLoonSettings(settings: LoonSettings, home: string): string 
 
 /** True when two settings would draw and place the same banner. */
 export function sameLoonSettings(a: LoonSettings, b: LoonSettings): boolean {
-	return a.enabled === b.enabled && a.accent === b.accent && a.mark === b.mark && a.source === b.source;
+	return (
+		a.enabled === b.enabled &&
+		a.accent === b.accent &&
+		a.accentFile === b.accentFile &&
+		a.mark === b.mark &&
+		a.source === b.source
+	);
 }
