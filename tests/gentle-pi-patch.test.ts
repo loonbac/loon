@@ -169,7 +169,7 @@ function shellStand(): string {
 	// real import here - this stand-in is not a package, and a bare import of an absent file
 	// would make the gate refuse it - so it is held as the text the anchor is made of.
 	return [
-		'export default async function stand() {', ANCHORS.shellInit, '// between', ANCHORS.shellSource, ANCHORS.shellAccent, ANCHORS.shellColor, '// preview', ANCHORS.shellCardPreview, '// mark decisions', ANCHORS.shellMarksDecision, '}',
+		'export default async function stand() {', ANCHORS.shellInit, '// between', ANCHORS.shellSource, ANCHORS.shellAccent, ANCHORS.shellColor, '// preview', ANCHORS.shellCardPreview, '// the prompt owner', ANCHORS.shellMarksScope, '}',
 		'',
 		`const STAND_IMPORT = '${ANCHORS.shellMarksImport}';`,
 		'',

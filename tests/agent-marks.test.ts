@@ -278,7 +278,13 @@ test('the activity row is wired through the row the editor already draws, and ne
 	assert.match(emitted, /agentMarks: this\.deps\.agentMarks\?\.\(\) \?\? false,/, 'the flag never reaches the prompt frame');
 	assert.match(emitted, /topRows\.push\(agentActivityRow\(/, 'the activity row is not added to the rows above the editor');
 	assert.match(emitted, /name\.endsWith\(" \(LOON\)"\)/, 'the theme convention is not the one the rest of the patch uses');
-	assert.match(emitted, /activityRow: \(\) => loonMarks\(\) && !keepNativeWorkingRow\(env\)/, 'the row would be painted while Pi paints its own');
+	// The Herdr gate, and the reason it takes no argument: `installPrompt` is module level, so
+	// the handler's `env` is not in reach there. Only the declaration inside the installer and
+	// this delegate may mention the decision - a second one elsewhere is the free identifier
+	// that took the extension down (tests/gentle-shell-factory.test.ts runs the factory).
+	assert.match(emitted, /activityRow: \(\) => loonMarks\(\) && !keepNativeWorkingRow\(\),/, 'the row would be painted while Pi paints its own');
+	assert.ok(!/keepNativeWorkingRow\(env\)/.test(emitted), 'the injected text reads an `env` that is not in scope where it lands');
+	assert.equal(emitted.split('const loonMarks =').length - 1, 1, 'the decision is declared more than once in the file');
 
 	// The row goes after the shell's own rows, so their indices and clicks do not move.
 	const pushAt = emitted.indexOf('topRows.push(agentActivityRow(');

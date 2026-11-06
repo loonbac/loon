@@ -553,17 +553,22 @@ const SHELL_MARKS_TOPROWS_REPLACEMENT = [
 	'\t\t}',
 ].join('\n');
 
-const SHELL_MARKS_DECISION_ANCHOR = '\t\tvoid refreshUsage(ctx, true);';
-const SHELL_MARKS_DECISION_REPLACEMENT = [
-	'\t\tvoid refreshUsage(ctx, true);',
-	'\t\t// LOON banner patch: a theme LOON generated marks itself with " (LOON)" at the end',
-	'\t\t// of its name - the convention lib/shell-bar.ts already reads - and that one fact',
-	'\t\t// swaps the rose for the Agent marks. The row is painted unless Pi draws its own',
-	'\t\t// loader row here (Herdr), where a second one would be the same fact twice.',
-	'\t\tconst loonMarks = () => {',
-	'\t\t\tconst name = (ctx.ui.theme as { name?: unknown }).name;',
-	'\t\t\treturn typeof name === "string" && name.endsWith(" (LOON)");',
-	'\t\t};',
+// The decision lives inside installPrompt, because installPrompt is a module-level function:
+// a delegate that closes over the session_start handler's locals is a free identifier there,
+// the factory runs when pi builds the editor at startup, and the ReferenceError takes the
+// whole extension down with it. This is the anchor that keeps the two in the same scope.
+const SHELL_MARKS_SCOPE_ANCHOR = '\tconst previous = ctx.ui.getEditorComponent() as PromptFactory | undefined;';
+const SHELL_MARKS_SCOPE_REPLACEMENT = [
+	'\tconst previous = ctx.ui.getEditorComponent() as PromptFactory | undefined;',
+	'\t// LOON banner patch: the theme is read HERE, inside installPrompt, and not in the',
+	'\t// session_start handler that calls it - that handler declares its own bindings, and',
+	'\t// this function is module-level, so closing over them would be a free identifier the',
+	'\t// factory only trips over at startup. The theme name is the one convention',
+	'\t// lib/shell-bar.ts already reads.',
+	'\tconst loonMarks = () => {',
+	'\t\tconst name = (ctx.ui.theme as { name?: unknown }).name;',
+	'\t\treturn typeof name === "string" && name.endsWith(" (LOON)");',
+	'\t};',
 ].join('\n');
 
 const SHELL_MARKS_FACTORY_ANCHOR =
@@ -571,7 +576,9 @@ const SHELL_MARKS_FACTORY_ANCHOR =
 const SHELL_MARKS_FACTORY_REPLACEMENT = [
 	'\t\t\tworkingLabel: () => oddPhaseRegistry.label(ctx.sessionManager.getSessionId()),',
 	'\t\t\tagentMarks: loonMarks,',
-	'\t\t\tactivityRow: () => loonMarks() && !keepNativeWorkingRow(env),',
+	'\t\t\t// keepNativeWorkingRow() reads process.env, which is the env this extension starts',
+	'\t\t\t// with; the handler\'s own `env` is not in scope here for the same reason.',
+	'\t\t\tactivityRow: () => loonMarks() && !keepNativeWorkingRow(),',
 ].join('\n');
 
 // The native Banner loop is left exactly as gentle-pi writes it: the 4.6.0 loop already
@@ -646,7 +653,7 @@ export const ANCHORS = {
 	shellMarksDeps: SHELL_MARKS_DEPS_ANCHOR,
 	shellMarksFrame: SHELL_MARKS_FRAME_ANCHOR,
 	shellMarksTopRows: SHELL_MARKS_TOPROWS_ANCHOR,
-	shellMarksDecision: SHELL_MARKS_DECISION_ANCHOR,
+	shellMarksScope: SHELL_MARKS_SCOPE_ANCHOR,
 	shellMarksFactory: SHELL_MARKS_FACTORY_ANCHOR,
 	shellMouse: SHELL_MOUSE_ANCHOR,
 
@@ -658,8 +665,8 @@ export const TARGETS: TargetSpec[] = [
 		md5: '870867458af13b1a6a411b4a4e3cd5b2',
 		// Newest first: the patch before the Agent marks, the patch before the mark row, the patch
 		// before the theme accent, then the older patched states from before the v2 rows.
-		md5PatchedV1: ['bc7197600a9f1482ed4e86bd1119b4d8', '7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
-		md5Patched: '9c77666b43b7aa6fbe3f761dee03d624',
+		md5PatchedV1: ['9c77666b43b7aa6fbe3f761dee03d624', 'bc7197600a9f1482ed4e86bd1119b4d8', '7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
+		md5Patched: '871cf1d257931ed743fd6067fd9819fa',
 		v2Marker: 'Banner color: wallpaper',
 		edits: [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
@@ -674,7 +681,7 @@ export const TARGETS: TargetSpec[] = [
 			{ anchor: SHELL_MARKS_DEPS_ANCHOR, replacement: SHELL_MARKS_DEPS_REPLACEMENT },
 			{ anchor: SHELL_MARKS_FRAME_ANCHOR, replacement: SHELL_MARKS_FRAME_REPLACEMENT },
 			{ anchor: SHELL_MARKS_TOPROWS_ANCHOR, replacement: SHELL_MARKS_TOPROWS_REPLACEMENT },
-			{ anchor: SHELL_MARKS_DECISION_ANCHOR, replacement: SHELL_MARKS_DECISION_REPLACEMENT },
+			{ anchor: SHELL_MARKS_SCOPE_ANCHOR, replacement: SHELL_MARKS_SCOPE_REPLACEMENT },
 			{ anchor: SHELL_MARKS_FACTORY_ANCHOR, replacement: SHELL_MARKS_FACTORY_REPLACEMENT },
 		],
 	},
