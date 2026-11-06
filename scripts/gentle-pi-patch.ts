@@ -294,6 +294,286 @@ const SHELL_PROMPT_4_ANCHOR = '\tconst clipped = truncateToWidth(line, layout.na
 const SHELL_PROMPT_4_REPLACEMENT = '\tconst clipped = truncateToWidth(line, layout.nativeWidth, "");\n\tconst padding = " ".repeat(Math.max(0, layout.nativeWidth - visibleWidth(clipped)));\n\tif (layout.chrome === "loon") {\n\t\t// The rule lives INSIDE the surface: column 0 is a plain margin, and the glyph is the\n\t\t// first painted cell. The rule is a quarter block, so a cell carrying no background\n\t\t// leaves a dark hole around it - the rule floats, brighter than the band it guards.\n\t\t// The row still starts with a bare space, for the same reason the float row does: a\n\t\t// row whose first cell is an escape loses its ESC when the prompt editor trims that\n\t\t// cell. The glyph takes a theme role, never the terminal default colour, so it cannot\n\t\t// outshine the band. Text keeps column 2 and the surface closes on the last column,\n\t\t// where the bar closes its own.\n\t\tconst content = borderColor("▎") + clipped + padding + "  ";\n\t\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m";\n\t}\n\tconst content = borderColor("▎") + " " + clipped + padding + " ";\n\treturn " " + layout.background + rearmPromptBackground(content, layout.background) + "\\x1b[49m ";';
 const SHELL_PROMPT_5_ANCHOR = '\tif (layout.background && lines.length >= 2) {\n\t\treturn [\n\t\t\tfloatPromptRow(floatPromptHint(lines[0], lines[lines.length - 1], options, layout.nativeWidth).slice(2), layout, options.borderColor),\n\t\t\t...lines.slice(1, -1).map((line) => floatPromptRow(line, layout, options.borderColor)),\n\t\t\tfloatPromptRow("", layout, options.borderColor),\n\t\t];\n\t}\n';
 const SHELL_PROMPT_5_REPLACEMENT = '\tif (layout.background && lines.length >= 2) {\n\t\t// The band opens and closes with an empty surface row. Without the one above, the\n\t\t// surface started on the hint itself, which reads as text pressed against the top\n\t\t// edge; both rows are painted at the same width, so nothing else moves.\n\t\treturn [\n\t\t\tfloatPromptRow("", layout, options.borderColor),\n\t\t\tfloatPromptRow(floatPromptHint(lines[0], lines[lines.length - 1], options, layout.nativeWidth).slice(2), layout, options.borderColor),\n\t\t\t...lines.slice(1, -1).map((line) => floatPromptRow(line, layout, options.borderColor)),\n\t\t\tfloatPromptRow("", layout, options.borderColor),\n\t\t];\n\t}\n';
+// LOON glyphs: the rose becomes the Agent marks, but only under a theme LOON generated.
+// The mark and the spinner are the owner's, verbatim: «cuando trabaje el agente no salga ✿
+// este glifo, cambialo por ✻ · ✢ ✳ ✶ ✻ ✽ ⏺ … eso cambiara solo si tengo el theme de
+// LOON puesto en el gentle:customize». PROMPT_PETAL keeps its exact bytes, because every
+// other theme renders through it; petalGlyph decides per call.
+const SHELL_PROMPT_GLYPHS_ANCHOR = 'export const PROMPT_PETAL = "✿";\nconst PETAL_FRAMES = ["✿", "❀", "❁", "✾"] as const;';
+const SHELL_PROMPT_GLYPHS_REPLACEMENT = [
+	'// LOON banner patch: the Agent marks - ✻ at rest, and seven marks spinning while the',
+	'// agent works - shown instead of the rose, only under a theme LOON generated.',
+	'export const PROMPT_PETAL = "✿";',
+	'const PETAL_FRAMES = ["✿", "❀", "❁", "✾"] as const;',
+	'export const AGENT_MARK_GLYPH = "✻";',
+	'const AGENT_MARK_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽", "⏺"] as const;',
+].join('\n');
+
+const SHELL_PROMPT_PETAL_ANCHOR = [
+	'export function petalGlyph(state: PromptState, tick: number): string {',
+	'\tif (state === PROMPT_STATE.IDLE) return PROMPT_PETAL;',
+	'\treturn PETAL_FRAMES[tick % PETAL_FRAMES.length];',
+	'}',
+].join('\n');
+const SHELL_PROMPT_PETAL_REPLACEMENT = [
+	'export function petalGlyph(state: PromptState, tick: number, agentMarks = false): string {',
+	'\t// LOON banner patch: one decision, taken by the caller from the active theme\'s name.',
+	'\t// At rest the mark stands still; while working it spins through the Agent marks.',
+	'\tif (agentMarks) {',
+	'\t\tif (state === PROMPT_STATE.IDLE) return AGENT_MARK_GLYPH;',
+	'\t\treturn AGENT_MARK_FRAMES[tick % AGENT_MARK_FRAMES.length];',
+	'\t}',
+	'\tif (state === PROMPT_STATE.IDLE) return PROMPT_PETAL;',
+	'\treturn PETAL_FRAMES[tick % PETAL_FRAMES.length];',
+	'}',
+].join('\n');
+
+// The flag the prompt frame needs. It is a decision taken from the theme's name and handed
+// down as a boolean, because this options object deliberately has no theme in it.
+const SHELL_PROMPT_FLAG_ANCHOR = '\tpanelButton?: boolean;';
+const SHELL_PROMPT_FLAG_REPLACEMENT = [
+	'\tpanelButton?: boolean;',
+	'\t/**',
+	'\t * LOON banner patch: true when the active theme is one LOON generated. The rose',
+	'\t * becomes the Agent mark, and while WORKING the activity leaves this frame for the',
+	'\t * row above the prompt, so the frame paints neither the mark nor the label.',
+	'\t */',
+	'\tagentMarks?: boolean;',
+].join('\n');
+
+const SHELL_PROMPT_TOPRULE_ANCHOR = [
+	'function topRule(width: number, options: PromptFrameOptions, indicator: string | undefined): string {',
+	'\tconst label = indicator ?? stateLabel(options);',
+	'\tconst scanning = options.state === PROMPT_STATE.WORKING;',
+	'\tconst glyph = petalGlyph(options.state, options.tick);',
+	'\tconst petal = options.fg(petalTone(options.state, options.tick), options.bold ? options.bold(glyph) : glyph);',
+	'\tconst paintedLabel = label && scanning && !indicator ? scanWorkingText(label, options.tick, options.fg) : label ? options.fg(LABEL_ROLE, label) : "";',
+	'\tconst title = [petal, paintedLabel].filter(Boolean).join(" ");',
+	'\tconst titleWidth = visibleWidth(glyph) + (label ? visibleWidth(label) + (glyph ? 1 : 0) : 0);',
+	'\tconst fill = width - titleWidth - 5;',
+	'\tif (fill < 0) return options.borderColor(`╭${rule(width - 2)}╮`);',
+	'\treturn options.borderColor("╭─ ") + title + options.borderColor(` ${rule(fill)}╮`);',
+	'}',
+].join('\n');
+const SHELL_PROMPT_TOPRULE_REPLACEMENT = [
+	'function topRule(width: number, options: PromptFrameOptions, indicator: string | undefined): string {',
+	'\t// LOON banner patch: while a theme LOON generated is working, the activity row above',
+	'\t// the prompt carries both the mark and the label, so this rule carries neither. A',
+	'\t// scroll indicator is not that activity, so it stays.',
+	'\tconst moved = options.agentMarks === true && options.state === PROMPT_STATE.WORKING && indicator === undefined;',
+	'\tconst label = moved ? undefined : indicator ?? stateLabel(options);',
+	'\tconst scanning = options.state === PROMPT_STATE.WORKING;',
+	'\tconst glyph = moved ? "" : petalGlyph(options.state, options.tick, options.agentMarks);',
+	'\tconst petal = glyph ? options.fg(petalTone(options.state, options.tick), options.bold ? options.bold(glyph) : glyph) : "";',
+	'\tconst paintedLabel = label && scanning && !indicator ? scanWorkingText(label, options.tick, options.fg) : label ? options.fg(LABEL_ROLE, label) : "";',
+	'\tconst title = [petal, paintedLabel].filter(Boolean).join(" ");',
+	'\tconst titleWidth = visibleWidth(glyph) + (label ? visibleWidth(label) + (glyph ? 1 : 0) : 0);',
+	'\tconst fill = width - titleWidth - 5;',
+	'\tif (fill < 0) return options.borderColor(`╭${rule(width - 2)}╮`);',
+	'\treturn options.borderColor("╭─ ") + title + options.borderColor(` ${rule(fill)}╮`);',
+	'}',
+].join('\n');
+
+// The rounded frame, the painted band and the IDE panel all drew the activity in the prompt.
+// Under a LOON theme none of them does: the row above the prompt owns it.
+const SHELL_PROMPT_HINT_ANCHOR = [
+	'function floatPromptHint(top: string, bottom: string, options: PromptFrameOptions, width: number): string {',
+	'\tconst glyph = petalGlyph(options.state, options.tick);',
+	'\tconst petal = options.fg(petalTone(options.state, options.tick), options.bold ? options.bold(glyph) : glyph);',
+	'\tconst label = stateLabel(options) ?? "waiting for input";',
+	'\tlet paintedLabel = "";',
+	'\tif (label) {',
+	'\t\tpaintedLabel = options.state === PROMPT_STATE.WORKING',
+	'\t\t\t? scanWorkingText(label, options.tick, options.fg)',
+	'\t\t\t: options.fg(LABEL_ROLE, label);',
+	'\t}',
+	'\tconst info = [scrollIndicator(top), options.escHint ?? scrollIndicator(bottom)]',
+	'\t\t.filter((text): text is string => Boolean(text))',
+	'\t\t.map((text) => options.fg(LABEL_ROLE, text));',
+	'\tconst hint = truncateToWidth("  " + petal + (paintedLabel ? " " + paintedLabel : "") + (info.length ? " · " + info.join(" · ") : ""), width, "");',
+	'\treturn hint + " ".repeat(Math.max(0, width - visibleWidth(hint)));',
+	'}',
+].join('\n');
+const SHELL_PROMPT_HINT_REPLACEMENT = [
+	'function floatPromptHint(top: string, bottom: string, options: PromptFrameOptions, width: number): string {',
+	'\t// LOON banner patch: while working under a theme LOON generated, the mark and the',
+	'\t// label live on the activity row above the prompt, so this row keeps only what the',
+	'\t// editor itself has to say. At rest it still carries the mark.',
+	'\tconst moved = options.agentMarks === true && options.state === PROMPT_STATE.WORKING;',
+	'\tconst glyph = petalGlyph(options.state, options.tick, options.agentMarks);',
+	'\tconst petal = moved ? "" : options.fg(petalTone(options.state, options.tick), options.bold ? options.bold(glyph) : glyph);',
+	'\tconst label = moved ? "" : stateLabel(options) ?? "waiting for input";',
+	'\tlet paintedLabel = "";',
+	'\tif (label) {',
+	'\t\tpaintedLabel = options.state === PROMPT_STATE.WORKING',
+	'\t\t\t? scanWorkingText(label, options.tick, options.fg)',
+	'\t\t\t: options.fg(LABEL_ROLE, label);',
+	'\t}',
+	'\tconst info = [scrollIndicator(top), options.escHint ?? scrollIndicator(bottom)]',
+	'\t\t.filter((text): text is string => Boolean(text))',
+	'\t\t.map((text) => options.fg(LABEL_ROLE, text));',
+	'\t// One join, so a row with no mark does not open with two blank cells of padding.',
+	'\tconst head = [petal, paintedLabel].filter(Boolean).join(" ");',
+	'\tconst hint = truncateToWidth("  " + head + (info.length > 0 ? (head ? " · " : "") + info.join(" · ") : ""), width, "");',
+	'\treturn hint + " ".repeat(Math.max(0, width - visibleWidth(hint)));',
+	'}',
+].join('\n');
+
+const SHELL_PROMPT_PANEL_ANCHOR = [
+	'function panelPromptRule(width: number, options: PromptFrameOptions, top: string | undefined, right: string | undefined): string {',
+	'\tconst glyph = petalGlyph(options.state, options.tick);',
+	'\tconst petal = options.fg(petalTone(options.state, options.tick), options.bold ? options.bold(glyph) : glyph);',
+	'\tconst label = top ?? stateLabel(options) ?? "waiting for input";',
+].join('\n');
+const SHELL_PROMPT_PANEL_REPLACEMENT = [
+	'function panelPromptRule(width: number, options: PromptFrameOptions, top: string | undefined, right: string | undefined): string {',
+	'\t// LOON banner patch: the same move as the rounded rule and the band. A scroll',
+	'\t// indicator (`top`) is not the activity, so it stays where it is.',
+	'\tconst moved = options.agentMarks === true && options.state === PROMPT_STATE.WORKING && top === undefined;',
+	'\tconst glyph = moved ? "" : petalGlyph(options.state, options.tick, options.agentMarks);',
+	'\tconst petal = glyph ? options.fg(petalTone(options.state, options.tick), options.bold ? options.bold(glyph) : glyph) : "";',
+	'\tconst label = moved ? "" : top ?? stateLabel(options) ?? "waiting for input";',
+].join('\n');
+
+// The row the activity moves to. It is prompt chrome, so it lives here, next to the frames
+// it used to be painted into, and the editor above the prompt is the one that places it.
+const SHELL_PROMPT_ACTIVITY_ANCHOR =
+	'export function framePromptLines(lines: string[], width: number, options: PromptFrameOptions, layout = resolvePromptLayout(width, options.style, options.bg)): string[] {';
+const SHELL_PROMPT_ACTIVITY_REPLACEMENT = [
+	'/**',
+	' * LOON banner patch: the activity row, above the prompt, for a theme LOON generated.',
+	' * Pi\'s own loader row (`⠼ Working`) is hidden by this extension, and the prompt frame',
+	' * used to carry the animation instead; this is where that animation goes. It shows the',
+	' * same dynamic label - "exploring…", "implementing…", the worker\'s name - because it',
+	' * reads the very label the frame stopped painting.',
+	' */',
+	'export function agentActivityRow(options: PromptFrameOptions, width: number): string {',
+	'\tconst state = PROMPT_STATE.WORKING;',
+	'\tconst glyph = petalGlyph(state, options.tick, true);',
+	'\tconst mark = options.fg(petalTone(state, options.tick), options.bold ? options.bold(glyph) : glyph);',
+	'\tconst label = stateLabel({ ...options, state }) ?? "working…";',
+	'\tconst painted = scanWorkingText(label, options.tick, options.fg);',
+	'\tconst target = Math.max(0, Math.floor(width));',
+	'\tconst row = ` ${mark} ${painted}`;',
+	'\tconst clipped = truncateToWidth(row, target, "");',
+	'\treturn clipped + " ".repeat(Math.max(0, target - visibleWidth(clipped)));',
+	'}',
+	'',
+	'export function framePromptLines(lines: string[], width: number, options: PromptFrameOptions, layout = resolvePromptLayout(width, options.style, options.bg)): string[] {',
+].join('\n');
+
+// The card heading's mark follows the same theme rule as the prompt's: a theme LOON
+// generated says so in its name, and only then does the heading lead with the Agent mark.
+const SHELL_CARD_GLYPH_ANCHOR = 'export const CARD_GLYPH = "✿";';
+const SHELL_CARD_GLYPH_REPLACEMENT = [
+	'export const CARD_GLYPH = "✿";',
+	'// LOON banner patch: the mark a theme LOON generated shows in a card\'s heading. A theme',
+	'// this plugin generates carries " (LOON)" at the end of its name - the same convention',
+	'// lib/shell-bar.ts reads - and every other theme keeps CARD_GLYPH byte for byte.',
+	'const AGENT_MARK_GLYPH = "✻";',
+	'',
+	'// headingFits() keeps CARD_GLYPH on purpose: both marks are one cell wide, so the',
+	'// columns it compares are the same either way, and it has no theme in hand.',
+	'function cardGlyph(theme: CardTheme | undefined): string {',
+	'\tconst name = (theme as (CardTheme & { name?: unknown }) | undefined)?.name;',
+	'\treturn typeof name === "string" && name.endsWith(" (LOON)") ? AGENT_MARK_GLYPH : CARD_GLYPH;',
+	'}',
+].join('\n');
+
+const SHELL_CARD_HEAD_ANCHOR = '\tconst head = `${card.glyph ?? CARD_GLYPH} ${card.title}`;';
+const SHELL_CARD_HEAD_REPLACEMENT = '\tconst head = `${card.glyph ?? cardGlyph(theme)} ${card.title}`;';
+
+const SHELL_CARD_ROWS_ANCHOR =
+	'\tconst available = target - 6 - visibleWidth(`${card.glyph ?? CARD_GLYPH} `) - (card.subtitle ? visibleWidth(card.subtitle) + 3 : 0);';
+const SHELL_CARD_ROWS_REPLACEMENT =
+	'\tconst available = target - 6 - visibleWidth(`${card.glyph ?? cardGlyph(theme)} `) - (card.subtitle ? visibleWidth(card.subtitle) + 3 : 0);';
+
+const SHELL_CARD_PANEL_ANCHOR =
+	'\tconst left = `${lead}${theme.fg(TITLE_ROLE[card.tone], `${card.glyph ?? CARD_GLYPH} ${card.title}`)}${subtitle}`;';
+const SHELL_CARD_PANEL_REPLACEMENT =
+	'\tconst left = `${lead}${theme.fg(TITLE_ROLE[card.tone], `${card.glyph ?? cardGlyph(theme)} ${card.title}`)}${subtitle}`;';
+
+// LOON agent marks: extensions/gentle-shell.ts. The theme only reaches the prompt editor
+// through the factory, so the decision is taken there and read per render.
+const SHELL_MARKS_IMPORT_ANCHOR =
+	'import { DOUBLE_ESC_CANCEL_HINT, floatPromptRow, framePromptLines, panelPromptRow, resolvePromptLayout, IDLE_ESC_CLEAR_HINT, PANEL_BUTTON, PROMPT_HINT, PROMPT_STATE, SHELL_PULSE_WATCHDOG_MS, withPromptHint, type PromptState } from "../lib/shell-prompt.ts";';
+const SHELL_MARKS_IMPORT_REPLACEMENT =
+	'import { agentActivityRow, DOUBLE_ESC_CANCEL_HINT, floatPromptRow, framePromptLines, panelPromptRow, resolvePromptLayout, IDLE_ESC_CLEAR_HINT, PANEL_BUTTON, PROMPT_HINT, PROMPT_STATE, SHELL_PULSE_WATCHDOG_MS, withPromptHint, type PromptState } from "../lib/shell-prompt.ts";';
+
+const SHELL_MARKS_DEPS_ANCHOR = [
+	'\t/**',
+	'\t * Read fresh on every render while WORKING: the explicit, orchestrator-reported',
+	'\t * ODD phase label for the current session, or undefined to fall back to the',
+	'\t * generic "working…" label. Never applied to IDLE or QUEUED.',
+	'\t */',
+	'\tworkingLabel?: () => string | undefined;',
+].join('\n');
+const SHELL_MARKS_DEPS_REPLACEMENT = [
+	'\t/**',
+	'\t * Read fresh on every render while WORKING: the explicit, orchestrator-reported',
+	'\t * ODD phase label for the current session, or undefined to fall back to the',
+	'\t * generic "working…" label. Never applied to IDLE or QUEUED.',
+	'\t */',
+	'\tworkingLabel?: () => string | undefined;',
+	'\t/**',
+	'\t * LOON banner patch: true while the active theme is one LOON generated. The rose',
+	'\t * becomes the Agent mark, and while WORKING the frame stops painting the activity.',
+	'\t * Read on every render, so a theme switch needs no new editor.',
+	'\t */',
+	'\tagentMarks?: () => boolean;',
+	'\t/**',
+	'\t * LOON banner patch: true when this editor paints the working activity on its own row',
+	'\t * above the prompt. False while Pi draws its own loader row (Herdr), because then a',
+	'\t * second row would say the same thing twice.',
+	'\t */',
+	'\tactivityRow?: () => boolean;',
+].join('\n');
+
+// The option travels to the frame without a local: the anchor is one complete property, so
+// the same edit applies to a real file and to a stand-in.
+const SHELL_MARKS_FRAME_ANCHOR = '\t\t\ttick: this.tick,';
+const SHELL_MARKS_FRAME_REPLACEMENT = [
+	'\t\t\ttick: this.tick,',
+	'\t\t\t// LOON banner patch: read per render, so a theme change needs no new editor.',
+	'\t\t\tagentMarks: this.deps.agentMarks?.() ?? false,',
+].join('\n');
+
+const SHELL_MARKS_TOPROWS_ANCHOR = [
+	'\t\t// The shell decides what goes above the editor (work row, agent questions) for every frame style.',
+	'\t\tconst topRows = this.deps.topRows?.(width, this.hoveredTopRow) ?? [];',
+].join('\n');
+const SHELL_MARKS_TOPROWS_REPLACEMENT = [
+	'\t\t// The shell decides what goes above the editor (work row, agent questions) for every frame style.',
+	'\t\tconst topRows = this.deps.topRows?.(width, this.hoveredTopRow) ?? [];',
+	'\t\t// LOON banner patch: the working activity moves here, one row above the prompt, and',
+	'\t\t// out of the frame - the same dynamic label, under the Agent marks. It goes last, so',
+	'\t\t// the rows the shell already owns keep their indices and their clicks.',
+	'\t\tif ((this.deps.agentMarks?.() ?? false) && this.deps.activityRow?.() === true && state === PROMPT_STATE.WORKING) {',
+	'\t\t\ttopRows.push(agentActivityRow({ state, tick: this.tick, fg: this.deps.fg, bold: this.deps.bold, workingLabel: this.deps.workingLabel?.() }, width));',
+	'\t\t}',
+].join('\n');
+
+const SHELL_MARKS_DECISION_ANCHOR = '\t\tvoid refreshUsage(ctx, true);';
+const SHELL_MARKS_DECISION_REPLACEMENT = [
+	'\t\tvoid refreshUsage(ctx, true);',
+	'\t\t// LOON banner patch: a theme LOON generated marks itself with " (LOON)" at the end',
+	'\t\t// of its name - the convention lib/shell-bar.ts already reads - and that one fact',
+	'\t\t// swaps the rose for the Agent marks. The row is painted unless Pi draws its own',
+	'\t\t// loader row here (Herdr), where a second one would be the same fact twice.',
+	'\t\tconst loonMarks = () => {',
+	'\t\t\tconst name = (ctx.ui.theme as { name?: unknown }).name;',
+	'\t\t\treturn typeof name === "string" && name.endsWith(" (LOON)");',
+	'\t\t};',
+].join('\n');
+
+const SHELL_MARKS_FACTORY_ANCHOR =
+	'\t\t\tworkingLabel: () => oddPhaseRegistry.label(ctx.sessionManager.getSessionId()),';
+const SHELL_MARKS_FACTORY_REPLACEMENT = [
+	'\t\t\tworkingLabel: () => oddPhaseRegistry.label(ctx.sessionManager.getSessionId()),',
+	'\t\t\tagentMarks: loonMarks,',
+	'\t\t\tactivityRow: () => loonMarks() && !keepNativeWorkingRow(env),',
+].join('\n');
+
 // The native Banner loop is left exactly as gentle-pi writes it: the 4.6.0 loop already
 // produces one row per setting with a radio per state. Replacing it was the regression.
 const SHELL_SOURCE_ANCHOR = "\t\t\tfor (const [setting, key] of [[\"Banner rose\", \"showRose\"], [\"Banner text logo\", \"showTextLogo\"]] as const) {\n\t\t\t\tfor (const enabled of [true, false]) add(\n\t\t\t\t\t() => `${setting}: ${enabled ? \"on\" : \"off\"}${banner[key] === enabled ? \" (current)\" : \"\"}`,\n\t\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\t\tasync () => {\n\t\t\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome), [key]: enabled };\n\t\t\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\t\t\tbanner = next;\n\t\t\t\t\t},\n\t\t\t\t\t() => bannerPreview({ ...banner, [key]: enabled }),\n\t\t\t\t\texplicitChoice(setting, enabled ? \"on\" : \"off\", () => banner[key] === enabled),\n\t\t\t\t);\n\t\t\t}";
@@ -351,6 +631,23 @@ export const ANCHORS = {
 	shellprompt3: SHELL_PROMPT_3_ANCHOR,
 	shellprompt4: SHELL_PROMPT_4_ANCHOR,
 	shellprompt5: SHELL_PROMPT_5_ANCHOR,
+	shellPromptGlyphs: SHELL_PROMPT_GLYPHS_ANCHOR,
+	shellPromptPetal: SHELL_PROMPT_PETAL_ANCHOR,
+	shellPromptFlag: SHELL_PROMPT_FLAG_ANCHOR,
+	shellPromptTopRule: SHELL_PROMPT_TOPRULE_ANCHOR,
+	shellPromptHint: SHELL_PROMPT_HINT_ANCHOR,
+	shellPromptPanel: SHELL_PROMPT_PANEL_ANCHOR,
+	shellPromptActivity: SHELL_PROMPT_ACTIVITY_ANCHOR,
+	shellcardGlyph: SHELL_CARD_GLYPH_ANCHOR,
+	shellcardHead: SHELL_CARD_HEAD_ANCHOR,
+	shellcardRows: SHELL_CARD_ROWS_ANCHOR,
+	shellcardPanel: SHELL_CARD_PANEL_ANCHOR,
+	shellMarksImport: SHELL_MARKS_IMPORT_ANCHOR,
+	shellMarksDeps: SHELL_MARKS_DEPS_ANCHOR,
+	shellMarksFrame: SHELL_MARKS_FRAME_ANCHOR,
+	shellMarksTopRows: SHELL_MARKS_TOPROWS_ANCHOR,
+	shellMarksDecision: SHELL_MARKS_DECISION_ANCHOR,
+	shellMarksFactory: SHELL_MARKS_FACTORY_ANCHOR,
 	shellMouse: SHELL_MOUSE_ANCHOR,
 
 };
@@ -359,10 +656,10 @@ export const TARGETS: TargetSpec[] = [
 	{
 		file: 'extensions/gentle-shell.ts',
 		md5: '870867458af13b1a6a411b4a4e3cd5b2',
-		// Newest first: the patch before the mark row, the patch before the theme accent,
-		// then the older patched states from before the v2 rows.
-		md5PatchedV1: ['7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
-		md5Patched: 'bc7197600a9f1482ed4e86bd1119b4d8',
+		// Newest first: the patch before the Agent marks, the patch before the mark row, the patch
+		// before the theme accent, then the older patched states from before the v2 rows.
+		md5PatchedV1: ['bc7197600a9f1482ed4e86bd1119b4d8', '7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
+		md5Patched: '9c77666b43b7aa6fbe3f761dee03d624',
 		v2Marker: 'Banner color: wallpaper',
 		edits: [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
@@ -371,6 +668,14 @@ export const TARGETS: TargetSpec[] = [
 			{ anchor: SHELL_COLOR_ANCHOR, replacement: SHELL_COLOR_REPLACEMENT },
 			{ anchor: SHELL_CARD_PREVIEW_ANCHOR, replacement: SHELL_CARD_PREVIEW_REPLACEMENT },
 			{ anchor: SHELL_MOUSE_ANCHOR, replacement: SHELL_MOUSE_REPLACEMENT },
+			// The Agent marks: the flag travels from the theme at the factory to the frame, and
+			// the working activity moves onto a row of its own above the prompt.
+			{ anchor: SHELL_MARKS_IMPORT_ANCHOR, replacement: SHELL_MARKS_IMPORT_REPLACEMENT },
+			{ anchor: SHELL_MARKS_DEPS_ANCHOR, replacement: SHELL_MARKS_DEPS_REPLACEMENT },
+			{ anchor: SHELL_MARKS_FRAME_ANCHOR, replacement: SHELL_MARKS_FRAME_REPLACEMENT },
+			{ anchor: SHELL_MARKS_TOPROWS_ANCHOR, replacement: SHELL_MARKS_TOPROWS_REPLACEMENT },
+			{ anchor: SHELL_MARKS_DECISION_ANCHOR, replacement: SHELL_MARKS_DECISION_REPLACEMENT },
+			{ anchor: SHELL_MARKS_FACTORY_ANCHOR, replacement: SHELL_MARKS_FACTORY_REPLACEMENT },
 		],
 	},
 	{
@@ -421,8 +726,8 @@ export const TARGETS: TargetSpec[] = [
 		// Card style loon: lib/shell-card.ts
 		file: 'lib/shell-card.ts',
 		md5: '2faa9cdac2e2358e5950a82d068708b4',
-		md5Patched: '7645215425b4c59bd3bbdf90fde97dbc',
-		md5PatchedV1: ['8f3460ef6d3a5222d7a26662bb46b642', '8dbecc2f2ac057b87ce5c344d7ba5241'],
+		md5Patched: 'a3abcf04ed66f2dc092284cd2b3df2f6',
+		md5PatchedV1: ['7645215425b4c59bd3bbdf90fde97dbc', '8f3460ef6d3a5222d7a26662bb46b642', '8dbecc2f2ac057b87ce5c344d7ba5241'],
 		edits: [
 			{ anchor: SHELL_CARD_1_ANCHOR, replacement: SHELL_CARD_1_REPLACEMENT },
 			{ anchor: SHELL_CARD_2_ANCHOR, replacement: SHELL_CARD_2_REPLACEMENT },
@@ -431,6 +736,11 @@ export const TARGETS: TargetSpec[] = [
 			{ anchor: SHELL_CARD_5_ANCHOR, replacement: SHELL_CARD_5_REPLACEMENT },
 			{ anchor: SHELL_CARD_6_ANCHOR, replacement: SHELL_CARD_6_REPLACEMENT },
 			{ anchor: SHELL_CARD_7_ANCHOR, replacement: SHELL_CARD_7_REPLACEMENT },
+			// The heading's mark follows the theme, in every path that paints one.
+			{ anchor: SHELL_CARD_GLYPH_ANCHOR, replacement: SHELL_CARD_GLYPH_REPLACEMENT },
+			{ anchor: SHELL_CARD_HEAD_ANCHOR, replacement: SHELL_CARD_HEAD_REPLACEMENT },
+			{ anchor: SHELL_CARD_ROWS_ANCHOR, replacement: SHELL_CARD_ROWS_REPLACEMENT },
+			{ anchor: SHELL_CARD_PANEL_ANCHOR, replacement: SHELL_CARD_PANEL_REPLACEMENT },
 		],
 	},
 	{
@@ -446,14 +756,22 @@ export const TARGETS: TargetSpec[] = [
 		// Card style loon: lib/shell-prompt.ts
 		file: 'lib/shell-prompt.ts',
 		md5: '70f028ae3d61ccd471f5e346b5111e9e',
-		md5Patched: 'afcd1b6ec35d955b45a565c2a5eb433b',
-		md5PatchedV1: ['993a7f2237db3eb718b9d6ab05591bf1', 'fa3cc52522ee55195f48ceeee9c47259', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52', '0d07a750ae6162d2c8bbfbda7760e55f', 'ddb8bd748ae664cb28f9f0307e0917e5'],
+		md5Patched: 'a86e804371554af8653442886919ed1c',
+		md5PatchedV1: ['afcd1b6ec35d955b45a565c2a5eb433b', '993a7f2237db3eb718b9d6ab05591bf1', 'fa3cc52522ee55195f48ceeee9c47259', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52', '0d07a750ae6162d2c8bbfbda7760e55f', 'ddb8bd748ae664cb28f9f0307e0917e5'],
 		edits: [
 			{ anchor: SHELL_PROMPT_1_ANCHOR, replacement: SHELL_PROMPT_1_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_2_ANCHOR, replacement: SHELL_PROMPT_2_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_3_ANCHOR, replacement: SHELL_PROMPT_3_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_4_ANCHOR, replacement: SHELL_PROMPT_4_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_5_ANCHOR, replacement: SHELL_PROMPT_5_REPLACEMENT },
+			// The Agent marks, and the activity row that replaces the one inside the frame.
+			{ anchor: SHELL_PROMPT_GLYPHS_ANCHOR, replacement: SHELL_PROMPT_GLYPHS_REPLACEMENT },
+			{ anchor: SHELL_PROMPT_PETAL_ANCHOR, replacement: SHELL_PROMPT_PETAL_REPLACEMENT },
+			{ anchor: SHELL_PROMPT_FLAG_ANCHOR, replacement: SHELL_PROMPT_FLAG_REPLACEMENT },
+			{ anchor: SHELL_PROMPT_TOPRULE_ANCHOR, replacement: SHELL_PROMPT_TOPRULE_REPLACEMENT },
+			{ anchor: SHELL_PROMPT_HINT_ANCHOR, replacement: SHELL_PROMPT_HINT_REPLACEMENT },
+			{ anchor: SHELL_PROMPT_PANEL_ANCHOR, replacement: SHELL_PROMPT_PANEL_REPLACEMENT },
+			{ anchor: SHELL_PROMPT_ACTIVITY_ANCHOR, replacement: SHELL_PROMPT_ACTIVITY_REPLACEMENT },
 		],
 	},
 ];
