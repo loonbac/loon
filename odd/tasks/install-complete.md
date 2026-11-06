@@ -65,7 +65,7 @@ S8. El router no es un acoplamiento: LOON no lo referencia, y ningún otro plugi
 | --- | --- | --- | --- |
 | T1 | S6 | inline | `52e4249` |
 | T2 | S4 | inline | `52e4249` |
-| T3 | S5 | inline | — |
+| T3 | S5 | inline | `8bae220` |
 | T4 | S1, S2, S2b, S7 | inline | — |
 | T5 | S1-S7 | inline | — |
 
