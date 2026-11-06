@@ -69,3 +69,47 @@ L3. Non-LOON preservation is measured, not asserted: rendering 262 outputs (fram
 L4. Rendering is byte-level, not pixels: no pi session was driven with the LOON theme for
     this slice, so the row's on-screen look is verified by the rendered rows, not by a
     screenshot.
+
+## Corrección: el reportero del defecto y el límite de alcance
+
+La primera entrega (PR #205 → `42e8b3a`) se mergeó con un defecto que la suite no podía
+ver: el parche inyectaba en `installPrompt` dos delegados que cerraban sobre `loonMarks`
+— y sobre `env` —, identificadores declarados en el handler de `session_start`.
+`installPrompt` es una función de nivel superior, así que no están en su alcance: el
+factory que pi construye al arrancar lanzaba `ReferenceError`, la extensión de gentle-pi
+caía y con ella el prompt y la barra.
+
+S8. La decisión se calcula **dentro** de `installPrompt`, de `ctx.ui.theme` (el factory
+    recibe `EditorTheme`, que no tiene nombre), y se lee por render.
+S9. `installPrompt` no recibe `env`; el gate de Herdr usa `keepNativeWorkingRow()`, que
+    lee `process.env` — el mismo env con el que arranca la extensión.
+S10. Un test ejecuta el camino real: importa el `extensions/gentle-shell.ts` parcheado,
+    llama al instalador con un `ctx` falso mínimo, construye el editor con el factory y
+    lo renderiza, con tema LOON y sin él. Un identificador libre en cualquiera de los
+    dos flags lo hace fallar.
+
+L5. Medido en tmux, tres builds de gentle-pi y el mismo `-e`, el mismo tema
+    (`Wallpaper (LOON)`) y el mismo agente temporal:
+
+    | build | `at installPrompt` | `at async main` | prompt |
+    | :--- | :--- | :--- | :--- |
+    | anterior a la feature (`e05e207`) | 0 | 0 | `▎✿ waiting for input` |
+    | lo mergeado en #205 (`42e8b3a`) | 1 | 1 | sin banda |
+    | esta corrección | 0 | 0 | `▎✻ waiting for input` |
+
+    En el build de #205 el stack es el que reportó el dueño: `at installPrompt
+    (.../gentle-shell.ts:1615:10)`, `at .../gentle-shell.ts:2814:24`, `at async main`.
+    Con la corrección, un turno real pinta ` ✳ working…` encima de la banda y la banda
+    sin marca ni label; al terminar vuelve a `▎✻ waiting for input`.
+
+L6. La primera medición con tmux no reproducía nada: este agente corre con
+    `GENTLE_PI_AGENTS_CHILD=1` y `HERDR_ENV=1`, y `shellEnabled()` apaga el shell de
+    gentle-pi bajo la primera. Las tres variantes se veían idénticas, incluida la rota.
+    El arranque hay que hacerlo con esas dos variables (y las `PI_SESSION_*`) sin poner.
+    Queda anotado aquí porque es la trampa que habría convertido una medición vacía en
+    un «verificado».
+
+L7. La barra de `🧠 unknown · ready` que citaba el reporte no es de gentle-pi ni del
+    parche: es el widget de `natural-router`, y dice `unknown` igual en el build sano
+    anterior a la feature. En la medición buena la barra de gentle-pi sí está y es la
+    misma en las tres: `/tmp ⟡ deepseek-v4.1-flash · high · … ctx ▱▱▱▱▱▱▱▱ 0% ⟡ $0.000`.
