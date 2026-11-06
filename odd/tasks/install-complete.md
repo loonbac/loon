@@ -66,7 +66,7 @@ S8. El router no es un acoplamiento: LOON no lo referencia, y ningún otro plugi
 | T1 | S6 | inline | `52e4249` |
 | T2 | S4 | inline | `52e4249` |
 | T3 | S5 | inline | `8bae220` |
-| T4 | S1, S2, S2b, S7 | inline | — |
+| T4 | S1, S2, S2b, S7 | inline | pendiente de commit |
 | T5 | S1-S7 | inline | — |
 
 **Slice boundary.** T1 y T2 cierran el primer slice (`52e4249`, 471 líneas): el parche
@@ -115,6 +115,15 @@ L8. Medido: pi no tiene gancho de instalación (`dist/core/pi-manifest.js:3` lee
     `extensions`, `skills`, `prompts`, `themes`, `changelogPath`). El parche se aplica
     desde el arranque de la primera sesión, donde `missingPatches()` ya vive, no desde un
     `postinstall` que CI y `--ignore-scripts` desactivan en silencio.
+
+L11. Medido, no inferido: con un gentle-pi copiado a un agent home temporal y su
+    `extensions/gentle-shell.ts` restaurado al stock (`md5 87086745…`), un arranque real de
+    pi lo dejó parcheado (`md5 871cf1d2…`) sin intervención. El escenario de un update de
+    gentle-pi queda reparado por el arranque siguiente. La primera versión de la reparación
+    vivía dentro de `announcePatch`, que retorna temprano sin `ctx.ui.setStatus`: un arranque
+    sin TUI no reparaba. Se separó, y `gentlePiRoots()` ahora consulta
+    `PI_CODING_AGENT_DIR` —sin eso, la reparación miraba una instalación que no era la que
+    pi usa.
 
 L10. Verbatim: «lo del parche eso si no deberia ser manual ni romperse conn cada update
     eh, deberia ser automatico, si sale una update de gentle pi o de pi actualizamos,

@@ -61,11 +61,18 @@ export function repoRootOf(moduleUrl: string): string {
 export const PATCH_COMMAND = 'node --experimental-strip-types scripts/gentle-pi-patch.ts apply';
 
 /** Where an installed gentle-pi may be, newest layout first. */
-export function gentlePiRoots(home: string = homedir()): string[] {
-	return [
+export function gentlePiRoots(home: string = homedir(), env: NodeJS.ProcessEnv = process.env): string[] {
+	// pi's own agent home first: someone running pi with a custom `PI_CODING_AGENT_DIR` has
+	// gentle-pi installed *there*, and looking only under `$HOME` would report a healthy
+	// install as missing and quietly skip a repair that was needed.
+	const agentHome = env.PI_CODING_AGENT_DIR;
+	const roots: string[] = [];
+	if (agentHome !== undefined && agentHome !== '') roots.push(join(agentHome, 'npm', 'node_modules', 'gentle-pi'));
+	roots.push(
 		join(home, '.pi', 'agent', 'npm', 'node_modules', 'gentle-pi'),
 		join(home, '.local', 'share', 'loon-pi', 'npm-prefix', 'lib', 'node_modules', 'gentle-pi'),
-	];
+	);
+	return roots;
 }
 
 /**
