@@ -6,11 +6,15 @@
  * reads gentle-pi's files instead of importing a module of it, so the settings a
  * person changes in /gentle:customization also reach this header.
  */
+import { execFileSync } from 'node:child_process';
 import { statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { VERSION, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { Component, TUI } from '@earendil-works/pi-tui';
 import { renderBanner } from './lib/banner.ts';
 import { watchConfigDirs } from './lib/config-watch.ts';
+import { repairPatchViaScript, type RepairReport } from './lib/patch-repair-write.ts';
 import {
 	accentPath,
 	accentWatchDirs,
@@ -281,6 +285,12 @@ export interface LoonDeps {
 	 * ask": a session without the package has nothing to report.
 	 */
 	patchMissing?(): string[];
+	/**
+	 * Re-apply the patch when a gentle-pi or pi update replaced the files it edits.
+	 * Called at most once per process, from session start, never from a render: installing
+	 * LOON is the consent, and this is what makes that consent survive an update.
+	 */
+	patchRepair?(): RepairReport;
 	write(settings: LoonSettings): void;
 	/** Report every change to either config home or the accent file's; returns the disposer. */
 	watch(onChange: () => void, settings: Pick<LoonSettings, 'accent' | 'accentFile'>): () => void;
@@ -320,6 +330,22 @@ export const defaultLoonDeps: LoonDeps = {
 		const install = installedGentlePi();
 		return install === undefined ? [] : missingPatches(install);
 	},
+	patchRepair: () => {
+		const install = installedGentlePi();
+		if (install === undefined) return { applied: [], problems: [] };
+		// Nothing to repair is the common case, and it must cost one comparison, not a
+		// process. Only a marker that is actually gone pays for running the script.
+		if (missingPatches(install).length === 0) return { applied: [], problems: [] };
+		const script = join(repoRootOf(import.meta.url), 'scripts', 'gentle-pi-patch.ts');
+		return repairPatchViaScript(
+			{ install, backups: join(homedir(), '.pi', 'agent', 'backups'), script },
+			(command, args, options) => execFileSync(command, args, options) as unknown as {
+				status: number | null;
+				stdout?: string;
+				stderr?: string;
+			},
+		);
+	},
 	ensureTheme: (accent, settings, activeTheme) =>
 		ensureWallpaperTheme({
 			accent,
@@ -344,6 +370,8 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 	/** The wallpaper accent, parsed once per read and reused for every render. */
 	let wallpaperRgb: Rgb | undefined;
 	const health: HeaderHealth = { lastRenderAt: 0 };
+	let repairAttempted = false;
+	let repairReport: RepairReport | undefined;
 
 	const cancelPending = () => {
 		if (timer !== undefined) clearTimeout(timer);
@@ -359,6 +387,28 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 	 * say what to run. It clears itself the moment the markers are back, so a stale
 	 * notice can never keep claiming a loss that was repaired.
 	 */
+	/**
+	 * Repair once per process, and remember what happened.
+	 *
+	 * The guard is a module-level flag rather than a closure one because a second
+	 * `session_start` in the same process — a reload does exactly that — must not stage the
+	 * same files twice. A repair that threw would be a startup failure, so it cannot throw:
+	 * the report carries the problem and the session carries on.
+	 */
+	function repairOnce(): RepairReport | undefined {
+		if (repairAttempted) return repairReport;
+		repairAttempted = true;
+		try {
+			repairReport = deps.patchRepair?.() ?? { applied: [], problems: [] };
+		} catch (error) {
+			repairReport = {
+				applied: [],
+				problems: ['patch repair failed: ' + (error instanceof Error ? error.message : String(error))],
+			};
+		}
+		return repairReport;
+	}
+
 	function announcePatch(ctx: ExtensionContext): void {
 		if (ctx.mode !== 'tui' || !ctx.hasUI) return;
 		// A host without status keys has nowhere to put the notice; say nothing rather than
@@ -467,6 +517,11 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 		health.lastRenderAt = 0;
 		timer = setTimeout(() => {
 			timer = undefined;
+			// The repair is not a notice: it runs before anything is drawn, on every start and
+			// whatever the host is. An update to gentle-pi or to pi removes the markers, and
+			// the next start puts them back; a headless start must do it too, so it cannot
+			// live inside `announcePatch`, which returns early without a status key.
+			repairOnce();
 			announcePatch(ctx);
 			refresh(ctx);
 			// Follow the files for the rest of the session, so a change made in
