@@ -18,6 +18,18 @@ más: la caja de pi-claude-code-tui, pintada por completo con el tema que ya usa
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
+## Hecho para Pi con gentle-pi
+
+LOON **no es un tema que se pueda enchufar en cualquier terminal, ni un plugin suelto**. Es un
+paquete de **Pi** pensado para correr sobre la configuración de **gentle-pi**: lee sus archivos
+de configuración (`~/.pi/gentle-ai/`), se integra con su panel de Agents, con su menú
+`/gentle:customize` y con sus fases ODD, y varias de sus piezas —el menú del banner, el trabajo
+inline en el panel, los glifos de actividad— existen **solo** con el parche a gentle-pi aplicado.
+
+Si no usas Pi, o lo usas sin gentle-pi, la mayor parte de este paquete no tiene dónde engancharse.
+
+![Una sesión de Pi con el tema Wallpaper (LOON)](docs/loon-session.png)
+
 ## Qué hace
 
 - Dibuja una caja redondeada a lo ancho de la terminal: la etiqueta `Pi v<version>` en
@@ -946,6 +958,28 @@ Instalar uno nunca exige otro: la familia es una referencia cruzada, no una depe
 
 Los addons viven en repositorios privados mientras maduran; sus nombres son los de la
 tabla y cada uno se instala por separado.
+
+## Descubrimiento en Gentle Shell
+
+LOON se puede listar en el catálogo de Gentle Shell, que agrupa los recursos por *topic*
+del repositorio. Los topics son la única declaración: sin ellos no apareces en el
+catálogo, y con ellos la aparición es **eventual**, sin calendario prometido.
+
+| Topic | Para qué |
+| --- | --- |
+| `gentle-shell-package` | Repositorio público de un recurso de shell. Es el que corresponde a LOON: un paquete de Pi con extensiones y temas. |
+| `gentle-hub-project` | Cualquier proyecto público de la comunidad. Alternativa cuando el repositorio no es, en sí, un recurso de shell. |
+
+Los subtopics de recurso son **opcionales**. Sin ninguno, la entrada se lista como
+`Resource` y nadie adivina el subtipo por ti. LOON declara dos, porque hace las dos cosas:
+
+| Subtopic | Qué declara en LOON |
+| --- | --- |
+| `gentle-shell-extension` | `extensions/loon-startup.ts` y el trabajo inline del panel. |
+| `gentle-shell-theme` | El tema `Wallpaper (LOON)` y sus derivados OKLCH. |
+
+Los otros dos existen para otros recursos: `gentle-shell-skill` para un paquete de skills y
+`gentle-shell-prompt` para uno de plantillas de prompt. LOON no los usa.
 
 ## Convenciones de idioma
 
