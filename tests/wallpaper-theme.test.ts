@@ -10,8 +10,10 @@ import {
 	DIM_SURFACE_CONTRAST_TARGET,
 	ACCENT_SURFACE_CONTRAST_TARGET,
 	LOON_THEME_SUFFIX,
+	WALLPAPER_THEME_BASE,
 	WALLPAPER_THEME_NAME,
 	deriveWallpaperTheme,
+	generatedThemeBase,
 	isLoonThemeName,
 	loonThemeName,
 	themeFileName,
@@ -31,6 +33,44 @@ test('every LOON theme name ends with the suffix and can be a file name', () => 
 		assert.ok(!name.includes('/'), 'pi reserves / for light and dark settings');
 		assert.equal(themeFileName(name), name + '.json');
 	}
+});
+
+/* S5: the base name comes from the active theme, never from a hardcoded literal. */
+
+test('the base is the active theme’s trimmed name, with Wallpaper as the fallback', () => {
+	assert.equal(generatedThemeBase('Gruvbox'), 'Gruvbox');
+	assert.equal(generatedThemeBase('  Gruvbox  '), 'Gruvbox');
+	assert.equal(generatedThemeBase(undefined), WALLPAPER_THEME_BASE);
+	assert.equal(generatedThemeBase(''), WALLPAPER_THEME_BASE);
+	assert.equal(generatedThemeBase('   '), WALLPAPER_THEME_BASE);
+	// An active theme that is already one of ours must not nest the suffix.
+	assert.equal(generatedThemeBase(WALLPAPER_THEME_NAME), WALLPAPER_THEME_BASE);
+	assert.equal(generatedThemeBase('Gruvbox (LOON)'), WALLPAPER_THEME_BASE);
+});
+
+/**
+ * A theme name becomes a FILE NAME, and the write happens inside `refresh()`, which is
+ * the startup path. A name carrying a separator escapes the themes directory; a name of
+ * any real length makes `ENAMETOOLONG` throw there, and a throw at session start costs the
+ * whole extension. Both are refused rather than passed through.
+ */
+test('a theme name that would escape the themes directory falls back instead of writing outside it', () => {
+	for (const hostile of ['a/b', '../../etc/passwd', 'a\\b', '..', '.']) {
+		assert.equal(generatedThemeBase(hostile), WALLPAPER_THEME_BASE, JSON.stringify(hostile));
+	}
+});
+
+test('a theme name too long to be a file name falls back instead of throwing at startup', () => {
+	const huge = 'x'.repeat(300);
+	const base = generatedThemeBase(huge);
+	assert.equal(base, WALLPAPER_THEME_BASE);
+	// And the path it produces is still writable, which is the property that matters.
+	assert.doesNotThrow(() => themeFileName(loonThemeName(base)));
+});
+
+test('the derived theme is named after the base it is given', () => {
+	assert.equal(deriveWallpaperTheme([155, 72, 74], 'Gruvbox').name, 'Gruvbox (LOON)');
+	assert.equal(deriveWallpaperTheme([155, 72, 74]).name, WALLPAPER_THEME_NAME);
 });
 
 /* S5: conversions and contrast, the numbers the floors are asserted on. */

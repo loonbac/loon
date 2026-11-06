@@ -290,8 +290,12 @@ export interface LoonDeps {
 	 * `accentFile`, and a reader bound at construction would freeze the old path.
 	 */
 	wallpaper(settings: Pick<LoonSettings, 'accent' | 'accentFile'>): Rgb | undefined;
-	/** Make sure the generated theme exists and matches this accent. */
-	ensureTheme(accent: Rgb | undefined, settings: Pick<LoonSettings, 'accent' | 'accentFile'>): EnsureOutcome;
+	/**
+	 * Make sure the generated theme exists, matches this accent, and is named for the
+	 * active theme pi is showing. The active name is a parameter because the file has to
+	 * carry it: pi activates the theme its settings name, not the one LOON writes.
+	 */
+	ensureTheme(accent: Rgb | undefined, settings: Pick<LoonSettings, 'accent' | 'accentFile'>, activeTheme?: unknown): EnsureOutcome;
 	/** Seam for the tests: the watchdog's clock. */
 	clock?: WatchdogClock;
 }
@@ -316,11 +320,12 @@ export const defaultLoonDeps: LoonDeps = {
 		const install = installedGentlePi();
 		return install === undefined ? [] : missingPatches(install);
 	},
-	ensureTheme: (accent, settings) =>
+	ensureTheme: (accent, settings, activeTheme) =>
 		ensureWallpaperTheme({
 			accent,
 			dir: themesDir(),
 			accentModifiedAt: modifiedAtOf(accentPath(settings)),
+			activeTheme,
 		}),
 	// The wallpaper script replaces accent.txt atomically, so its inode changes on
 	// every wallpaper: the directory is watched, never the file.
@@ -443,8 +448,10 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 		wallpaperRgb = deps.wallpaper(currentSettings);
 		// Regenerate the theme when it is missing or older than the accent it came
 		// from; on a wallpaper change this runs again, which is what makes the open
-		// session recolour through pi's own theme watcher.
-		deps.ensureTheme(wallpaperRgb, currentSettings);
+		// session recolour through pi's own theme watcher. The active theme's name is
+		// passed through because pi activates the theme its settings name: a generated
+		// file for `Wallpaper` on a `Gruvbox` install is written and never seen.
+		deps.ensureTheme(wallpaperRgb, currentSettings, ctx.ui.theme?.name);
 		const applied = apply(ctx);
 		cancelWatchdog();
 		if (applied && ownsTopSlot()) {

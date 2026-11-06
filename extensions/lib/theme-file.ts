@@ -11,9 +11,11 @@ import { join } from 'node:path';
 import { piConfigHome } from './loon-config.ts';
 import type { Rgb } from './oklch.ts';
 import {
-	WALLPAPER_THEME_NAME,
+	WALLPAPER_THEME_BASE,
 	deriveWallpaperTheme,
+	generatedThemeBase,
 	isLoonThemeName,
+	loonThemeName,
 	themeFileName,
 	type LoonThemeFile,
 } from './wallpaper-theme.ts';
@@ -25,9 +27,12 @@ export function themesDir(env: NodeJS.ProcessEnv = process.env, home?: string): 
 	return join(piConfigHome(env, home), THEME_DIR_NAME);
 }
 
-/** The generated theme's path: the name plus `.json`, by the same rule. */
-export function wallpaperThemePath(dir: string): string {
-	return join(dir, themeFileName(WALLPAPER_THEME_NAME));
+/**
+ * The generated theme's path: the derived name plus `.json`, by the same rule. `base`
+ * defaults to `Wallpaper`, the fallback when no active theme is available.
+ */
+export function wallpaperThemePath(dir: string, base: string = WALLPAPER_THEME_BASE): string {
+	return join(dir, themeFileName(loonThemeName(base)));
 }
 
 /** Read one theme file, if it parses. */
@@ -57,6 +62,13 @@ export interface EnsureOptions {
 	dir?: string;
 	/** mtime of `accent.txt` in milliseconds, so a stale theme is regenerated. */
 	accentModifiedAt?: number | undefined;
+	/**
+	 * The name of the theme pi currently activates. The file is named after it, because
+	 * pi activates the theme its settings name: a generated `Wallpaper (LOON)` on a
+	 * `Gruvbox` install is written and never seen. Absent, empty, or already one of ours
+	 * falls back to `Wallpaper`.
+	 */
+	activeTheme?: unknown;
 }
 
 export interface EnsureOutcome {
@@ -72,10 +84,14 @@ export interface EnsureOutcome {
  * - present, ours, fresh: left alone;
  * - present with a name that is not ours: skipped, untouched;
  * - no accent at all: nothing is written.
+ *
+ * The file is written for the **active** theme's name (see `generatedThemeBase`), so a
+ * theme belonging to another name is never rewritten or removed.
  */
 export function ensureWallpaperTheme(options: EnsureOptions): EnsureOutcome {
 	const dir = options.dir ?? themesDir();
-	const path = wallpaperThemePath(dir);
+	const base = generatedThemeBase(options.activeTheme);
+	const path = wallpaperThemePath(dir, base);
 	if (options.accent === undefined) return { result: 'skipped-no-accent', path };
 
 	const existing = readThemeFile(path);
@@ -85,10 +101,10 @@ export function ensureWallpaperTheme(options: EnsureOptions): EnsureOutcome {
 		const themeTime = modifiedAt(path);
 		const accentTime = options.accentModifiedAt;
 		const fresh = themeTime !== undefined && (accentTime === undefined || themeTime >= accentTime);
-		if (fresh && sameDerivation(existing, options.accent)) return { result: 'up-to-date', path };
+		if (fresh && sameDerivation(existing, options.accent, base)) return { result: 'up-to-date', path };
 	}
 
-	const theme = deriveWallpaperTheme(options.accent);
+	const theme = deriveWallpaperTheme(options.accent, base);
 	mkdirSync(dir, { recursive: true });
 	const temporary = path + '.' + process.pid + '.tmp';
 	try {
@@ -107,9 +123,13 @@ export function ensureWallpaperTheme(options: EnsureOptions): EnsureOutcome {
  * (a surface was green yesterday and is tinted today) while the accent stays the same,
  * and the file would look "up to date". The whole variable set is the fingerprint.
  */
-function sameDerivation(theme: LoonThemeFile, accent: Rgb): boolean {
-	const expected = deriveWallpaperTheme(accent);
-	return JSON.stringify(theme.vars) === JSON.stringify(expected.vars) && JSON.stringify(theme.colors) === JSON.stringify(expected.colors);
+function sameDerivation(theme: LoonThemeFile, accent: Rgb, base: string): boolean {
+	const expected = deriveWallpaperTheme(accent, base);
+	return (
+		theme.name === expected.name &&
+		JSON.stringify(theme.vars) === JSON.stringify(expected.vars) &&
+		JSON.stringify(theme.colors) === JSON.stringify(expected.colors)
+	);
 }
 
 /** The names currently installed, for the status line. */
