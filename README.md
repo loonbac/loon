@@ -3,20 +3,9 @@
 Un paquete de pi que da a la TUI una **cabecera de arranque que respeta el tema**, y nada
 más: la caja de pi-claude-code-tui, pintada por completo con el tema que ya usas.
 
-```
-╭─── Pi v1.4.0 ────────────────────────────────────────────────────────────────╮
-│                                 │                                            │
-│                                 │ Getting started                            │
-│          █████████              │ Ask Pi to build it                         │
-│          ███   ███              │ ────────────────────────────────────────── │
-│          ██████   ███           │ Commands                                   │
-│          ███      ███           │ /help                                      │
-│                                 │ /model                                     │
-│  Let's build something great    │ /theme                                     │
-│  openai/gpt-5.5 · high effort   │ /compact                                   │
-│        ~/Workspace/mypi         │                                            │
-╰──────────────────────────────────────────────────────────────────────────────╯
-```
+![LOON en una sesión de Pi, dentro de una ventana de PORT](docs/port.png)
+
+*LOON Pi dentro de PORT, mi propia terminal.*
 
 ## Hecho para Pi con gentle-pi
 
@@ -27,8 +16,6 @@ de configuración (`~/.pi/gentle-ai/`), se integra con su panel de Agents, con s
 inline en el panel, los glifos de actividad— existen **solo** con el parche a gentle-pi aplicado.
 
 Si no usas Pi, o lo usas sin gentle-pi, la mayor parte de este paquete no tiene dónde engancharse.
-
-![Una sesión de Pi con el tema Wallpaper (LOON)](docs/loon-session.png)
 
 ## Qué hace
 
