@@ -5,7 +5,7 @@ más: la caja de pi-claude-code-tui, pintada por completo con el tema que ya usa
 
 ![LOON en una sesión de Pi, dentro de una ventana de PORT](docs/port.png)
 
-*LOON Pi dentro de PORT, mi propia terminal.*
+*LOON Pi dentro de [PORT](https://github.com/loonbac/port) (Recomendado), mi propia terminal.*
 
 ## Hecho para Pi con gentle-pi
 
