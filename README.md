@@ -537,14 +537,22 @@ export const INLINE_HEAVY_CALLS = 3;
 - el contador es **por turno**, no por trabajo: un trabajo largo hecho de turnos ligeros no arrastra
   el peso del turno anterior.
 
-**El razonamiento obedece a la misma puerta y en el mismo momento de decisión que la prosa**
-(`isHeavy()` en el fotograma del bloque, con el mismo contador). Un bloque visible no se manda al
-panel: si no se ocultó nada, no hay nada que preservar. Solo los bloques colapsados se convierten
-en ítems `thinking` del hilo.
+**El razonamiento NO obedece a esa puerta: obedece a si el turno está programando**
+(`isCoding()` en el fotograma del bloque, con su propio indicador). Leer, grepear, correr
+comprobaciones de layout o de tipos es investigar, y mientras investiga el razonamiento *es* lo que
+la persona está siguiendo: se dibuja entero, por muchas llamadas que acumule el turno. Solo cuando
+aparece una herramienta que escribe código (`edit`, `write`, `apply_patch`, `multiedit`) el bloque
+deja de ser el turno y pasa a ser trabajo, y entonces se colapsa y se manda al panel.
 
-Consecuencia aceptada, y es la disciplina monotónica de siempre: en un turno pesado, el bloque que
-llega **antes** de la tercera llamada se queda entero, porque en ese instante el turno todavía no
-era pesado — y ese bloque inicial es justamente el plan. Nada se encoge hacia atrás.
+Un bloque visible no se manda al panel: si no se ocultó nada, no hay nada que preservar. Solo los
+bloques colapsados se convierten en ítems `thinking` del hilo.
+
+Consecuencia aceptada, y es la disciplina monotónica de siempre: el bloque que llega **antes** de la
+primera escritura se queda entero, porque en ese instante el turno todavía no estaba programando —
+y ese bloque inicial es justamente el plan. Nada se encoge hacia atrás.
+
+La prosa conserva el umbral por conteo: la regla del dueño es sobre su razonamiento, no sobre el
+resumen de lo que hizo.
 
 ### Lo que cuenta como trabajo
 
@@ -553,6 +561,7 @@ registro. La lista es explícita, junto al umbral:
 
 ```ts
 export const INLINE_ACCOUNTING_TOOLS: readonly string[] = ['todo', 'mem_', 'orchestrator_'];
+export const INLINE_CODING_TOOLS: readonly string[] = ['edit', 'write', 'apply_patch', 'multiedit'];
 ```
 
 - un nombre exacto cuenta como ese nombre; una entrada terminada en `_` es una familia

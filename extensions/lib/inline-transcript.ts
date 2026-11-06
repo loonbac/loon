@@ -243,8 +243,22 @@ export function createTranscriptTransformer(options: {
 	 * Whether the turn being drawn is heavy work. A light turn - a status check,
 	 * a question and two commands - is a conversation and reads in full; the
 	 * collapse is for turns that really work. Default: always heavy.
+	 *
+	 * This gate is the prose's. The reasoning asks the narrower question below.
 	 */
 	isHeavy?: () => boolean;
+	/**
+	 * Whether the turn has started writing code.
+	 *
+	 * The reasoning is the turn until the agent programs: a block drawn while it
+	 * reads, greps or checks a layout is what the person is following, and hiding
+	 * it hides the answer. Once an edit happens the block is work, and the panel
+	 * keeps it instead of the transcript.
+	 *
+	 * When given, it replaces `isHeavy` on the reasoning path only; prose keeps
+	 * its own threshold. Default: fall back to `isHeavy`.
+	 */
+	isCoding?: () => boolean;
 	closingText: () => string | undefined;
 	memory?: TranscriptMemory;
 	thinkingMemory?: TranscriptMemory;
@@ -262,6 +276,10 @@ export function createTranscriptTransformer(options: {
 	 * collapsed, and only then handed over, when its turn is heavy work; a
 	 * collapsed markdown transform cannot be reopened with the expand key, so
 	 * losing the block would be a worse trade than the noise it replaces.
+	 *
+	 * "Heavy" for the reasoning is `isCoding` when it is given: the agent has to
+	 * be programming for its thinking to leave the transcript. Reading and
+	 * verifying - however many calls they take - do not count.
 	 * @param {string} markdown
 	 * @param {MarkdownTransformContext} context
 	 * @returns {string}
@@ -280,10 +298,11 @@ export function createTranscriptTransformer(options: {
 			if (!streaming) thinkingMemory.set(markdown, 'kept');
 			return markdown;
 		}
-		// Same threshold and same moment of decision as the prose: below it the
-		// block is what the person is reading, and a visible block is not duplicated
-		// in the panel.
-		if (options.isHeavy !== undefined && !options.isHeavy()) {
+		// Same threshold and same moment of decision as the prose, but its own
+		// question: programming, not busy. Below it the block is what the person is
+		// reading, and a visible block is not duplicated in the panel.
+		const working = options.isCoding ?? options.isHeavy;
+		if (working !== undefined && !working()) {
 			if (!streaming) thinkingMemory.set(markdown, 'kept');
 			return markdown;
 		}

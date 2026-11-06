@@ -231,6 +231,17 @@ function heavyTurn(pi: FakePi, calls: number = INLINE_HEAVY_CALLS): void {
 	}
 }
 
+/**
+ * A turn that has started writing code, which is the only thing that hides the
+ * reasoning. Reading, grepping and checking a layout are thinking, not
+ * programming, so they cannot be used to reach this state.
+ */
+function programmingTurn(pi: FakePi, calls: number = 1): void {
+	for (let index = 0; index < calls; index += 1) {
+		pi.fire('tool_call', { type: 'tool_call', toolName: 'edit', input: { path: 'file-' + index + '.ts' } }, sessionContext());
+	}
+}
+
 function readCarrier(agentHome: string): InlineCarrierRecord {
 	return JSON.parse(readFileSync(carrierPath(agentHome, SESSION_ID), 'utf8')) as InlineCarrierRecord;
 }
@@ -523,11 +534,11 @@ test('a user message is never transformed', () => {
 	}
 });
 
-test('a thinking block of a heavy turn collapses to one line and its text reaches the panel', () => {
+test('a thinking block collapses once the turn is programming, and its text reaches the panel', () => {
 	const agentHome = scratch();
 	try {
 		const pi = runningUnit(agentHome);
-		heavyTurn(pi, INLINE_HEAVY_CALLS - 1);
+		programmingTurn(pi);
 		const reasoning = 'El dueño quiere el razonamiento fuera del transcript.\n\nPero sin perderlo: el panel lo muestra.';
 		const collapsed = pi.transform(reasoning, { messageType: 'assistant-thinking' });
 		assert.equal(collapsed.split('\n').length, 1, 'the reasoning leaves the transcript: ' + collapsed);
@@ -579,14 +590,34 @@ test('the reasoning of a light turn is drawn whole and never reaches the panel',
 	}
 });
 
-test('in a heavy turn the block before the third call stays whole and the ones after collapse into the panel', () => {
+test('many reads and checks never hide the reasoning, however heavy the turn is', () => {
+	const agentHome = scratch();
+	try {
+		const pi = runningUnit(agentHome);
+		// The owner's complaint, as a test: an investigation is reads, greps and
+		// layout checks, and it must not file its own reasoning as work.
+		heavyTurn(pi, INLINE_HEAVY_CALLS + 3);
+		pi.fire('tool_call', { type: 'tool_call', toolName: 'bash', input: { command: 'npm run typecheck' } }, sessionContext());
+		const reasoning = 'Estando pensando cómo insertar más colores, no programando.\n\nCon su desarrollo completo.';
+		assert.equal(
+			pi.transform(reasoning, { messageType: 'assistant-thinking' }),
+			reasoning,
+			'a turn that has only read things keeps its thinking in full',
+		);
+		assert.deepEqual(thinkingItems(agentHome), [], 'and a visible block is not duplicated in the panel');
+	} finally {
+		rmSync(agentHome, { recursive: true, force: true });
+	}
+});
+
+test('the block before the first edit stays whole and the ones after collapse into the panel', () => {
 	const agentHome = scratch();
 	try {
 		const pi = idleSession(agentHome);
-		heavyTurn(pi, INLINE_HEAVY_CALLS - 1);
-		const plan = 'El plan del turno, antes de la tercera llamada.';
+		heavyTurn(pi, INLINE_HEAVY_CALLS + 2);
+		const plan = 'El plan del turno, antes de escribir nada.';
 		assert.equal(pi.transform(plan, { messageType: 'assistant-thinking' }), plan, 'the plan is read, not filed');
-		heavyTurn(pi, 1);
+		programmingTurn(pi);
 		const later = 'El razonamiento del trabajo ya pesado, después de la tercera.';
 		const collapsed = pi.transform(later, { messageType: 'assistant-thinking' });
 		assert.equal(collapsed.split('\n').length, 1);
@@ -715,7 +746,7 @@ test('a block that was read in full is not duplicated in the panel, and a hidden
 		const read = 'Razonamiento que se leyó entero, antes de la tercera herramienta.';
 		pi.transform(read, { messageType: 'assistant-thinking', isStreaming: true });
 		pi.transform(read, { messageType: 'assistant-thinking', isStreaming: false });
-		heavyTurn(pi);
+		programmingTurn(pi);
 		const hidden = 'Razonamiento que el transcript ya no muestra.\n\nCon su desarrollo completo.';
 		pi.transform(hidden, { messageType: 'assistant-thinking', isStreaming: true });
 		pi.transform(hidden, { messageType: 'assistant-thinking', isStreaming: false });
@@ -798,8 +829,8 @@ test('the first reasoning of the first own turn is one item, not the history plu
 		// pi draws the restored conversation before this process writes anything.
 		pi.transform('Razonamiento de antes del reinicio, con su desarrollo.', { messageType: 'assistant-thinking' });
 		pi.transform('La respuesta de antes del reinicio, entera.');
-		// A heavy turn: the subject here is the seeded history, not the threshold.
-		heavyTurn(pi);
+		// A turn that writes code: the subject here is the seeded history, not the gate.
+		programmingTurn(pi);
 		const live = 'El razonamiento de ahora, primero en un fotograma';
 		pi.transform(live, { messageType: 'assistant-thinking', isStreaming: true });
 		pi.transform(live + ' y completo en el siguiente.', { messageType: 'assistant-thinking', isStreaming: false });
