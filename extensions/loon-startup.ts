@@ -494,6 +494,23 @@ export function createLoonExtension(pi: ExtensionAPI, deps: LoonDeps): void {
 		cancelPending();
 		health.lastRenderAt = 0;
 		state = deps.read();
+		// S9: sin parche no se pinta. Si la reparación se negó (anchors que ya no
+		// encajan), la sesión sigue pero LOON no instala su header ni regenera el
+		// tema: pintar sobre una barra stock es lo que se veía roto. El aviso de
+		// patch-notice ya dijo el archivo y el motivo; en cuanto los marcadores
+		// vuelven, este mismo refresh los detecta y LOON vuelve sin reiniciar.
+		// Una lectura que falla también cierra: un arranque nunca se impide (S7).
+		let missing: string[];
+		try {
+			missing = deps.patchMissing?.() ?? [];
+		} catch {
+			missing = ['unreadable'];
+		}
+		if (missing.length > 0) {
+			cancelWatchdog();
+			release(ctx);
+			return false;
+		}
 		const currentSettings = state.loon;
 		wallpaperRgb = deps.wallpaper(currentSettings);
 		// Regenerate the theme when it is missing or older than the accent it came

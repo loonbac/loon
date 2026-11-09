@@ -59,6 +59,14 @@ S8. El router no es un acoplamiento: LOON no lo referencia, y ningún otro plugi
     familia llama a LOON ni LOON a ellos. Medido: las únicas importaciones externas son
     `@earendil-works/pi-coding-agent` y `@earendil-works/pi-tui`.
 
+S9. Sin parche no se pinta. Si tras el intento de reparación los marcadores siguen
+    ausentes (refused: anchors que ya no encajan), la sesión arranca pero LOON no
+    instala su header, no regenera el tema y suelta el slot; el aviso de patch-notice
+    es la explicación. En cuanto los marcadores vuelven, el siguiente refresh lo
+    detecta y LOON vuelve sin reiniciar. El arranque nunca se impide (S7); lo que no
+    se hace es pintar roto.
+    Verbatim: «se supone que el plugin no deberia cargar por la actualizacion».
+
 ## Tasks
 
 | ID | Specs | Ruta | Commit |
@@ -67,9 +75,18 @@ S8. El router no es un acoplamiento: LOON no lo referencia, y ningún otro plugi
 | T2 | S4 | inline | `52e4249` |
 | T3 | S5 | inline | `8bae220` |
 | T4 | S1, S2, S2b, S7 | inline | `b2a90fb` (#219) |
-| T5 | S1-S7 | inline | pendiente |
+| T5 | S1-S7 | inline | `5b60e21` (#221) |
+| T6 | S2, S2b | delegada | `ec3d6bd`: reancla a gentle-pi 4.7.0 |
+| T7 | S9 | inline | `d2b89f3`: fail-closed sin parche |
 
 **Slice boundary.** T1 y T2 cierran el primer slice (`52e4249`, 471 líneas): el parche
+viaja en el paquete y el acento deja de ser propiedad privada de mpvpaper. T3-T5 van en
+su propio slice, porque el tema derivado y la reconciliación del parche tocan el arranque
+y merecen revisión aparte.
+
+**Slice boundary (4.7.0).** T6 va solo (`ec3d6bd`: el retarget reescribe fixtures de
+digests y no se puede partir sin romper la prueba de linaje). T7 es slice aparte y
+pequeño: solo la puerta en `refresh` y sus dos tests.
 viaja en el paquete y el acento deja de ser propiedad privada de mpvpaper. T3-T5 van en
 su propio slice, porque el tema derivado y la reconciliación del parche tocan el arranque
 y merecen revisión aparte.
@@ -134,3 +151,15 @@ L10. Verbatim: «lo del parche eso si no deberia ser manual ni romperse conn cad
 L9. Medido: `extensions/lib/wallpaper-accent.ts:9` fija `~/.config/mpvpaper`,
     `extensions/lib/wallpaper-theme.ts:20` fija `WALLPAPER_THEME_BASE = 'Wallpaper'`, y
     `extensions/lib/loon-config.ts:22` define `ACCENT_SOURCES` sin `file`.
+
+L12. Medido tras el update a gentle-pi 4.7.0 (parche pineado a 4.6.0): `check` dice
+    `not the build`, 6 archivos con anchors intactos y `lib/shell-bar.ts` en
+    `different-version` por 2 anchors movidos: el import ya no lista `surfaceOpener`
+    (el opener llega por `shell-panel` como `panelSurfaceOpener`, que sí existe en
+    `shell-card.ts:288`) y el callsite es una cadena de 5 líneas con `safeModel`,
+    `belowInput` y `flatMap` (`shell-bar.ts:575-579`). Stock md5 nuevos medidos:
+    gentle-shell `8a28b39c`, visual `796675ca`, banner `7a1217b3`, shell-bar `d10c723e`;
+    shell-card `2faa9cd4`, card-style `2833f69f`, prompt `70f028ae` sin cambios. La
+    suite en rojo: 368/376, 8 fallos (anchors contra instalado, digest record contra
+    instalado, brand oculta con LOON). Captura del dueño: header LOON pintando sobre
+    barra stock = roto; «se supone que el plugin no deberia cargar» (S9).

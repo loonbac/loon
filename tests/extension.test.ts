@@ -100,6 +100,8 @@ interface FakeConfig {
 	wallpaperRgb: [number, number, number] | undefined;
 	themeCalls: unknown[];
 	themeResult: 'written' | 'up-to-date' | 'skipped-foreign' | 'skipped-no-accent';
+	/** What the package reports as missing: undefined means "do not ask". */
+	missing: string[] | undefined;
 	set(next: Partial<LoonState>): void;
 	emit(): void;
 	disposed(): number;
@@ -120,7 +122,9 @@ function fakeConfig(initial: Partial<LoonState> = {}): FakeConfig {
 		wallpaperRgb: undefined,
 		themeCalls: [],
 		themeResult: 'written',
+		missing: undefined,
 		deps: {
+			patchMissing: () => config.missing ?? [],
 			read: () => ({ loon: { ...state.loon }, gentle: { ...state.gentle } }),
 			write: (settings) => {
 				writes.push(settings);
@@ -250,6 +254,35 @@ test('nothing is installed when the context has no TUI', async () => {
 	startSession(pi, headless);
 	await wait(50);
 	assert.deepEqual(headerFactories(headless), []);
+});
+
+/* S9: sin parche no se pinta. */
+
+test('a refused patch installs no header and regenerates no theme', async () => {
+	// gentle-pi 4.7.0 con el parche aún en 4.6.0: la reparación se niega y LOON no
+	// pinta roto — ni header ni tema — hasta que los marcadores vuelven.
+	const { pi, ctx, config } = boot();
+	config.missing = ['lib/shell-bar.ts'];
+	startSession(pi, ctx);
+	await wait(50);
+	assert.deepEqual(headerFactories(ctx), [], 'el header se instaló sin parche');
+	assert.deepEqual(config.themeCalls, [], 'el tema se regeneró sin parche');
+});
+
+test('LOON vuelve sin reiniciar en cuanto los marcadores vuelven', async () => {
+	const { pi, ctx, config } = boot();
+	config.missing = ['lib/shell-bar.ts'];
+	startSession(pi, ctx);
+	await wait(50);
+	assert.deepEqual(headerFactories(ctx), [], 'el header se instaló sin parche');
+	// El parche aplicado a mano: el siguiente refresh lo detecta y LOON vuelve. El
+	// refresh corre con un cambio de ajustes o un arranque; aquí se toca el mark.
+	config.missing = [];
+	config.set({ loon: { ...config.state.loon, mark: !config.state.loon.mark } });
+	config.emit();
+	await wait(50);
+	assert.equal(typeof headerFactories(ctx).at(-1), 'function', 'LOON no volvió tras el parche');
+	assert.ok(config.themeCalls.length >= 1, 'el tema no se regeneró tras el parche');
 });
 
 /* S3: headerPlacement, in both directions and without a restart. */
