@@ -6,7 +6,7 @@
  *
  * This edits another installed package, so it is deliberately paranoid:
  *
- *   - the files must be exactly the gentle-pi 4.6.0 build the patch was written
+ *   - the files must be exactly the gentle-pi 4.7.0 build the patch was written
  *     against (md5), or nothing is touched;
  *   - every anchor must appear exactly once, so a partial match cannot leave half
  *     a patch behind;
@@ -29,7 +29,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /** The gentle-pi release this patch is written for. */
-export const GENTLE_PI_VERSION = '4.6.0';
+export const GENTLE_PI_VERSION = '4.7.0';
 
 /** Every patched file carries this marker, which also makes the patch idempotent. */
 export const PATCH_MARKER = 'LOON banner patch';
@@ -44,7 +44,7 @@ export interface PatchEdit {
 export interface TargetSpec {
 	/** Path relative to the gentle-pi package root. */
 	file: string;
-	/** md5 of the untouched 4.6.0 build. */
+	/** md5 of the untouched 4.7.0 build. */
 	md5: string;
 	edits: PatchEdit[];
 	/** md5 of the exact bytes this version writes. */
@@ -138,10 +138,11 @@ const SHELL_BAR_USAGE_REPLACEMENT = [
 // loon gives the whole chrome one column of margin, and the bar is the last piece
 // outside it: column 0 stays unpainted, the painted block starts in column 1 and
 // still closes on the last column, exactly like the prompt band.
-// 4.6.0 moved the per-row repaint and the surface opener into shell-card, so the
-// import this anchor pins grew. The patch needs the style and its geometry too.
-const SHELL_BAR_MARGIN_IMPORT_ANCHOR = 'import { CARD_TONE, floatRows, paintSurfaceRow, panelInnerWidth, renderCard, surfaceOpener } from "./shell-card.ts";';
-const SHELL_BAR_MARGIN_IMPORT_REPLACEMENT = 'import { CARD_STYLE, CARD_TONE, cardStyle, floatRows, paintSurfaceRow, panelInnerWidth, renderCard, surfaceOpener } from "./shell-card.ts";';
+// 4.7.0 dropped surfaceOpener from this import: the opener now reaches the bar through
+// shell-panel's panelSurfaceOpener, which is why this anchor pins the shorter line. The
+// patch needs the style and its geometry, so those two names join the stock list.
+const SHELL_BAR_MARGIN_IMPORT_ANCHOR = 'import { CARD_TONE, floatRows, paintSurfaceRow, panelInnerWidth, renderCard } from "./shell-card.ts";';
+const SHELL_BAR_MARGIN_IMPORT_REPLACEMENT = 'import { CARD_STYLE, CARD_TONE, cardStyle, floatRows, paintSurfaceRow, panelInnerWidth, renderCard } from "./shell-card.ts";';
 
 const SHELL_BAR_MARGIN_ROW_ANCHOR = [
 	'\tconst { inner, open } = painted;',
@@ -255,13 +256,28 @@ const SHELL_BAR_STAGES_TAIL_REPLACEMENT = [
 ].join('\n');
 
 // The call site used to slice the brand off every stage for minimal density; the
-// decision now lives inside headerLeftStages, so it needs the presentation.
+// decision now lives inside headerLeftStages, so it needs the presentation and the
+// trailing slice goes away. 4.7.0 made the call a five-line chain (safeModel,
+// belowInput, flatMap), and only the last `.map` is ours to drop.
+//
+// The nuance, measured from the chain that stays: under minimal density the stages
+// headerLeftStages returns carry no brand, so `stage[1]` is a model segment and never
+// `location`. The flatMap's rewrite condition is therefore false and the stage passes
+// through untouched - no rewrite, and no crash from reading `stage[0]` on a stage that
+// still has one.
 const SHELL_BAR_CALLSITE_ANCHOR = [
-	'\tconst leftStages = headerLeftStages(model, theme, presentation?.visibility.modelDetails !== false)',
+	'\tconst leftStages = headerLeftStages(safeModel, theme, presentation?.visibility.modelDetails !== false)',
+	'\t\t.flatMap((stage) => belowInput && stage[1] === location',
+	'\t\t\t? [[stage[0]!, `${projectIdentity(safeModel.cwd, theme).name}  ${location}`, ...stage.slice(2)], stage]',
+	'\t\t\t: [stage])',
 	'\t\t.map((stage) => presentation?.density === "minimal" ? stage.slice(1) : stage);',
 ].join('\n');
-const SHELL_BAR_CALLSITE_REPLACEMENT =
-	'\tconst leftStages = headerLeftStages(model, theme, presentation?.visibility.modelDetails !== false, presentation);';
+const SHELL_BAR_CALLSITE_REPLACEMENT = [
+	'\tconst leftStages = headerLeftStages(safeModel, theme, presentation?.visibility.modelDetails !== false, presentation)',
+	'\t\t.flatMap((stage) => belowInput && stage[1] === location',
+	'\t\t\t? [[stage[0]!, `${projectIdentity(safeModel.cwd, theme).name}  ${location}`, ...stage.slice(2)], stage]',
+	'\t\t\t: [stage]);',
+].join('\n');
 
 // Card style loon: lib/shell-card.ts
 const SHELL_CARD_1_ANCHOR = 'export const CARD_STYLE = {\n\tNEON: "neon",\n\tFLOAT: "float",\n} as const;';
@@ -662,11 +678,11 @@ export const ANCHORS = {
 export const TARGETS: TargetSpec[] = [
 	{
 		file: 'extensions/gentle-shell.ts',
-		md5: '870867458af13b1a6a411b4a4e3cd5b2',
+		md5: '8a28b39ca26789fd501a06958f36060b',
 		// Newest first: the patch before the Agent marks, the patch before the mark row, the patch
 		// before the theme accent, then the older patched states from before the v2 rows.
-		md5PatchedV1: ['9c77666b43b7aa6fbe3f761dee03d624', 'bc7197600a9f1482ed4e86bd1119b4d8', '7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
-		md5Patched: '871cf1d257931ed743fd6067fd9819fa',
+		md5PatchedV1: ['871cf1d257931ed743fd6067fd9819fa', '9c77666b43b7aa6fbe3f761dee03d624', 'bc7197600a9f1482ed4e86bd1119b4d8', '7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
+		md5Patched: '1516e9b3dccdc134747411e2b931fec6',
 		v2Marker: 'Banner color: wallpaper',
 		edits: [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
@@ -689,9 +705,9 @@ export const TARGETS: TargetSpec[] = [
 		// The view calls a row's label with the width the row actually has, so a long
 		// label can choose a shorter wording instead of being cut mid-word.
 		file: 'lib/visual-customize-view.ts',
-		md5: '5a052563d8d5dd86cb4781c0681c9a3c',
-		md5Patched: '506ab79c84daadff5925d7ef28a87677',
-		md5PatchedV1: ['23bb9997b474842fe5f2a4d652c4178b'],
+		md5: '796675ca3e18faf5c575d91317859706',
+		md5Patched: '1b9b18381a4481b0dbdcff82bb296c57',
+		md5PatchedV1: ['506ab79c84daadff5925d7ef28a87677', '23bb9997b474842fe5f2a4d652c4178b'],
 		edits: [
 			{ anchor: VIEW_LABEL_TYPE_ANCHOR, replacement: VIEW_LABEL_TYPE_REPLACEMENT },
 			{ anchor: VIEW_LABEL_CALL_ANCHOR, replacement: VIEW_LABEL_CALL_REPLACEMENT },
@@ -699,10 +715,11 @@ export const TARGETS: TargetSpec[] = [
 	},
 	{
 		file: 'extensions/startup-banner.ts',
-		md5: 'c3fc54e35488c17c82a81ff2c4ed0271',
-		// Its patched bytes are the same in both versions: the guard did not change.
-		md5Patched: '5d10cdb23b6c660d96bfd0d45f8a74df',
-		md5PatchedV1: ['79167d2ce9c12de796f7c751778d0b18'],
+		md5: '7a1217b367cc94db2dbabb7405be2123',
+		// 4.7.0 rewrote the file around the anchors, so its patched bytes moved with it
+		// even though the guard itself did not change.
+		md5Patched: 'c30e8e28c87adb61e24734c073b9aa94',
+		md5PatchedV1: ['5d10cdb23b6c660d96bfd0d45f8a74df', '79167d2ce9c12de796f7c751778d0b18'],
 		edits: [
 			{ anchor: BANNER_EVENT_ANCHOR, replacement: BANNER_EVENT_REPLACEMENT },
 			{ anchor: BANNER_CONFIG_ANCHOR, replacement: BANNER_CONFIG_ANCHOR + '\n' + BANNER_CONFIG_ADDITION },
@@ -712,9 +729,9 @@ export const TARGETS: TargetSpec[] = [
 		// The header bar's brand: a theme LOON generated says so in its name, and the
 		// brand gives way to it. Stock themes keep the bar exactly as it was.
 		file: 'lib/shell-bar.ts',
-		md5: '19334914e8fc284b993fa2c148e3b697',
-		md5Patched: '2ddbe9f15fe16552ff98d0dd9ac17ff6',
-		md5PatchedV1: ['5b43e3127eae0024d45b21eec34b1a95', '36afe7b323c27f7c2753a22d08cb57fa', 'c4392741927c8da26d0b9d24142e3a41'],
+		md5: 'd10c723accc0f7dd5b9b67137cf72cb5',
+		md5Patched: 'aed8ecf4e15ee2cc3f5e664fb0f6aced',
+		md5PatchedV1: ['2ddbe9f15fe16552ff98d0dd9ac17ff6', '5b43e3127eae0024d45b21eec34b1a95', '36afe7b323c27f7c2753a22d08cb57fa', 'c4392741927c8da26d0b9d24142e3a41'],
 		edits: [
 			{ anchor: SHELL_BAR_BRAND_ANCHOR, replacement: SHELL_BAR_BRAND_ANCHOR + '\n\n' + SHELL_BAR_BRAND_ADDITION },
 			{ anchor: SHELL_BAR_MINIMAL_ANCHOR, replacement: SHELL_BAR_MINIMAL_REPLACEMENT },
@@ -1274,7 +1291,7 @@ export function apply(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numbe
 		}
 	}
 
-	// Every backup holds the pristine 4.6.0 bytes, so `revert` always has something
+	// Every backup holds the pristine 4.7.0 bytes, so `revert` always has something
 	// to verify against - including when this run upgraded our own earlier patch.
 	const dir = backupOriginals(paths, prepared.map(({ spec, pristine, patched }) => ({ spec, text: pristine, patched })));
 	console.log('backup: ' + dir);
@@ -1337,7 +1354,7 @@ function ourOutputs(spec: TargetSpec): string[] {
  * snapshot cannot leave the installation half restored.
  *
  * The recorded copy is used as it is: it holds whatever was installed before the patch,
- * which is the file to give back. The pinned digest of gentle-pi 4.6.0 is not the gate
+ * which is the file to give back. The pinned digest of gentle-pi 4.7.0 is not the gate
  * here either - a build that was patched over a harmless change must revert to that
  * change, not to a release this machine never had.
  */
