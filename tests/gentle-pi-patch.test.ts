@@ -549,6 +549,7 @@ test('every pinned digest is what the patch produces from the pristine file', { 
  *   36afe7b3  lib/shell-bar.ts             9d18d0b
  *   5b43e312  lib/shell-bar.ts             cd944eb
  *   c4392741  lib/shell-bar.ts             5c9b999
+ *   463dc524  lib/shell-bar.ts             8417b23
  *   8dbecc2f  lib/shell-card.ts            709134f
  *   8f3460ef  lib/shell-card.ts            cd944eb
  *   040c2b8c  lib/shell-prompt.ts          3140819
@@ -1052,6 +1053,9 @@ const shellBarFixture = [
 	'}',
 	'',
 	ANCHORS.shellBarBrand,
+	'',
+	// The identity row leads with the rose too, and takes the same decision.
+	ANCHORS.shellBarIdentity,
 	'',
 	ANCHORS.shellBarStages,
 	'\tconst withProfile = model.profile ? `${withEffort} ${theme.fg(ROLE.LABEL, "·")} ${theme.fg(ROLE.MODEL, sanitizeStatus(model.profile))}` : withEffort;',

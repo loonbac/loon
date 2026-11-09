@@ -48,7 +48,10 @@ const target = (file: string): TargetSpec => {
 function patchedPackage(): string {
 	const root = mkdtempSync(join(tmpdir(), 'loon-marks-'));
 	cpSync(join(GENTLE, 'lib'), join(root, 'lib'), { recursive: true });
-	for (const file of ['lib/shell-prompt.ts', 'lib/shell-card.ts']) {
+	// shell-bar reaches the package's own scripts/ through the review sidebar; support files,
+	// not patch targets, so they are the installed bytes as they are.
+	cpSync(join(GENTLE, 'scripts'), join(root, 'scripts'), { recursive: true });
+	for (const file of ['lib/shell-prompt.ts', 'lib/shell-card.ts', 'lib/shell-bar.ts']) {
 		writeFileSync(join(root, file), patchedText(target(file)));
 	}
 	// The scratch package lives outside the worktree and does not outlive the run.
@@ -80,10 +83,25 @@ interface CardModule {
 	renderCard: (card: Record<string, unknown>, theme: Record<string, unknown>, width: number, options: Record<string, unknown>) => string[];
 }
 
+interface BarModule {
+	renderShellTitleRow: (model: Record<string, unknown>, theme: Record<string, unknown>, width: number, options?: Record<string, unknown>) => string;
+	renderShellStatusBar: (
+		model: Record<string, unknown>,
+		theme: Record<string, unknown>,
+		width: number,
+		usageHint?: string,
+		presentation?: Record<string, unknown>,
+		paint?: unknown,
+		extras?: Record<string, unknown>,
+	) => { rows: string[] };
+}
+
 const PI_ALIASES = {
 	'@earendil-works/pi-tui': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-tui', 'dist', 'index.js'),
 	'@earendil-works/pi-agent-core': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-agent-core', 'dist', 'index.js'),
 	'@earendil-works/pi-ai': join(PI_ROOT, 'node_modules', '@earendil-works', 'pi-ai', 'dist', 'compat.js'),
+	// shell-bar reaches the package root through background-jobs-tools; the dist entry is enough.
+	'@earendil-works/pi-coding-agent': join(PI_ROOT, 'dist', 'index.js'),
 };
 
 async function load<T>(root: string, file: string): Promise<T> {
@@ -107,13 +125,17 @@ const strip = (text: string): string => text.replace(/\u001b\[[0-9;]*m/g, '');
 const FLOWERS = ['✿', '❀', '❁', '✾'];
 const MARKS = ['·', '✢', '✳', '✶', '✻', '✽', '⏺'];
 
-let cached: { prompt: PromptModule; card: CardModule } | undefined;
+let cached: { prompt: PromptModule; card: CardModule; bar: BarModule } | undefined;
 
 /** The modules under test, patched once for the whole file. */
-async function modules(): Promise<{ prompt: PromptModule; card: CardModule }> {
+async function modules(): Promise<{ prompt: PromptModule; card: CardModule; bar: BarModule }> {
 	if (cached !== undefined) return cached;
 	const root = patchedPackage();
-	cached = { prompt: await load<PromptModule>(root, 'lib/shell-prompt.ts'), card: await load<CardModule>(root, 'lib/shell-card.ts') };
+	cached = {
+		prompt: await load<PromptModule>(root, 'lib/shell-prompt.ts'),
+		card: await load<CardModule>(root, 'lib/shell-card.ts'),
+		bar: await load<BarModule>(root, 'lib/shell-bar.ts'),
+	};
 	return cached;
 }
 
@@ -262,6 +284,70 @@ test('a card heading leads with ✻ under a LOON theme and with ✿ under any ot
 	assert.equal(strip('✿').length, 1);
 	assert.equal(strip('✻').length, 1);
 	assert.equal(strip(MARKS.join('')).length, MARKS.length, 'an Agent mark is not one cell wide');
+});
+
+/**
+ * The header the chrome paints: the title row above the transcript and the status bar's own
+ * project identity. Both lead with `✿`, and that rose is the brand the shell bar drops under
+ * a LOON theme - so it goes there too, and every other theme keeps the glyph and its bytes.
+ * Rendered from the patched scratch copy, never from the installed package.
+ */
+test('the header never paints the rose under a LOON theme', { skip: available }, async () => {
+	const bar = (await modules()).bar;
+	const loon = plainTheme('Wallpaper (LOON)');
+	const other = plainTheme('Gentle');
+	const unnamed = plainTheme();
+	// The shape the chrome hands the bar, values included: the identity decision must not
+	// depend on an incomplete fixture.
+	const model = {
+		cwd: '/home/loon/proj',
+		branch: 'master',
+		dirty: 0,
+		sessionName: undefined,
+		modelId: 'gpt-5',
+		effort: 'high',
+		profile: 'reviewer',
+		contextPercent: 12,
+		contextWindow: 200000,
+		costTotal: 0.42,
+		subscription: false,
+		usage: undefined,
+		statuses: [],
+	};
+	const presentation = {
+		density: 'comfortable',
+		visibility: { changes: true, rdd: true, agents: true, todo: true, usageCost: true, modelDetails: true, contextWarning: true, stats: false },
+	};
+	const title = (theme: Record<string, unknown>, width: number, options?: Record<string, unknown>): string => strip(bar.renderShellTitleRow(model, theme, width, options));
+	const status = (theme: Record<string, unknown>): string =>
+		bar.renderShellStatusBar(model, theme, 120, undefined, presentation, undefined, { project: true }).rows.map(strip).join('\n');
+
+	// The identity stays; only the rose goes. Measured at the widths the chrome picks, and
+	// with the model-bearing variant of the narrow layout.
+	for (const width of [120, 90, 40]) {
+		const row = title(loon, width);
+		assert.equal(row.includes('✿'), false, 'the rose survived in the title row at width ' + width + ': ' + JSON.stringify(row));
+		assert.ok(row.includes('proj'), 'the project identity left the title row with the rose: ' + JSON.stringify(row));
+	}
+	assert.equal(
+		title(loon, 90, { model: true }).includes('✿'),
+		false,
+		'the model-bearing title row kept the rose: ' + JSON.stringify(title(loon, 90, { model: true })),
+	);
+	const loonStatus = status(loon);
+	assert.equal(loonStatus.includes('✿'), false, 'the status bar kept the rose under a LOON theme: ' + JSON.stringify(loonStatus));
+	assert.ok(loonStatus.includes('proj'), 'the status bar lost the project identity with the rose: ' + JSON.stringify(loonStatus));
+
+	// Every other theme is untouched, byte for byte, and a theme with no name fails open.
+	for (const theme of [other, unnamed]) {
+		for (const width of [120, 40]) {
+			assert.ok(
+				title(theme, width).includes('✿ proj'),
+				'the rose left the title row of a theme that is not LOON, at width ' + width + ': ' + JSON.stringify(title(theme, width)),
+			);
+		}
+		assert.ok(status(theme).includes('✿ proj'), 'the rose left the status bar of a theme that is not LOON: ' + JSON.stringify(status(theme)));
+	}
 });
 
 /**

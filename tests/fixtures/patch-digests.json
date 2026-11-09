@@ -37,8 +37,9 @@
 			]
 		},
 		"lib/shell-bar.ts": {
-			"md5Patched": "aed8ecf4e15ee2cc3f5e664fb0f6aced",
+			"md5Patched": "463dc5244c1f6eaf0b3cea2b97dce1aa",
 			"md5PatchedV1": [
+				"aed8ecf4e15ee2cc3f5e664fb0f6aced",
 				"2ddbe9f15fe16552ff98d0dd9ac17ff6",
 				"5b43e3127eae0024d45b21eec34b1a95",
 				"36afe7b323c27f7c2753a22d08cb57fa",

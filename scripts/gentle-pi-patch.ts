@@ -255,6 +255,25 @@ const SHELL_BAR_STAGES_TAIL_REPLACEMENT = [
 	'\t];',
 ].join('\n');
 
+// The project identity: `✿ name  path`, painted by the fullscreen title row and by the
+// status bar's project extra. It leads with the rose as a literal of its own - not through
+// SHELL_BAR_BRAND or HEADER_BRAND - so the brand decision above never reached it, and the
+// header kept a `✿` under a LOON theme. The identity stays; only the rose goes.
+const SHELL_BAR_IDENTITY_ANCHOR = [
+	'\tconst label = `${theme.fg(ROLE.BRAND, "✿")} ${theme.fg(ROLE.VALUE, theme.bold(name))}`;',
+	'\treturn { name: label, full: `${label}  ${theme.fg(ROLE.PATH, path)}` };',
+].join('\n');
+const SHELL_BAR_IDENTITY_REPLACEMENT = [
+	'\t// LOON banner patch: the project identity leads the title row and the status bar',
+	'\t// with the same rose the shell bar drops, so under a LOON theme it goes here too',
+	'\t// instead of coming back through a third literal. Every other theme keeps the',
+	'\t// glyph and its exact bytes. loonThemeActive() is a module-level declaration, so',
+	'\t// reading it from here is hoisting, not a value used before it exists.',
+	'\tconst mark = loonThemeActive(theme) ? "" : `${theme.fg(ROLE.BRAND, "✿")} `;',
+	'\tconst label = `${mark}${theme.fg(ROLE.VALUE, theme.bold(name))}`;',
+	'\treturn { name: label, full: `${label}  ${theme.fg(ROLE.PATH, path)}` };',
+].join('\n');
+
 // The call site used to slice the brand off every stage for minimal density; the
 // decision now lives inside headerLeftStages, so it needs the presentation and the
 // trailing slice goes away. 4.7.0 made the call a five-line chain (safeModel,
@@ -643,6 +662,7 @@ export const ANCHORS = {
 	viewLabelType: VIEW_LABEL_TYPE_ANCHOR,
 	viewLabelCall: VIEW_LABEL_CALL_ANCHOR,
 	shellBarBrand: SHELL_BAR_BRAND_ANCHOR,
+	shellBarIdentity: SHELL_BAR_IDENTITY_ANCHOR,
 	shellBarMinimal: SHELL_BAR_MINIMAL_ANCHOR,
 	shellBarStages: SHELL_BAR_STAGES_ANCHOR,
 	shellBarStagesTail: SHELL_BAR_STAGES_TAIL_ANCHOR,
@@ -742,13 +762,17 @@ export const TARGETS: TargetSpec[] = [
 	},
 	{
 		// The header bar's brand: a theme LOON generated says so in its name, and the
-		// brand gives way to it. Stock themes keep the bar exactly as it was.
+		// brand gives way to it. Stock themes keep the bar exactly as it was. The project
+		// identity the title row and the status bar paint leads with the same rose, and
+		// drops it under the same theme.
 		file: 'lib/shell-bar.ts',
 		md5: 'd10c723accc0f7dd5b9b67137cf72cb5',
-		md5Patched: 'aed8ecf4e15ee2cc3f5e664fb0f6aced',
-		md5PatchedV1: ['2ddbe9f15fe16552ff98d0dd9ac17ff6', '5b43e3127eae0024d45b21eec34b1a95', '36afe7b323c27f7c2753a22d08cb57fa', 'c4392741927c8da26d0b9d24142e3a41'],
+		md5Patched: '463dc5244c1f6eaf0b3cea2b97dce1aa',
+		md5PatchedV1: ['aed8ecf4e15ee2cc3f5e664fb0f6aced', '2ddbe9f15fe16552ff98d0dd9ac17ff6', '5b43e3127eae0024d45b21eec34b1a95', '36afe7b323c27f7c2753a22d08cb57fa', 'c4392741927c8da26d0b9d24142e3a41'],
 		edits: [
 			{ anchor: SHELL_BAR_BRAND_ANCHOR, replacement: SHELL_BAR_BRAND_ANCHOR + '\n\n' + SHELL_BAR_BRAND_ADDITION },
+			// The identity row and the status bar's project extra lead with the same rose.
+			{ anchor: SHELL_BAR_IDENTITY_ANCHOR, replacement: SHELL_BAR_IDENTITY_REPLACEMENT },
 			{ anchor: SHELL_BAR_MINIMAL_ANCHOR, replacement: SHELL_BAR_MINIMAL_REPLACEMENT },
 			{ anchor: SHELL_BAR_STAGES_ANCHOR, replacement: SHELL_BAR_STAGES_REPLACEMENT },
 			{ anchor: SHELL_BAR_STAGES_TAIL_ANCHOR, replacement: SHELL_BAR_STAGES_TAIL_REPLACEMENT },
