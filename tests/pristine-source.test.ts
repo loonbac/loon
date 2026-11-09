@@ -25,7 +25,7 @@ function copyOfReal(): string {
 }
 
 test('the record names one SHA-256 per patch target, and nothing else', () => {
-	assert.equal(PRISTINE_VERSION, '4.6.0');
+	assert.equal(PRISTINE_VERSION, '4.7.0');
 	assert.deepEqual(PRISTINE_FILES, TARGETS.map((target) => target.file).sort(), 'the record and the patch targets drifted apart');
 	for (const [file, digest] of Object.entries(PRISTINE_SHA)) {
 		assert.match(digest, /^[0-9a-f]{64}$/, file + ' has no SHA-256');

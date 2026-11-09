@@ -1,9 +1,10 @@
 {
-	"version": "4.6.0",
+	"version": "4.7.0",
 	"targets": {
 		"extensions/gentle-shell.ts": {
-			"md5Patched": "871cf1d257931ed743fd6067fd9819fa",
+			"md5Patched": "1516e9b3dccdc134747411e2b931fec6",
 			"md5PatchedV1": [
+				"871cf1d257931ed743fd6067fd9819fa",
 				"9c77666b43b7aa6fbe3f761dee03d624",
 				"bc7197600a9f1482ed4e86bd1119b4d8",
 				"7da141c898257cf56230f735fe4c553e",
@@ -22,20 +23,23 @@
 			]
 		},
 		"lib/visual-customize-view.ts": {
-			"md5Patched": "506ab79c84daadff5925d7ef28a87677",
+			"md5Patched": "1b9b18381a4481b0dbdcff82bb296c57",
 			"md5PatchedV1": [
+				"506ab79c84daadff5925d7ef28a87677",
 				"23bb9997b474842fe5f2a4d652c4178b"
 			]
 		},
 		"extensions/startup-banner.ts": {
-			"md5Patched": "5d10cdb23b6c660d96bfd0d45f8a74df",
+			"md5Patched": "c30e8e28c87adb61e24734c073b9aa94",
 			"md5PatchedV1": [
+				"5d10cdb23b6c660d96bfd0d45f8a74df",
 				"79167d2ce9c12de796f7c751778d0b18"
 			]
 		},
 		"lib/shell-bar.ts": {
-			"md5Patched": "2ddbe9f15fe16552ff98d0dd9ac17ff6",
+			"md5Patched": "aed8ecf4e15ee2cc3f5e664fb0f6aced",
 			"md5PatchedV1": [
+				"2ddbe9f15fe16552ff98d0dd9ac17ff6",
 				"5b43e3127eae0024d45b21eec34b1a95",
 				"36afe7b323c27f7c2753a22d08cb57fa",
 				"c4392741927c8da26d0b9d24142e3a41"

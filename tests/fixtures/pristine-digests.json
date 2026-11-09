@@ -1,10 +1,10 @@
 {
-	"version": "4.6.0",
+	"version": "4.7.0",
 	"files": {
-		"extensions/gentle-shell.ts": "b47d976dfa45045045a014ee19f855f75709503626210e292cb0151e8829a076",
-		"extensions/startup-banner.ts": "59c97971f0c7ba454a6bc08346e599196ff9ace5f14b20487a72e58b46851928",
-		"lib/visual-customize-view.ts": "0ad3963d2be1b9f27e331f4856ef89f873718028852f086f16ea66f88c69d6cd",
-		"lib/shell-bar.ts": "15f2548fa6ad0f690553d0e08092ae37ce009568e8b248ce2c1c2cb48329f9b1",
+		"extensions/gentle-shell.ts": "59d0e83e7843c0e52644d5233edbfb0a41bdbfbb5a8fb451e692611fa9b277e4",
+		"lib/visual-customize-view.ts": "21ab31a271a7cf10d9bf178c6f5d8294674c316c85651a0ec799dce67ffb8e38",
+		"extensions/startup-banner.ts": "30dd7ff00c462c69ea90eb2c02aed93fa2e17721c3de20a87a0567fee30c5920",
+		"lib/shell-bar.ts": "80fbf152887840527b240c1b485fa2a01013fc1f00500a1236797bc229bbbef8",
 		"lib/shell-card.ts": "37de5e2877b702573dae47f2d25f9cbad072b222d9c4ba876fc381afeecf1b06",
 		"lib/card-style-policy.ts": "ab9a1c62fe0750245e5901d4ddc3b722b1bbe348f2efd4209690cf4e9ddd33c8",
 		"lib/shell-prompt.ts": "5db8c6d88f065cd2b6a54aee58c0d549848f296b650b98fc3d760e405b701a0d"
