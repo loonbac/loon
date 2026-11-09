@@ -1318,5 +1318,61 @@
 				"replacement": "\t\t\t\t\treturn `- ${peerIdentity(peer) ?? \"unnamed peer\"}${context} · ${legacy ? \"repository: not published\" : repository(peer.scope?.host)} · metadata: ${legacy ? \"legacy\" : peer.freshness}${tasks}${registered}${gaps}${catalog}${note}${unpublished}${peer.omitted ? `\\n  (${peer.omitted} more tasks omitted)` : \"\"} · session id (internal value: match by subject, topic or workspace; never ask the owner for it): ${peer.sessionId}`;"
 			}
 		]
+	},
+	{
+		"digest": "463dc5244c1f6eaf0b3cea2b97dce1aa",
+		"file": "lib/shell-bar.ts",
+		"commit": "8417b23",
+		"pristine": "4.7.0",
+		"edits": [
+			{
+				"anchor": "const HEADER_BRAND = \"\u273f Gentle Shell\";",
+				"replacement": "const HEADER_BRAND = \"\u273f Gentle Shell\";\n\n// LOON banner patch: a theme this plugin generates marks itself with \" (LOON)\" in\n// its name, and that one fact drives two decisions: the bar drops a brand the\n// header already implies, and it stops advertising the usage shortcut. Any other\n// theme keeps both, and a theme whose name is missing or not a string fails open\n// (brand shown, hint shown) instead of hiding either by accident.\nfunction loonThemeActive(theme: ShellBarTheme): boolean {\n\tconst name = (theme as ShellBarTheme & { name?: unknown }).name;\n\treturn typeof name === \"string\" && name.endsWith(\" (LOON)\");\n}\n\nfunction barBrandSegments(theme: ShellBarTheme, text: string, options: { bold?: boolean; hidden?: boolean } = {}): string[] {\n\tif (options.hidden || loonThemeActive(theme)) return [];\n\treturn [options.bold ? theme.fg(ROLE.BRAND, theme.bold(text)) : theme.fg(ROLE.BRAND, text)];\n}"
+			},
+			{
+				"anchor": "\tconst label = `${theme.fg(ROLE.BRAND, \"\u273f\")} ${theme.fg(ROLE.VALUE, theme.bold(name))}`;\n\treturn { name: label, full: `${label}  ${theme.fg(ROLE.PATH, path)}` };",
+				"replacement": "\t// LOON banner patch: the project identity leads the title row and the status bar\n\t// with the same rose the shell bar drops, so under a LOON theme it goes here too\n\t// instead of coming back through a third literal. Every other theme keeps the\n\t// glyph and its exact bytes. loonThemeActive() is a module-level declaration, so\n\t// reading it from here is hoisting, not a value used before it exists.\n\tconst mark = loonThemeActive(theme) ? \"\" : `${theme.fg(ROLE.BRAND, \"\u273f\")} `;\n\tconst label = `${mark}${theme.fg(ROLE.VALUE, theme.bold(name))}`;\n\treturn { name: label, full: `${label}  ${theme.fg(ROLE.PATH, path)}` };"
+			},
+			{
+				"anchor": "\t\t...(presentation?.density === \"minimal\" ? [] : [theme.fg(ROLE.BRAND, SHELL_BAR_BRAND)]),",
+				"replacement": "\t\t...barBrandSegments(theme, SHELL_BAR_BRAND, { hidden: presentation?.density === \"minimal\" }),"
+			},
+			{
+				"anchor": "function headerLeftStages(model: ShellHeaderModel, theme: ShellBarTheme, showModelDetails: boolean): string[][] {\n\tconst brand = theme.fg(ROLE.BRAND, theme.bold(HEADER_BRAND));\n\tconst location = locationSegment(model, theme);\n\tif (!showModelDetails) return [[brand, location], [brand]];\n\tconst withEffort = executionSegment(model.modelId, model.effort, theme);\n\tconst modelOnly = executionSegment(model.modelId, undefined, theme);",
+				"replacement": "function headerLeftStages(model: ShellHeaderModel, theme: ShellBarTheme, showModelDetails: boolean, presentation?: Presentation): string[][] {\n\t// LOON banner patch: both decisions live here now, because minimal density and a\n\t// LOON theme each take the brand away, and the stages must be built from the\n// segments that actually show. The arithmetic below is the same as it always was.\n\tconst loon = loonThemeActive(theme);\n\tconst brandSegments = presentation?.density === \"minimal\" ? [] : barBrandSegments(theme, HEADER_BRAND, { bold: true });\n\tconst location = locationSegment(model, theme);\n\tif (!showModelDetails) return loon ? [[location]] : [[...brandSegments, location], brandSegments];\n\tconst withEffort = executionSegment(model.modelId, model.effort, theme);\n\tconst modelOnly = executionSegment(model.modelId, undefined, theme);"
+			},
+			{
+				"anchor": "\treturn [\n\t\t[brand, location, withProfile],\n\t\t[brand, location, withEffort],\n\t\t[brand, location, modelOnly],\n\t\t...(model.effort ? [[brand, withEffort]] : []),\n\t\t[brand, modelOnly],\n\t\t[brand],\n\t];",
+				"replacement": "\tconst withBrand = (segments: string[]) => [...brandSegments, ...segments];\n\t// The brand-alone stage stays for every theme that can paint a brand, exactly as\n\t// it was, empty included when density took the brand; with a LOON theme it would\n\t// be an empty stage and nothing else, so it goes.\n\treturn [\n\t\twithBrand([location, withProfile]),\n\t\twithBrand([location, withEffort]),\n\t\twithBrand([location, modelOnly]),\n\t\t...(model.effort ? [withBrand([withEffort])] : []),\n\t\twithBrand([modelOnly]),\n\t\t...(loon ? [] : [brandSegments]),\n\t];"
+			},
+			{
+				"anchor": "\tconst leftStages = headerLeftStages(safeModel, theme, presentation?.visibility.modelDetails !== false)\n\t\t.flatMap((stage) => belowInput && stage[1] === location\n\t\t\t? [[stage[0]!, `${projectIdentity(safeModel.cwd, theme).name}  ${location}`, ...stage.slice(2)], stage]\n\t\t\t: [stage])\n\t\t.map((stage) => presentation?.density === \"minimal\" ? stage.slice(1) : stage);",
+				"replacement": "\tconst leftStages = headerLeftStages(safeModel, theme, presentation?.visibility.modelDetails !== false, presentation)\n\t\t.flatMap((stage) => belowInput && stage[1] === location\n\t\t\t? [[stage[0]!, `${projectIdentity(safeModel.cwd, theme).name}  ${location}`, ...stage.slice(2)], stage]\n\t\t\t: [stage]);"
+			},
+			{
+				"anchor": "\tconst brand = presentation?.density === \"minimal\" ? \"\" : theme.fg(ROLE.BRAND, theme.bold(HEADER_BRAND));",
+				"replacement": "\tconst brand = barBrandSegments(theme, HEADER_BRAND, { bold: true, hidden: presentation?.density === \"minimal\" })[0] ?? \"\";"
+			},
+			{
+				"anchor": "function usageSegmentText(windows: UsageWindow[], theme: ShellBarTheme, stage: UsageStage, hint: string | undefined, paint?: GaugePaint): string {\n\tconst label = theme.fg(USAGE_LABEL_ROLE, \"usage\");\n\tconst shown = stage === \"primary\" ? windows.slice(0, 1) : windows;\n\tconst body = shown.map((window) => usageWindowText(window, theme, stage === \"full\", paint)).join(` ${theme.fg(ROLE.LABEL, \"\u00b7\")} `);\n\tconst head = body.length > 0 ? `${label} ${body}` : label;\n\treturn hint ? `${head} ${theme.fg(ROLE.LABEL, \"\u00b7\")} ${theme.fg(USAGE_HINT_ROLE, hint)}` : head;\n}",
+				"replacement": "function usageSegmentText(windows: UsageWindow[], theme: ShellBarTheme, stage: UsageStage, hint: string | undefined, paint?: GaugePaint): string | undefined {\n\t// LOON banner patch: with a theme LOON generated the header stops advertising\n\t// the usage shortcut, and a segment with nothing to report is dropped whole\n\t// rather than left as an orphan \"usage\". The shortcut stays registered; only\n\t// this reminder is silenced.\n\tconst loon = loonThemeActive(theme);\n\tconst label = theme.fg(USAGE_LABEL_ROLE, \"usage\");\n\tconst shown = stage === \"primary\" ? windows.slice(0, 1) : windows;\n\tconst body = shown.map((window) => usageWindowText(window, theme, stage === \"full\", paint)).join(` ${theme.fg(ROLE.LABEL, \"\u00b7\")} `);\n\tif (loon && body.length === 0) return undefined;\n\tconst head = body.length > 0 ? `${label} ${body}` : label;\n\tconst shownHint = loon ? undefined : hint;\n\treturn shownHint ? `${head} ${theme.fg(ROLE.LABEL, \"\u00b7\")} ${theme.fg(USAGE_HINT_ROLE, shownHint)}` : head;\n}"
+			},
+			{
+				"anchor": "import { CARD_TONE, floatRows, paintSurfaceRow, panelInnerWidth, renderCard } from \"./shell-card.ts\";",
+				"replacement": "import { CARD_STYLE, CARD_TONE, cardStyle, floatRows, paintSurfaceRow, panelInnerWidth, renderCard } from \"./shell-card.ts\";"
+			},
+			{
+				"anchor": "\tconst { inner, open } = painted;\n\t// The background spans the full width: the margin cells are painted too, so\n\t// the bar reaches both edges with no frame on its sides.\n\tconst side = `${open} `;\n\treturn `${side}${inner.slice(open.length, -BG_RESET.length)}${side}${BG_RESET}`;",
+				"replacement": "\tconst { inner, open } = painted;\n\tconst body = inner.slice(open.length, -BG_RESET.length);\n\t// loon keeps one column of margin across the whole chrome, so its bar starts in\n\t// column 1 like the prompt band and the cards, and still closes on the last column.\n\t// The content width is the same either way, so the bar cascade does not move.\n\tif (cardStyle() === CARD_STYLE.LOON) return ` ${open}${body}${open} ${BG_RESET}`;\n\t// The background spans the full width: the margin cells are painted too, so\n\t// the bar reaches both edges with no frame on its sides.\n\tconst side = `${open} `;\n\treturn `${side}${body}${side}${BG_RESET}`;"
+			},
+			{
+				"anchor": "\tconst padding = `${painted.open}${\" \".repeat(targetWidth)}${BG_RESET}`;\n\tif (presentation?.headerPlacement === \"below-input\") {\n\t\t// A lower one-eighth block hugs the painted padding in the next row.\n\t\tconst upperEdge = theme.fg(HEADER_RULE_ROLE, \"\u2581\".repeat(targetWidth));",
+				"replacement": "\t// The padding rows and the edge line are part of the bar, so under loon they take\n\t// the same margin as its content row rather than starting in column 0.\n\tconst margin = cardStyle() === CARD_STYLE.LOON ? \" \" : \"\";\n\tconst blockWidth = Math.max(0, targetWidth - margin.length);\n\tconst padding = `${margin}${painted.open}${\" \".repeat(blockWidth)}${BG_RESET}`;\n\tif (presentation?.headerPlacement === \"below-input\") {\n\t\t// A lower one-eighth block hugs the painted padding in the next row.\n\t\tconst upperEdge = `${margin}${theme.fg(HEADER_RULE_ROLE, \"\u2581\".repeat(blockWidth))}`;"
+			},
+			{
+				"anchor": "\tif (floatHeaderPaint(theme, targetWidth, () => \"\") !== undefined) return theme.fg(HEADER_RULE_ROLE, HEADER_EDGE_CHAR.repeat(targetWidth));\n\treturn theme.fg(HEADER_RULE_ROLE, HEADER_RULE_CHAR.repeat(targetWidth));",
+				"replacement": "\t// Under loon the rule row keeps the chrome one-column margin too.\n\tconst margin = cardStyle() === CARD_STYLE.LOON ? \" \" : \"\";\n\tconst blockWidth = Math.max(0, targetWidth - margin.length);\n\tif (floatHeaderPaint(theme, targetWidth, () => \"\") !== undefined) return `${margin}${theme.fg(HEADER_RULE_ROLE, HEADER_EDGE_CHAR.repeat(blockWidth))}`;\n\treturn `${margin}${theme.fg(HEADER_RULE_ROLE, HEADER_RULE_CHAR.repeat(blockWidth))}`;"
+			}
+		]
 	}
 ]
