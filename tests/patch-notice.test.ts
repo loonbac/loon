@@ -58,7 +58,7 @@ test('the notice names what was lost and the exact command, not a vague warning'
 	assert.match(text, /parche LOON perdido/, text);
 	assert.match(text, /geometría de tarjetas/, 'the notice does not say what was lost: ' + text);
 	assert.match(text, /barra y filas de banner/, text);
-	assert.match(text, /3 de 7 archivos/, 'the notice does not count what is missing: ' + text);
+	assert.match(text, /3 de 8 archivos/, 'the notice does not count what is missing: ' + text);
 	assert.ok(
 		text.includes('cd /home/loon/loon && node --experimental-strip-types scripts/gentle-pi-patch.ts apply'),
 		'the notice does not carry the exact command with its absolute path: ' + text,
@@ -169,7 +169,7 @@ test('a lost patch is announced in a status key that survives the scrollback', {
 		const [, text] = announced[0]!;
 		assert.equal(typeof text, 'string', 'a stock package produced no notice: ' + JSON.stringify(announced));
 		assert.match(String(text), /parche LOON perdido/);
-		assert.match(String(text), /7 de 7 archivos/, 'the notice does not count the files it found: ' + text);
+		assert.match(String(text), /8 de 8 archivos/, 'the notice does not count the files it found: ' + text);
 		assert.match(String(text), /geometría de tarjetas/, 'the notice does not say what was lost: ' + text);
 		assert.match(String(text), /scripts\/gentle-pi-patch\.ts apply/, 'the notice does not carry the absolute command: ' + text);
 	} finally {

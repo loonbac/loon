@@ -59,6 +59,8 @@ test('the patch targets the gentle-pi build it was written for', () => {
 			['lib/card-style-policy.ts', '2833f69f68273d351a09fd1d39424756'],
 			// The prompt band picks its geometry by style name, so loon needs this file too.
 			['lib/shell-prompt.ts', '70f028ae3d61ccd471f5e346b5111e9e'],
+			// Peer labels: a session resolves its own recipient instead of asking the owner by UUID.
+			['extensions/gentle-agents.ts', 'fa0c3bd549eba8c20e1a2de1f0b81bdf'],
 		],
 	);
 });
