@@ -179,6 +179,8 @@ function shellStand(): string {
 		'',
 		'function standDeps(): StandDeps {', '\treturn {', ANCHORS.shellMarksFactory, '\t};', '}',
 		'',
+		'function standRenderRequest() {', '\tconst tui = { requestRender: () => {} };', '\tconst ctx = { ui: {}, sessionManager: { getSessionId: () => undefined } };', ANCHORS.shellMarksRequest, '}',
+		'',
 		'export class Editor {', ANCHORS.shellMouse, 'render() {', '\t\tconst options = {', ANCHORS.shellMarksFrame, '\t\t};', ANCHORS.shellMarksTopRows, '}', '}',
 		'',
 	].join('\n');
@@ -550,6 +552,8 @@ test('every pinned digest is what the patch produces from the pristine file', { 
  *   5b43e312  lib/shell-bar.ts             cd944eb
  *   c4392741  lib/shell-bar.ts             5c9b999
  *   463dc524  lib/shell-bar.ts             8417b23
+ *   d8627700  extensions/gentle-shell.ts   3b33ceb
+ *   0b550a34  lib/shell-prompt.ts          3b33ceb
  *   8dbecc2f  lib/shell-card.ts            709134f
  *   8f3460ef  lib/shell-card.ts            cd944eb
  *   040c2b8c  lib/shell-prompt.ts          3140819

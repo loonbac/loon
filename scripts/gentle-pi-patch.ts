@@ -403,6 +403,12 @@ const SHELL_PROMPT_TOPRULE_REPLACEMENT = [
 	'\tconst paintedLabel = label && scanning && !indicator ? scanWorkingText(label, options.tick, options.fg) : label ? options.fg(LABEL_ROLE, label) : "";',
 	'\tconst title = [petal, paintedLabel].filter(Boolean).join(" ");',
 	'\tconst titleWidth = visibleWidth(glyph) + (label ? visibleWidth(label) + (glyph ? 1 : 0) : 0);',
+	'\t// LOON banner patch: the title is the mark and the label, so moving them out of the',
+	'\t// frame leaves no title at all - and the two separators around the title slot stayed,',
+	'\t// which cut the rule with a blank gap (`╭─  ───…`, the owner\'s «─ ─ este corte de',
+	'\t// linea»). A rule row is either a rule or it is not: with nothing to lead it, it',
+	'\t// closes on both columns, the same shape a too-narrow width already falls back to.',
+	'\tif (title === "") return options.borderColor(`╭${rule(width - 2)}╮`);',
 	'\tconst fill = width - titleWidth - 5;',
 	'\tif (fill < 0) return options.borderColor(`╭${rule(width - 2)}╮`);',
 	'\treturn options.borderColor("╭─ ") + title + options.borderColor(` ${rule(fill)}╮`);',
@@ -459,6 +465,27 @@ const SHELL_PROMPT_PANEL_ANCHOR = [
 	'\tconst glyph = petalGlyph(options.state, options.tick);',
 	'\tconst petal = options.fg(petalTone(options.state, options.tick), options.bold ? options.bold(glyph) : glyph);',
 	'\tconst label = top ?? stateLabel(options) ?? "waiting for input";',
+	'\tif (options.panelButton && width >= visibleWidth(PANEL_BUTTON)) {',
+	'\t\tconst button = paintHoverable({ fg: options.fg }, PANEL_BUTTON, options.panelHovered ?? false, "accent");',
+	'\t\tif (width < visibleWidth(PANEL_BUTTON) + 3) return button + options.borderColor(rule(width - visibleWidth(PANEL_BUTTON)));',
+	'\t\tconst hintWidth = Math.max(0, width - visibleWidth(PANEL_BUTTON) - 4);',
+	'\t\tconst hint = right && hintWidth > 0 ? truncateToWidth(right, hintWidth, "…") : "";',
+	'\t\tconst end = ` ${button}${hint ? ` ${options.fg(LABEL_ROLE, hint)}` : ""} ${options.borderColor("─")}`;',
+	'\t\tconst available = width - visibleWidth(end);',
+	'\t\tif (available < 4) return options.borderColor(rule(available)) + end;',
+	'\t\tconst clipped = truncateToWidth(label, Math.max(0, available - 5), "…");',
+	'\t\tconst painted = options.state === PROMPT_STATE.WORKING && !top ? scanWorkingText(clipped, options.tick, options.fg) : options.fg(LABEL_ROLE, clipped);',
+	'\t\tconst fill = available - 4 - visibleWidth(clipped);',
+	'\t\treturn `${options.borderColor("─ ")}${petal} ${painted}${options.borderColor(rule(fill))}${end}`;',
+	'\t}',
+	'\tconst painted = options.state === PROMPT_STATE.WORKING && !top ? scanWorkingText(label, options.tick, options.fg) : options.fg(LABEL_ROLE, label);',
+	'\tconst end = right ? ` ${options.fg(LABEL_ROLE, right)} ` : "";',
+	'\tconst titleWidth = 2 + visibleWidth(glyph) + 1 + visibleWidth(label) + 1;',
+	'\tconst endWidth = right ? visibleWidth(right) + 2 : 0;',
+	'\tconst fill = width - titleWidth - endWidth - 1;',
+	'\tif (fill < 1) return options.borderColor(rule(width));',
+	'\treturn `${options.borderColor("─ ")}${petal} ${painted} ${options.borderColor(rule(fill))}${end}${options.borderColor("─")}`;',
+	'}',
 ].join('\n');
 const SHELL_PROMPT_PANEL_REPLACEMENT = [
 	'function panelPromptRule(width: number, options: PromptFrameOptions, top: string | undefined, right: string | undefined): string {',
@@ -468,6 +495,33 @@ const SHELL_PROMPT_PANEL_REPLACEMENT = [
 	'\tconst glyph = moved ? "" : petalGlyph(options.state, options.tick, options.agentMarks);',
 	'\tconst petal = glyph ? options.fg(petalTone(options.state, options.tick), options.bold ? options.bold(glyph) : glyph) : "";',
 	'\tconst label = moved ? "" : top ?? stateLabel(options) ?? "waiting for input";',
+	'\tif (options.panelButton && width >= visibleWidth(PANEL_BUTTON)) {',
+	'\t\tconst button = paintHoverable({ fg: options.fg }, PANEL_BUTTON, options.panelHovered ?? false, "accent");',
+	'\t\tif (width < visibleWidth(PANEL_BUTTON) + 3) return button + options.borderColor(rule(width - visibleWidth(PANEL_BUTTON)));',
+	'\t\tconst hintWidth = Math.max(0, width - visibleWidth(PANEL_BUTTON) - 4);',
+	'\t\tconst hint = right && hintWidth > 0 ? truncateToWidth(right, hintWidth, "…") : "";',
+	'\t\tconst end = ` ${button}${hint ? ` ${options.fg(LABEL_ROLE, hint)}` : ""} ${options.borderColor("─")}`;',
+	'\t\tconst available = width - visibleWidth(end);',
+	'\t\t// LOON banner patch: with the activity on its own row there is no title, and the',
+	'\t\t// separators around an empty one cut the rule with a blank gap (`─   ───…`). The',
+	'\t\t// button and the hint stay clickable; only the title slot goes.',
+	'\t\tif (label === "" || available < 4) return options.borderColor(rule(available)) + end;',
+	'\t\tconst clipped = truncateToWidth(label, Math.max(0, available - 5), "…");',
+	'\t\tconst painted = options.state === PROMPT_STATE.WORKING && !top ? scanWorkingText(clipped, options.tick, options.fg) : options.fg(LABEL_ROLE, clipped);',
+	'\t\tconst fill = available - 4 - visibleWidth(clipped);',
+	'\t\treturn `${options.borderColor("─ ")}${petal} ${painted}${options.borderColor(rule(fill))}${end}`;',
+	'\t}',
+	'\tconst painted = options.state === PROMPT_STATE.WORKING && !top ? scanWorkingText(label, options.tick, options.fg) : options.fg(LABEL_ROLE, label);',
+	'\tconst end = right ? ` ${options.fg(LABEL_ROLE, right)} ` : "";',
+	'\tconst endWidth = right ? visibleWidth(right) + 2 : 0;',
+	'\t// LOON banner patch: the same rule here, keeping the closing cell the line ends on so',
+	'\t// the row still spans the frame exactly.',
+	'\tif (label === "") return options.borderColor(rule(width - endWidth - 1)) + end + options.borderColor("─");',
+	'\tconst titleWidth = 2 + visibleWidth(glyph) + 1 + visibleWidth(label) + 1;',
+	'\tconst fill = width - titleWidth - endWidth - 1;',
+	'\tif (fill < 1) return options.borderColor(rule(width));',
+	'\treturn `${options.borderColor("─ ")}${petal} ${painted} ${options.borderColor(rule(fill))}${end}${options.borderColor("─")}`;',
+	'}',
 ].join('\n');
 
 // The row the activity moves to. It is prompt chrome, so it lives here, next to the frames
@@ -616,6 +670,28 @@ const SHELL_MARKS_FACTORY_REPLACEMENT = [
 	'\t\t\tactivityRow: () => loonMarks() && !keepNativeWorkingRow(),',
 ].join('\n');
 
+// The other half of the same move. Inside a Herdr pane gentle-pi keeps Pi's own loader row on
+// purpose and paints no activity row, so that row is the only one speaking there - and while
+// this patch emptied the frame it was left saying a bare "Working" for the whole turn, where
+// gentle-pi\'s label used to change with the ODD phase. The label is handed to Pi\'s row on the
+// same redraw the phase change already requests, so a turn reads exploring…, implementing…, a
+// worker\'s name, and Pi\'s own default again when the phase clears. No second row is painted,
+// and no other theme is touched: outside a Herdr pane that row is hidden, and under any other
+// theme the frame still says it.
+const SHELL_MARKS_REQUEST_ANCHOR =
+	'\t\toddPhaseRegistry.setRenderRequest(ctx.sessionManager.getSessionId(), () => tui.requestRender());';
+const SHELL_MARKS_REQUEST_REPLACEMENT = [
+	'\t\t// LOON banner patch: the phase change already asks for a redraw; it also tells Pi\'s',
+	'\t\t// own loader row what the agent is doing, because under Herdr that row is the only',
+	'\t\t// one speaking and a bare "Working" is not what gentle-pi reports. Outside Herdr',
+	'\t\t// the row is hidden and a theme that is not LOON still paints the label in its',
+	'\t\t// frame, so neither is touched.',
+	'\t\toddPhaseRegistry.setRenderRequest(ctx.sessionManager.getSessionId(), () => {',
+	'\t\t\tif (loonMarks() && keepNativeWorkingRow()) ctx.ui.setWorkingMessage?.(oddPhaseRegistry.label(ctx.sessionManager.getSessionId()));',
+	'\t\t\ttui.requestRender();',
+	'\t\t});',
+].join('\n');
+
 // The native Banner loop is left exactly as gentle-pi writes it: the 4.6.0 loop already
 // produces one row per setting with a radio per state. Replacing it was the regression.
 const SHELL_SOURCE_ANCHOR = "\t\t\tfor (const [setting, key] of [[\"Banner rose\", \"showRose\"], [\"Banner text logo\", \"showTextLogo\"]] as const) {\n\t\t\t\tfor (const enabled of [true, false]) add(\n\t\t\t\t\t() => `${setting}: ${enabled ? \"on\" : \"off\"}${banner[key] === enabled ? \" (current)\" : \"\"}`,\n\t\t\t\t\t\"Banner saved; applies at next startup.\",\n\t\t\t\t\tasync () => {\n\t\t\t\t\t\tconst next = { ...await readBannerConfigForEdit(bannerHome), [key]: enabled };\n\t\t\t\t\t\tawait writeBannerConfig(next, bannerHome);\n\t\t\t\t\t\tbanner = next;\n\t\t\t\t\t},\n\t\t\t\t\t() => bannerPreview({ ...banner, [key]: enabled }),\n\t\t\t\t\texplicitChoice(setting, enabled ? \"on\" : \"off\", () => banner[key] === enabled),\n\t\t\t\t);\n\t\t\t}";
@@ -703,6 +779,7 @@ export const ANCHORS = {
 	shellMarksTopRows: SHELL_MARKS_TOPROWS_ANCHOR,
 	shellMarksScope: SHELL_MARKS_SCOPE_ANCHOR,
 	shellMarksFactory: SHELL_MARKS_FACTORY_ANCHOR,
+	shellMarksRequest: SHELL_MARKS_REQUEST_ANCHOR,
 	shellMouse: SHELL_MOUSE_ANCHOR,
 	agentsLabels: AGENTS_LABELS_ANCHOR,
 	agentsSelector: AGENTS_SELECTOR_ANCHOR,
@@ -716,8 +793,8 @@ export const TARGETS: TargetSpec[] = [
 		md5: '8a28b39ca26789fd501a06958f36060b',
 		// Newest first: the patch before the Agent marks, the patch before the mark row, the patch
 		// before the theme accent, then the older patched states from before the v2 rows.
-		md5PatchedV1: ['871cf1d257931ed743fd6067fd9819fa', '9c77666b43b7aa6fbe3f761dee03d624', 'bc7197600a9f1482ed4e86bd1119b4d8', '7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
-		md5Patched: '1516e9b3dccdc134747411e2b931fec6',
+		md5PatchedV1: ['1516e9b3dccdc134747411e2b931fec6', '871cf1d257931ed743fd6067fd9819fa', '9c77666b43b7aa6fbe3f761dee03d624', 'bc7197600a9f1482ed4e86bd1119b4d8', '7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
+		md5Patched: 'd8627700bbbd1d71023998dd550241fe',
 		v2Marker: 'Banner color: wallpaper',
 		edits: [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
@@ -734,6 +811,7 @@ export const TARGETS: TargetSpec[] = [
 			{ anchor: SHELL_MARKS_TOPROWS_ANCHOR, replacement: SHELL_MARKS_TOPROWS_REPLACEMENT },
 			{ anchor: SHELL_MARKS_SCOPE_ANCHOR, replacement: SHELL_MARKS_SCOPE_REPLACEMENT },
 			{ anchor: SHELL_MARKS_FACTORY_ANCHOR, replacement: SHELL_MARKS_FACTORY_REPLACEMENT },
+			{ anchor: SHELL_MARKS_REQUEST_ANCHOR, replacement: SHELL_MARKS_REQUEST_REPLACEMENT },
 		],
 	},
 	{
@@ -819,8 +897,8 @@ export const TARGETS: TargetSpec[] = [
 		// Card style loon: lib/shell-prompt.ts
 		file: 'lib/shell-prompt.ts',
 		md5: '70f028ae3d61ccd471f5e346b5111e9e',
-		md5Patched: 'a86e804371554af8653442886919ed1c',
-		md5PatchedV1: ['afcd1b6ec35d955b45a565c2a5eb433b', '993a7f2237db3eb718b9d6ab05591bf1', 'fa3cc52522ee55195f48ceeee9c47259', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52', '0d07a750ae6162d2c8bbfbda7760e55f', 'ddb8bd748ae664cb28f9f0307e0917e5'],
+		md5Patched: '0b550a34c72851380e40252881f2f7f2',
+		md5PatchedV1: ['a86e804371554af8653442886919ed1c', 'afcd1b6ec35d955b45a565c2a5eb433b', '993a7f2237db3eb718b9d6ab05591bf1', 'fa3cc52522ee55195f48ceeee9c47259', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52', '0d07a750ae6162d2c8bbfbda7760e55f', 'ddb8bd748ae664cb28f9f0307e0917e5'],
 		edits: [
 			{ anchor: SHELL_PROMPT_1_ANCHOR, replacement: SHELL_PROMPT_1_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_2_ANCHOR, replacement: SHELL_PROMPT_2_REPLACEMENT },

@@ -40,19 +40,16 @@ const target = (file: string): TargetSpec => {
 };
 
 /**
- * A scratch package holding the patched prompt and card modules. The support modules come
- * from the installed package - they are not patch targets - and the two modules under test
- * are the bytes this repo's edit set produces, so nothing here reads our own patch output
- * from the install.
+ * A scratch package holding the patched modules. The support modules come from the installed
+ * package - they are not patch targets - and every patch target is replaced by the pristine
+ * bytes plus this repo's edit set, so nothing here reads our own patch output from the
+ * install. The extension is included because the activity row is wired there.
  */
 function patchedPackage(): string {
 	const root = mkdtempSync(join(tmpdir(), 'loon-marks-'));
-	cpSync(join(GENTLE, 'lib'), join(root, 'lib'), { recursive: true });
-	// shell-bar reaches the package's own scripts/ through the review sidebar; support files,
-	// not patch targets, so they are the installed bytes as they are.
-	cpSync(join(GENTLE, 'scripts'), join(root, 'scripts'), { recursive: true });
-	for (const file of ['lib/shell-prompt.ts', 'lib/shell-card.ts', 'lib/shell-bar.ts']) {
-		writeFileSync(join(root, file), patchedText(target(file)));
+	cpSync(GENTLE, root, { recursive: true });
+	for (const spec of TARGETS) {
+		writeFileSync(join(root, spec.file), patchedText(spec));
 	}
 	// The scratch package lives outside the worktree and does not outlive the run.
 	SCRATCH.push(root);
@@ -71,7 +68,7 @@ interface PromptModule {
 	petalGlyph: (state: string, tick: number, agentMarks?: boolean) => string;
 	agentActivityRow: (options: Record<string, unknown>, width: number) => string;
 	framePromptLines: (lines: string[], width: number, options: Record<string, unknown>, layout?: unknown) => string[];
-	resolvePromptLayout: (width: number, style: string, bg: unknown) => unknown;
+	resolvePromptLayout: (width: number, style: string, bg: unknown, panel?: boolean) => unknown;
 }
 
 interface CardModule {
@@ -254,6 +251,56 @@ test('the rounded and panel frames drop the activity too, and only while working
 	assert.ok(idle.some((row) => row.includes('✻')), 'the mark at rest is missing from the LOON neon frame');
 });
 
+/**
+ * The owner's report, verbatim: «cuando la ia esta respondiendo arriba de donde sale el prompt
+ * bar sale ─ ─ este corte de linea porque nuestro working se movio arriba».
+ *
+ * The two frames that carry the activity in a *rule* (the rounded outline and the wide IDE
+ * chrome's titled rule) drew the title as `rule · space · title · space · rule`. Moving the
+ * mark and the label out of the frame left the title slot empty while the two separators
+ * stayed, so the line was cut by a blank gap of two or three cells: `╭─  ───…` in the
+ * outline, `─   ───…` in the IDE chrome. A rule row is either a rule or it is not, so the
+ * assertion is the gap itself: no `─`, two or more blanks, `─` on one row.
+ */
+test('a rule never carries a blank gap where the moved activity used to be', { skip: available }, async () => {
+	const prompt = (await modules()).prompt;
+	const { IDLE, WORKING } = prompt.PROMPT_STATE as { IDLE: string; WORKING: string };
+	const fg = (role: string, text: string) => text;
+	// A painted surface, so the band's own chrome is chosen the way a real theme chooses it.
+	const bg = (role: string, text: string) => `\u001b[48;2;30;30;40m${text}\u001b[49m`;
+	const options = (state: string) => ({ state, tick: 2, borderColor: (text: string) => text, fg, bg, bold: (text: string) => text, workingLabel: 'exploring…', agentMarks: true });
+	const GAP = /─[ ]{2,}─/;
+
+	// The two frames whose activity lived in a rule: the rounded outline, and the wide IDE
+	// chrome (a titled rule above the input). Both are rendered as the editor renders them.
+	const frames: Array<{ label: string; rows: string[] }> = [];
+	for (const [label, style, panel] of [['rounded outline', 'neon', false], ['wide IDE chrome', 'loon', true]] as const) {
+		const layout = prompt.resolvePromptLayout(80, style, bg, panel);
+		frames.push({
+			label: label + ' working',
+			rows: prompt.framePromptLines(['', 'hello', ''], 80, { ...options(WORKING!), style }, layout),
+		});
+	}
+	for (const frame of frames) {
+		for (const row of frame.rows.map(strip)) {
+			assert.equal(GAP.test(row), false, frame.label + ': the rule is cut by a blank gap: ' + JSON.stringify(row));
+		}
+		// And the rule is still there, closing on both columns: no hole, no lost border.
+		const rule = frame.rows.map(strip)[0] ?? '';
+		assert.equal(rule.length, 80, frame.label + ': the rule row does not span the frame: ' + JSON.stringify(rule));
+		assert.match(rule, /^[─╭╮]+$/, frame.label + ': the rule row carries something other than a rule: ' + JSON.stringify(rule));
+	}
+
+	// At rest the same two frames still lead with the mark, so the fix is about the gap and
+	// nothing else.
+	for (const [style, panel] of [['neon', false], ['loon', true]] as const) {
+		const layout = prompt.resolvePromptLayout(80, style, bg, panel);
+		const idle = prompt.framePromptLines(['', 'hello', ''], 80, { ...options(IDLE!), style }, layout).map(strip);
+		assert.ok((idle[0] ?? '').includes('✻'), style + ': the mark left the rule at rest: ' + JSON.stringify(idle[0]));
+		assert.equal(GAP.test(idle[0] ?? ''), false, style + ': the rule at rest is cut by a blank gap: ' + JSON.stringify(idle[0]));
+	}
+});
+
 test('a card heading leads with ✻ under a LOON theme and with ✿ under any other', { skip: available }, async () => {
 	const card = (await modules()).card;
 	const subject = { title: 'read', subtitle: 'a.ts', body: ['one line'], tone: 'info' };
@@ -393,4 +440,105 @@ test('the pinned digest of every file this change touches is what its edits prod
 		if (!PRISTINE.ok) continue;
 		assert.equal(md5(readPristine(PRISTINE.source, file)), spec.md5, file + ': the fixture is not the pinned pristine build');
 	}
+});
+
+/** The extension, as pi loads it, with the private installer exported the way that test does. */
+interface ShellModule {
+	installPrompt: (ctx: Record<string, unknown>, onCreated: (prompt: unknown) => void, deps: Record<string, unknown>) => boolean;
+}
+
+interface PhaseRegistry {
+	report: (sessionId: string, phase: string) => unknown;
+	clear: (sessionId: string) => void;
+}
+
+async function shellExtension(root: string): Promise<ShellModule> {
+	const probe = join(root, 'extensions', '__loon-probe-gentle-shell.ts');
+	if (!existsSync(probe)) writeFileSync(probe, readFileSync(join(root, 'extensions', 'gentle-shell.ts'), 'utf8') + '\nexport { installPrompt };\n');
+	return load<ShellModule>(root, 'extensions/__loon-probe-gentle-shell.ts');
+}
+
+/**
+ * Drives what pi drives - the installer, then the factory - and records every working message
+ * this patch hands to pi's own loader row. `herdr` decides which row speaks: inside a Herdr
+ * pane gentle-pi keeps Pi's loader and paints no activity row of its own.
+ */
+function piWorkingRow(
+	shell: ShellModule,
+	phases: PhaseRegistry,
+	themeName: string | undefined,
+	options: { herdr: boolean },
+): { messages: Array<string | undefined>; rows: string[] } {
+	const saved = process.env.HERDR_ENV;
+	if (options.herdr) process.env.HERDR_ENV = '1';
+	else delete process.env.HERDR_ENV;
+	try {
+		const session = 'marks-working-row-' + String(themeName);
+		const messages: Array<string | undefined> = [];
+		let factory: ((tui: unknown, theme: unknown, keybindings: unknown) => { render: (width: number) => string[]; setWorking: (working: boolean) => void }) | undefined;
+		const theme = { ...(themeName === undefined ? {} : { name: themeName }), fg: (_role: string, text: string) => text, bg: (_role: string, text: string) => text, bold: (text: string) => text };
+		const ctx = {
+			ui: {
+				getEditorComponent: () => undefined,
+				setEditorComponent: (created: typeof factory) => { factory = created; },
+				theme,
+				notify: () => {},
+				// What pi exposes for its own loader row: the message every render reads.
+				setWorkingMessage: (message: string | undefined) => { messages.push(message); },
+			},
+			hasPendingMessages: () => false,
+			sessionManager: { getSessionId: () => session },
+		};
+		assert.equal(shell.installPrompt(ctx, () => {}, { now: () => 0, doubleEscCancelEnabled: () => false, dispatchQueuedText: () => {} }), true, 'the installer refused the editor slot');
+		assert.equal(typeof factory, 'function', 'the installer never handed a factory to pi');
+		const host = { requestRender: () => {}, terminal: { columns: 100, rows: 40 }, mode: 'inline' };
+		const editor = factory!(host, { borderColor: (text: string) => text, selectList: {} }, { matches: () => false, getKeys: () => [] });
+		editor.setWorking(true);
+		// The phases the orchestrator reports, in the order a turn reports them.
+		phases.report(session, 'exploring');
+		phases.report(session, 'implementing');
+		const rows = editor.render(100).map(strip);
+		phases.clear(session);
+		return { messages, rows };
+	} finally {
+		if (saved === undefined) delete process.env.HERDR_ENV;
+		else process.env.HERDR_ENV = saved;
+	}
+}
+
+/**
+ * The second half of the owner's report, verbatim: «ademas ese working se supone que debia
+ * cambiar de texto asi como lo hacia el de gentle original cuando estaba haciendo cosas
+ * cambiaba de manera determinista».
+ *
+ * Inside a Herdr pane - where PORT runs pi - gentle-pi keeps Pi's own loader row on purpose
+ * and this patch paints no activity row, so that row is the only one speaking. Emptying the
+ * prompt frame had left it saying a bare "Working" for the whole turn: gentle-pi's label, the
+ * one that changed with the ODD phase, had nowhere to go. So the label is handed to Pi's row:
+ * one message per phase, the same text the frame used to paint, and back to Pi's default when
+ * the phase clears. Only under a LOON theme, because every other theme still paints the label
+ * in its prompt, and only while Pi's row is the one speaking.
+ */
+test('under Herdr the phase label reaches Pi\'s own working row, one text per phase', { skip: available }, async () => {
+	const root = patchedPackage();
+	const shell = await shellExtension(root);
+	const phases = (await load<{ oddPhaseRegistry: PhaseRegistry }>(root, 'lib/odd-phase.ts')).oddPhaseRegistry;
+
+	const herdr = piWorkingRow(shell, phases, 'Wallpaper (LOON)', { herdr: true });
+	assert.deepEqual(
+		herdr.messages,
+		['exploring…', 'implementing…', undefined],
+		'pi\'s own working row was not told what the agent is doing: ' + JSON.stringify(herdr.messages),
+	);
+	// Still one row, and still pi's: the frame paints neither the mark nor the label there.
+	const AGENT_MARKS = ['·', '✢', '✳', '✶', '✻', '✽', '⏺'];
+	for (const row of herdr.rows) {
+		assert.ok(!AGENT_MARKS.some((mark) => row.includes(mark)), 'gentle-pi painted a mark where that row is pi\'s: ' + JSON.stringify(row));
+		assert.ok(!row.includes('exploring…'), 'gentle-pi painted the activity twice under Herdr: ' + JSON.stringify(row));
+	}
+
+	// A theme that is not LOON keeps its own frame label, so pi's row is left alone.
+	assert.deepEqual(piWorkingRow(shell, phases, 'Catppuccin Mocha', { herdr: true }).messages, [], 'another theme had its working row rewritten');
+	// And outside Herdr pi's row is hidden and this patch's own row speaks.
+	assert.deepEqual(piWorkingRow(shell, phases, 'Wallpaper (LOON)', { herdr: false }).messages, [], 'the working message was set while pi paints no row');
 });
