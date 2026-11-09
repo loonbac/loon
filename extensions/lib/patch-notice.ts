@@ -26,6 +26,12 @@ export const PATCH_MARKERS: ReadonlyArray<{ file: string; marker: string }> = [
 	{ file: 'lib/card-style-policy.ts', marker: 'CARD_STYLE.LOON' },
 	{ file: 'lib/shell-prompt.ts', marker: 'chrome === "loon"' },
 	{ file: 'extensions/gentle-agents.ts', marker: 'peerIdentity' },
+	// The peer repair writes a name no stock install carries: `ackLost` is the rule that a
+	// written frame survives a lost ACK, and `readPresencePage` is the retried scan that
+	// keeps one unreadable header from blanking every label.
+	{ file: 'lib/agents-session-transport.ts', marker: 'ackLost' },
+	{ file: 'lib/windows-session-transport.ts', marker: 'ackLost' },
+	{ file: 'lib/orchestrator-discovery.ts', marker: 'readPresencePage' },
 ];
 
 /**

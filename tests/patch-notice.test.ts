@@ -15,7 +15,7 @@ import { pristineSource, readPristine } from './support/pristine.ts';
 
 /** The pristine 4.6.0 sources, resolved and hash-verified at run time; never committed. */
 const PRISTINE = pristineSource();
-import { TARGETS } from '../scripts/gentle-pi-patch.ts';
+import { TARGETS, patchText } from '../scripts/gentle-pi-patch.ts';
 import { createLoonExtension } from '../extensions/loon-startup.ts';
 import { DEFAULT_GENTLE_SETTINGS } from '../extensions/lib/gentle-config.ts';
 import { DEFAULT_LOON_SETTINGS } from '../extensions/lib/loon-config.ts';
@@ -40,6 +40,23 @@ test('the marker table covers every file the patch targets', () => {
 	);
 });
 
+test('every marker is a name only the patch writes', { skip: !PRISTINE.ok && PRISTINE.reason }, () => {
+	if (!PRISTINE.ok) return;
+	for (const { file, marker } of PATCH_MARKERS) {
+		const spec = TARGETS.find((target) => target.file === file);
+		assert.ok(spec, file + ': the notice watches a file the patch does not target');
+		if (spec === undefined) continue;
+		const pristine = readPristine(PRISTINE.source, file);
+		assert.equal(pristine.includes(marker), false, file + ': a stock install already carries the marker, so a lost patch would go unnoticed');
+		const patched = patchText(pristine, spec);
+		assert.ok(patched.ok, file + ': ' + (patched.ok ? '' : patched.reason));
+		assert.ok(
+			patched.ok && patched.text.includes(marker),
+			file + ': the patch does not write the marker the notice looks for, so a healthy install would be reported as lost',
+		);
+	}
+});
+
 test('nothing missing when every marker is there, and each lost file is named', () => {
 	const root = installed();
 	try {
@@ -58,7 +75,7 @@ test('the notice names what was lost and the exact command, not a vague warning'
 	assert.match(text, /parche LOON perdido/, text);
 	assert.match(text, /geometría de tarjetas/, 'the notice does not say what was lost: ' + text);
 	assert.match(text, /barra y filas de banner/, text);
-	assert.match(text, /3 de 8 archivos/, 'the notice does not count what is missing: ' + text);
+	assert.match(text, /3 de 11 archivos/, 'the notice does not count what is missing: ' + text);
 	assert.ok(
 		text.includes('cd /home/loon/loon && node --experimental-strip-types scripts/gentle-pi-patch.ts apply'),
 		'the notice does not carry the exact command with its absolute path: ' + text,
@@ -169,7 +186,7 @@ test('a lost patch is announced in a status key that survives the scrollback', {
 		const [, text] = announced[0]!;
 		assert.equal(typeof text, 'string', 'a stock package produced no notice: ' + JSON.stringify(announced));
 		assert.match(String(text), /parche LOON perdido/);
-		assert.match(String(text), /8 de 8 archivos/, 'the notice does not count the files it found: ' + text);
+		assert.match(String(text), /11 de 11 archivos/, 'the notice does not count the files it found: ' + text);
 		assert.match(String(text), /geometría de tarjetas/, 'the notice does not say what was lost: ' + text);
 		assert.match(String(text), /scripts\/gentle-pi-patch\.ts apply/, 'the notice does not carry the absolute command: ' + text);
 	} finally {

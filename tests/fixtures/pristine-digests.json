@@ -8,6 +8,9 @@
 		"lib/shell-card.ts": "37de5e2877b702573dae47f2d25f9cbad072b222d9c4ba876fc381afeecf1b06",
 		"lib/card-style-policy.ts": "ab9a1c62fe0750245e5901d4ddc3b722b1bbe348f2efd4209690cf4e9ddd33c8",
 		"lib/shell-prompt.ts": "5db8c6d88f065cd2b6a54aee58c0d549848f296b650b98fc3d760e405b701a0d",
-		"extensions/gentle-agents.ts": "80991067ec596d7a3725cbf407d9b1d763fc9c2f1d97a1e034681cc3d5b0b887"
+		"extensions/gentle-agents.ts": "80991067ec596d7a3725cbf407d9b1d763fc9c2f1d97a1e034681cc3d5b0b887",
+	"lib/agents-session-transport.ts": "7ed49cb9d11a3e5ccdb0b1d20b854c12c2fd9bad5b8f8b62e030c9fa3f9913d2",
+	"lib/windows-session-transport.ts": "93d720b4f5848e457bec0be877dd954d16bdad89413ed79b9f2930e1aa4e100e",
+	"lib/orchestrator-discovery.ts": "7bb3118d43caf4b8621fbc2ce81e5acf1330a6d5074703ee6c7cc7ee19ce825f"
 	}
 }

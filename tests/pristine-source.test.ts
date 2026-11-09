@@ -49,7 +49,7 @@ test('an explicit source missing a file is a visible skip, not a pass', () => {
 		rmSync(join(root, 'lib', 'shell-card.ts'));
 		const resolved = pristineSource({ GENTLE_PI_ROOT: root });
 		assert.equal(resolved.ok, false, 'a source with a missing file was accepted');
-		if (!resolved.ok) assert.match(resolved.reason, /1 of 8 prístinos/, resolved.reason);
+		if (!resolved.ok) assert.match(resolved.reason, /1 of 11 prístinos/, resolved.reason);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

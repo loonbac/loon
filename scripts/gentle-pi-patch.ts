@@ -725,6 +725,194 @@ const AGENTS_SELECTOR_ANCHOR = "\t\t\t\t\t\tconst labels = recipientSelectionLab
 const AGENTS_SELECTOR_REPLACEMENT = "\t\t\t\t\t\tconst labels = recipientSelectionLabels(agentHome, candidates, activations);\n\t\t\t\t\t\t// LOON banner patch (peer labels): a child, a background or single-shot run\n\t\t\t\t\t\t// and a session without UI never open this selector. The choice goes back to\n\t\t\t\t\t\t// the caller as a resolution order, so the owner is not asked which session\n\t\t\t\t\t\t// id means what. An interactive person keeps the picker, with the labels above.\n\t\t\t\t\t\tif (!interactiveRecipientSelection(ctx, env)) return text(recipientResolutionText(labels), { gentleAgents: { candidates: candidates.map((candidate, index) => ({ label: labels[index]!, sessionId: candidate.sessionId })) } });\n\t\t\t\t\t\tconst selected = await ctx.ui.select(\"Select recipient orchestrator\", labels, { signal });";
 
 const AGENTS_LIST_ROW_ANCHOR = "\t\t\t\t\treturn `- ${peer.sessionId}${context} · ${legacy ? \"repository: not published\" : repository(peer.scope?.host)} · metadata: ${legacy ? \"legacy\" : peer.freshness}${tasks}${registered}${gaps}${catalog}${note}${unpublished}${peer.omitted ? `\\n  (${peer.omitted} more tasks omitted)` : \"\"}`;";
+
+// LOON banner patch (peer repair, defect 1): the frame is already written when the ACK
+// deadline fires, so a slow, missing or unreadable ACK is a lost confirmation and not a
+// failed delivery. Only an explicit rejection still fails the send. The two transports
+// carry the same defect and the same repair.
+const AGENTS_ACK_GATE_ANCHOR = [
+	'\t\tsocket.on("error", stale);',
+	'\t\tsocket.once("connect", () => {',
+	'\t\t\tif (pending.settled || staleCleanup) return;',
+	'\t\t\tconnected = true;',
+	'\t\t\tcancelConnect();',
+	'\t\t\ttry { socket.write(bytes); } catch { pending.settle(clientError("io_error")); return; }',
+	'\t\t\ttry { pending.ackTimer = this.scheduler.setTimeout(() => pending.settle(clientError("ack_timeout")), this.ackDeadlineMs); }',
+	'\t\t\tcatch { pending.settle(clientError("ack_timeout")); }',
+	'\t\t});',
+	'\t\tconst reply = () => {',
+	'\t\t\tif (pending.settled || staleCleanup) return;',
+	'\t\t\ttry {',
+	'\t\t\t\tconst ack = decoder.finish();',
+	'\t\t\t\tif (ack.kind !== "ack" || ack.id !== id) pending.settle(clientError("invalid_ack"));',
+	'\t\t\t\telse if (!ack.accepted) pending.settle(clientError("remote_rejected"));',
+	'\t\t\t\telse pending.settle(undefined, Object.freeze({ id, accepted: true }));',
+	'\t\t\t} catch { pending.settle(clientError("invalid_ack")); }',
+	'\t\t};',
+	'\t\tsocket.on("data", (chunk: Buffer) => { if (!pending.settled && !staleCleanup) try { decoder.push(chunk); } catch { pending.settle(clientError("invalid_ack")); } });',
+	'\t\tsocket.on("end", reply);',
+	'\t\tsocket.on("close", () => { if (!pending.settled && !staleCleanup) decoder.complete ? reply() : pending.settle(clientError("io_error")); });',
+].join('\n');
+const AGENTS_ACK_GATE_REPLACEMENT = [
+	'\t\tsocket.on("error", stale);',
+	'\t\t// LOON banner patch (peer repair): once the frame is written the message is out, and',
+	'\t\t// the ACK is a confirmation that can arrive late, not arrive at all, or arrive',
+	'\t\t// unreadable without any of that meaning "not accepted". The receiver answering',
+	'\t\t// "rejected" is the one answer that still fails the send, because it is a verdict.',
+	'\t\tlet written = false;',
+	'\t\tconst delivered = () => pending.settle(undefined, Object.freeze({ id, accepted: true }));',
+	'\t\tconst ackLost = (code: ClientCode) => { if (written) delivered(); else pending.settle(clientError(code)); };',
+	'\t\tsocket.once("connect", () => {',
+	'\t\t\tif (pending.settled || staleCleanup) return;',
+	'\t\t\tconnected = true;',
+	'\t\t\tcancelConnect();',
+	'\t\t\ttry { socket.write(bytes); } catch { pending.settle(clientError("io_error")); return; }',
+	'\t\t\twritten = true;',
+	'\t\t\ttry { pending.ackTimer = this.scheduler.setTimeout(() => ackLost("ack_timeout"), this.ackDeadlineMs); }',
+	'\t\t\tcatch { ackLost("ack_timeout"); }',
+	'\t\t});',
+	'\t\tconst reply = () => {',
+	'\t\t\tif (pending.settled || staleCleanup) return;',
+	'\t\t\ttry {',
+	'\t\t\t\tconst ack = decoder.finish();',
+	'\t\t\t\tif (ack.kind !== "ack" || ack.id !== id) ackLost("invalid_ack");',
+	'\t\t\t\telse if (!ack.accepted) pending.settle(clientError("remote_rejected"));',
+	'\t\t\t\telse delivered();',
+	'\t\t\t} catch { ackLost("invalid_ack"); }',
+	'\t\t};',
+	'\t\tsocket.on("data", (chunk: Buffer) => { if (!pending.settled && !staleCleanup) try { decoder.push(chunk); } catch { ackLost("invalid_ack"); } });',
+	'\t\tsocket.on("end", reply);',
+	'\t\tsocket.on("close", () => { if (!pending.settled && !staleCleanup) decoder.complete ? reply() : ackLost("io_error"); });',
+].join('\n');
+
+const WINDOWS_ACK_GATE_ANCHOR = [
+	'\t\tconst finishAck = () => {',
+	'\t\t\tif (pending.settled) return;',
+	'\t\t\ttry {',
+	'\t\t\t\tconst ack = decoder.finish() as AckFrame;',
+	'\t\t\t\tif (ack.kind !== "ack" || ack.id !== id) pending.settle(new ActiveSessionClientError("invalid_ack"));',
+	'\t\t\t\telse if (!ack.accepted) pending.settle(new ActiveSessionClientError("remote_rejected"));',
+	'\t\t\t\telse pending.settle(undefined, Object.freeze({ id, accepted: true }));',
+	'\t\t\t} catch { pending.settle(new ActiveSessionClientError("invalid_ack")); }',
+	'\t\t};',
+	'\t\tconst onConnect = () => {',
+	'\t\t\tif (pending.settled) return;',
+	'\t\t\tif (pending.connectTimer !== undefined) { try { this.scheduler.clearTimeout(pending.connectTimer); } catch {} pending.connectTimer = undefined; }',
+	'\t\t\ttry { socket.write(request); } catch { pending.settle(new ActiveSessionClientError("io_error")); return; }',
+	'\t\t\tif (pending.settled) return;',
+	'\t\t\ttry {',
+	'\t\t\t\tconst timer = this.scheduler.setTimeout(() => pending.settle(new ActiveSessionClientError("ack_timeout")), this.ackDeadlineMs);',
+	'\t\t\t\tif (pending.settled) { try { this.scheduler.clearTimeout(timer); } catch {} return; }',
+	'\t\t\t\tpending.ackTimer = timer;',
+	'\t\t\t} catch { pending.settle(new ActiveSessionClientError("ack_timeout")); }',
+	'\t\t};',
+	'\t\tconst onData = (chunk: Buffer) => { if (!pending.settled) try { decoder.push(chunk); } catch { pending.settle(new ActiveSessionClientError("invalid_ack")); } };',
+	'\t\tconst onClose = () => { if (!pending.settled) pending.settle(new ActiveSessionClientError("io_error")); };',
+].join('\n');
+const WINDOWS_ACK_GATE_REPLACEMENT = [
+	'\t\t// LOON banner patch (peer repair): the same rule as the unix transport. After the write',
+	'\t\t// the message is out; a late, missing or unreadable ACK is a lost confirmation, and only',
+	'\t\t// an explicit rejection from the receiver still fails the send.',
+	'\t\tlet written = false;',
+	'\t\tconst delivered = () => pending.settle(undefined, Object.freeze({ id, accepted: true }));',
+	'\t\tconst ackLost = (code: "ack_timeout" | "invalid_ack" | "io_error") => { if (written) delivered(); else pending.settle(new ActiveSessionClientError(code)); };',
+	'\t\tconst finishAck = () => {',
+	'\t\t\tif (pending.settled) return;',
+	'\t\t\ttry {',
+	'\t\t\t\tconst ack = decoder.finish() as AckFrame;',
+	'\t\t\t\tif (ack.kind !== "ack" || ack.id !== id) ackLost("invalid_ack");',
+	'\t\t\t\telse if (!ack.accepted) pending.settle(new ActiveSessionClientError("remote_rejected"));',
+	'\t\t\t\telse delivered();',
+	'\t\t\t} catch { ackLost("invalid_ack"); }',
+	'\t\t};',
+	'\t\tconst onConnect = () => {',
+	'\t\t\tif (pending.settled) return;',
+	'\t\t\tif (pending.connectTimer !== undefined) { try { this.scheduler.clearTimeout(pending.connectTimer); } catch {} pending.connectTimer = undefined; }',
+	'\t\t\ttry { socket.write(request); } catch { pending.settle(new ActiveSessionClientError("io_error")); return; }',
+	'\t\t\tif (pending.settled) return;',
+	'\t\t\twritten = true;',
+	'\t\t\ttry {',
+	'\t\t\t\tconst timer = this.scheduler.setTimeout(() => ackLost("ack_timeout"), this.ackDeadlineMs);',
+	'\t\t\t\tif (pending.settled) { try { this.scheduler.clearTimeout(timer); } catch {} return; }',
+	'\t\t\t\tpending.ackTimer = timer;',
+	'\t\t\t} catch { ackLost("ack_timeout"); }',
+	'\t\t};',
+	'\t\tconst onData = (chunk: Buffer) => { if (!pending.settled) try { decoder.push(chunk); } catch { ackLost("invalid_ack"); } };',
+	'\t\tconst onClose = () => { if (!pending.settled) ackLost("io_error"); };',
+].join('\n');
+
+// LOON banner patch (peer repair, defect 2): one unreadable presence header, one page that
+// ran out of budget and one transient filesystem failure are facts about what a scan could
+// see, not verdicts on the peers it did see. Each peer is resolved on the evidence that
+// names it; a scan that never started still fails everyone.
+const DISCOVERY_IMPORTS_ANCHOR = 'import { activationHash, discoveryAbsent, listPresence, readDiscovery, sessionHash, type DiscoveryMetadata } from "./orchestrator-presence.ts";';
+const DISCOVERY_IMPORTS_REPLACEMENT = 'import { activationHash, discoveryAbsent, listPresence, readDiscovery, sessionHash, type DiscoveryMetadata, type PresencePage } from "./orchestrator-presence.ts";';
+
+const DISCOVERY_SCAN_ANCHOR = [
+	'\tconst page = listPresence(profile, now);',
+	'\tconst ids = [...new Set(peers.map(peer => peer.sessionId))];',
+	'\treturn ids.filter(id => selection?.recipientSessionId === undefined || selection.recipientSessionId === id).map(sessionId => {',
+	'\t\tconst unknown: OrchestratorCandidate = { sessionId, reachability: "unknown", freshness: "unknown" };',
+	'\t\tconst activations = peers.filter(peer => peer.sessionId === sessionId);',
+	'\t\tif (page.unavailable || page.overflow || page.rejected || activations.length !== 1) return unknown;',
+].join('\n');
+const DISCOVERY_SCAN_REPLACEMENT = [
+	'\t// LOON banner patch (peer repair): the page is read once for every peer, retried while',
+	'\t// the failure is one that can pass. A header this scan could not read and a budget it',
+	'\t// ran out of leave their own peer unknown further down; they do not unlabel the peers',
+	'\t// whose headers were read.',
+	'\tconst page = readPresencePage(profile, now);',
+	'\tconst ids = [...new Set(peers.map(peer => peer.sessionId))];',
+	'\treturn ids.filter(id => selection?.recipientSessionId === undefined || selection.recipientSessionId === id).map(sessionId => {',
+	'\t\tconst unknown: OrchestratorCandidate = { sessionId, reachability: "unknown", freshness: "unknown" };',
+	'\t\tconst activations = peers.filter(peer => peer.sessionId === sessionId);',
+	'\t\t// A scan that never opened the profile is still the fail-closed case: nothing was read,',
+	'\t\t// so nothing can be labelled.',
+	'\t\tif (page.unavailable !== undefined || activations.length !== 1) return unknown;',
+].join('\n');
+
+const DISCOVERY_HELPERS_ANCHOR = [
+	'/** One bounded metadata page, no thread reads or transport probes. The registry',
+	' * selects a canonical routing activation; metadata must bind to that exact one.',
+	' * Incomplete scans and duplicate presence headers fail closed. */',
+	'export function discoverOrchestrators(',
+].join('\n');
+const DISCOVERY_HELPERS_REPLACEMENT = [
+	'// LOON banner patch (peer repair): the reasons a listing failure can pass on its own.',
+	'// "missing" is not one of them: a profile with no presence directory will not grow one',
+	'// in the next few milliseconds, and retrying it would cost every call the backoff.',
+	'const RETRYABLE_PRESENCE_FAILURES = new Set(["io-error", "closed", "changed-directory"]);',
+	'const PRESENCE_SCAN_ATTEMPTS = 3;',
+	'const PRESENCE_SCAN_BACKOFF_MS = 20;',
+	'',
+	'/** A synchronous pause, because this scan is called from rendering and listing paths that',
+	' * cannot await: a transient filesystem failure is worth a few milliseconds before it',
+	' * blanks every label on the screen. */',
+	'function pause(ms: number) {',
+	'\ttry { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* no shared buffer here: retry at once */ }',
+	'}',
+	'',
+	'/**',
+	' * LOON banner patch (peer repair): one bounded page, retried twice with a short backoff',
+	' * while the failure is transient. A transient filesystem error used to take every label',
+	' * with it; a profile that is simply not there is not retried.',
+	' */',
+	'function readPresencePage(profile: string, now: number): PresencePage {',
+	'\tlet page = listPresence(profile, now);',
+	'\tfor (let attempt = 1; attempt < PRESENCE_SCAN_ATTEMPTS && page.unavailable !== undefined && RETRYABLE_PRESENCE_FAILURES.has(page.unavailable); attempt += 1) {',
+	'\t\tpause(PRESENCE_SCAN_BACKOFF_MS * attempt);',
+	'\t\tpage = listPresence(profile, now);',
+	'\t}',
+	'\treturn page;',
+	'}',
+	'',
+	'/** One bounded metadata page, no thread reads or transport probes. The registry',
+	' * selects a canonical routing activation; metadata must bind to that exact one.',
+	' * Duplicate presence headers for one session fail closed; a header that could not be',
+	' * read, or one the page budget never reached, leaves only its own peer unknown.',
+	' * LOON banner patch (peer repair). */',
+	'export function discoverOrchestrators(',
+].join('\n');
 const AGENTS_LIST_ROW_REPLACEMENT = "\t\t\t\t\treturn `- ${peerIdentity(peer) ?? \"unnamed peer\"}${context} · ${legacy ? \"repository: not published\" : repository(peer.scope?.host)} · metadata: ${legacy ? \"legacy\" : peer.freshness}${tasks}${registered}${gaps}${catalog}${note}${unpublished}${peer.omitted ? `\\n  (${peer.omitted} more tasks omitted)` : \"\"} · session id (internal value: match by subject, topic or workspace; never ask the owner for it): ${peer.sessionId}`;";
 
 export const ANCHORS = {
@@ -784,7 +972,11 @@ export const ANCHORS = {
 	agentsLabels: AGENTS_LABELS_ANCHOR,
 	agentsSelector: AGENTS_SELECTOR_ANCHOR,
 	agentsListRow: AGENTS_LIST_ROW_ANCHOR,
-
+	agentsAckGate: AGENTS_ACK_GATE_ANCHOR,
+	windowsAckGate: WINDOWS_ACK_GATE_ANCHOR,
+	discoveryImports: DISCOVERY_IMPORTS_ANCHOR,
+	discoveryScan: DISCOVERY_SCAN_ANCHOR,
+	discoveryHelpers: DISCOVERY_HELPERS_ANCHOR,
 };
 
 export const TARGETS: TargetSpec[] = [
@@ -926,6 +1118,33 @@ export const TARGETS: TargetSpec[] = [
 			{ anchor: AGENTS_LABELS_ANCHOR, replacement: AGENTS_LABELS_REPLACEMENT },
 			{ anchor: AGENTS_SELECTOR_ANCHOR, replacement: AGENTS_SELECTOR_REPLACEMENT },
 			{ anchor: AGENTS_LIST_ROW_ANCHOR, replacement: AGENTS_LIST_ROW_REPLACEMENT },
+		],
+	},
+	{
+		// Peer repair, defect 1: a written frame is not a failed delivery just because the ACK
+		// was slow, missing or unreadable.
+		file: 'lib/agents-session-transport.ts',
+		md5: '744104c846cc8b9525c25d6f28f5c06a',
+		md5Patched: 'ab37685fc98967f40a2da59eab92ccbf',
+		edits: [{ anchor: AGENTS_ACK_GATE_ANCHOR, replacement: AGENTS_ACK_GATE_REPLACEMENT }],
+	},
+	{
+		// The Windows side of the same transport carries the same defect.
+		file: 'lib/windows-session-transport.ts',
+		md5: '445b391ecfb809edf25aecf205589bd3',
+		md5Patched: 'cb04d7dcbfd30cff65019bf4556a9ee2',
+		edits: [{ anchor: WINDOWS_ACK_GATE_ANCHOR, replacement: WINDOWS_ACK_GATE_REPLACEMENT }],
+	},
+	{
+		// Peer repair, defect 2: one unreadable header, an exhausted page budget or a transient
+		// listing failure no longer leaves every peer unnamed.
+		file: 'lib/orchestrator-discovery.ts',
+		md5: 'f194720996cb02adcfc83e38ffc9f85e',
+		md5Patched: 'c511e59c5f41dc74932f4c6b6e7f0d11',
+		edits: [
+			{ anchor: DISCOVERY_IMPORTS_ANCHOR, replacement: DISCOVERY_IMPORTS_REPLACEMENT },
+			{ anchor: DISCOVERY_SCAN_ANCHOR, replacement: DISCOVERY_SCAN_REPLACEMENT },
+			{ anchor: DISCOVERY_HELPERS_ANCHOR, replacement: DISCOVERY_HELPERS_REPLACEMENT },
 		],
 	},
 ];

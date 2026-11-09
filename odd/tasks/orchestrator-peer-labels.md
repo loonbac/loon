@@ -30,7 +30,7 @@ S8. Entregable (orden reparación). «Entregable: parches idempotentes en `scrip
 | T2 | S1, S2, S5 | delegada (worker): nuevo target `extensions/gentle-agents.ts` en el parche + fixtures + tests | hecho: 3 ediciones (peerIdentity, compuerta, fila) + backup completo; suite 385/385 |
 | T3 | S3 | inline: regla en el repo + subject propio declarado | hecho (bullet en `~/.pi/agent/AGENTS.md`, subject publicado) |
 | T4 | S5 | inline: apply a la instalación, check, suite, commit/PR | hecho: 8/8 patched, backup con el archivo nuevo |
-| T5 | S6, S7, S8 | delegada (worker), BLOQUEADA hasta T2: targets nuevos `lib/agents-session-transport.ts` + `lib/orchestrator-discovery.ts` (+ receptor si hace falta) | pendiente |
+| T5 | S6, S7, S8 | delegada (worker) + remate diseño A: targets nuevos `lib/agents-session-transport.ts`, `lib/windows-session-transport.ts`, `lib/orchestrator-discovery.ts` | hecho: ACK best-effort + resiliencia por-peer; suite 398/398 |
 
 ## Log
 

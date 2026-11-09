@@ -61,6 +61,11 @@ test('the patch targets the gentle-pi build it was written for', () => {
 			['lib/shell-prompt.ts', '70f028ae3d61ccd471f5e346b5111e9e'],
 			// Peer labels: a session resolves its own recipient instead of asking the owner by UUID.
 			['extensions/gentle-agents.ts', 'fa0c3bd549eba8c20e1a2de1f0b81bdf'],
+			// Peer repair: a written frame is delivered even when the ACK is lost, on both
+			// transports, and one bad presence header no longer blanks every peer label.
+			['lib/agents-session-transport.ts', '744104c846cc8b9525c25d6f28f5c06a'],
+			['lib/windows-session-transport.ts', '445b391ecfb809edf25aecf205589bd3'],
+			['lib/orchestrator-discovery.ts', 'f194720996cb02adcfc83e38ffc9f85e'],
 		],
 	);
 });
