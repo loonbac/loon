@@ -28,6 +28,10 @@ export const PATCHED_FILES: readonly string[] = [
 	'lib/shell-card.ts',
 	'lib/card-style-policy.ts',
 	'lib/shell-prompt.ts',
+	// Peer labels: the recipient picker and the orchestrator_list rows show a readable
+	// identity instead of a raw session id, and a session that cannot ask a person
+	// resolves its own recipient.
+	'extensions/gentle-agents.ts',
 ];
 
 /**

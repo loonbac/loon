@@ -7,6 +7,7 @@
 		"lib/shell-bar.ts": "80fbf152887840527b240c1b485fa2a01013fc1f00500a1236797bc229bbbef8",
 		"lib/shell-card.ts": "37de5e2877b702573dae47f2d25f9cbad072b222d9c4ba876fc381afeecf1b06",
 		"lib/card-style-policy.ts": "ab9a1c62fe0750245e5901d4ddc3b722b1bbe348f2efd4209690cf4e9ddd33c8",
-		"lib/shell-prompt.ts": "5db8c6d88f065cd2b6a54aee58c0d549848f296b650b98fc3d760e405b701a0d"
+		"lib/shell-prompt.ts": "5db8c6d88f065cd2b6a54aee58c0d549848f296b650b98fc3d760e405b701a0d",
+		"extensions/gentle-agents.ts": "80991067ec596d7a3725cbf407d9b1d763fc9c2f1d97a1e034681cc3d5b0b887"
 	}
 }

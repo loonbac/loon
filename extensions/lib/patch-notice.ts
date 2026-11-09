@@ -25,6 +25,7 @@ export const PATCH_MARKERS: ReadonlyArray<{ file: string; marker: string }> = [
 	{ file: 'lib/shell-card.ts', marker: 'CARD_GEOMETRY' },
 	{ file: 'lib/card-style-policy.ts', marker: 'CARD_STYLE.LOON' },
 	{ file: 'lib/shell-prompt.ts', marker: 'chrome === "loon"' },
+	{ file: 'extensions/gentle-agents.ts', marker: 'peerIdentity' },
 ];
 
 /**

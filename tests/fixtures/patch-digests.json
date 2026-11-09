@@ -71,6 +71,10 @@
 				"0d07a750ae6162d2c8bbfbda7760e55f",
 				"ddb8bd748ae664cb28f9f0307e0917e5"
 			]
+		},
+		"extensions/gentle-agents.ts": {
+			"md5Patched": "a00df365d7d5b18fb2254c9ea78676ed",
+			"md5PatchedV1": []
 		}
 	}
 }

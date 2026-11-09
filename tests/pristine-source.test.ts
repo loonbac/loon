@@ -49,7 +49,7 @@ test('an explicit source missing a file is a visible skip, not a pass', () => {
 		rmSync(join(root, 'lib', 'shell-card.ts'));
 		const resolved = pristineSource({ GENTLE_PI_ROOT: root });
 		assert.equal(resolved.ok, false, 'a source with a missing file was accepted');
-		if (!resolved.ok) assert.match(resolved.reason, /1 of 7 prístinos/, resolved.reason);
+		if (!resolved.ok) assert.match(resolved.reason, /1 of 8 prístinos/, resolved.reason);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -102,5 +102,5 @@ test('with no source at all the reason names what was looked for', () => {
 		assert.match(resolved.source.label, /^(backup|installed|GENTLE_PI_ROOT)/, resolved.source.label);
 		return;
 	}
-	assert.match(resolved.reason, /no hay prístinos de gentle-pi 4\.6\.0 disponibles/, resolved.reason);
+	assert.match(resolved.reason, /no hay prístinos de gentle-pi 4\.7\.0 disponibles/, resolved.reason);
 });
