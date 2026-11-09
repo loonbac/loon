@@ -78,6 +78,18 @@
 		"extensions/gentle-agents.ts": {
 			"md5Patched": "a00df365d7d5b18fb2254c9ea78676ed",
 			"md5PatchedV1": []
+		},
+		"lib/agents-session-transport.ts": {
+			"md5Patched": "ab37685fc98967f40a2da59eab92ccbf",
+			"md5PatchedV1": []
+		},
+		"lib/windows-session-transport.ts": {
+			"md5Patched": "cb04d7dcbfd30cff65019bf4556a9ee2",
+			"md5PatchedV1": []
+		},
+		"lib/orchestrator-discovery.ts": {
+			"md5Patched": "c511e59c5f41dc74932f4c6b6e7f0d11",
+			"md5PatchedV1": []
 		}
 	}
 }

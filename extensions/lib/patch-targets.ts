@@ -32,6 +32,11 @@ export const PATCHED_FILES: readonly string[] = [
 	// identity instead of a raw session id, and a session that cannot ask a person
 	// resolves its own recipient.
 	'extensions/gentle-agents.ts',
+	// Peer repair: a written frame is delivered even when the ACK is lost, on both
+	// transports, and one unreadable presence header no longer blanks every peer label.
+	'lib/agents-session-transport.ts',
+	'lib/windows-session-transport.ts',
+	'lib/orchestrator-discovery.ts',
 ];
 
 /**
