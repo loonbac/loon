@@ -12,8 +12,8 @@ más: la caja de pi-claude-code-tui, pintada por completo con el tema que ya usa
 LOON **no es un tema que se pueda enchufar en cualquier terminal, ni un plugin suelto**. Es un
 paquete de **Pi** pensado para correr sobre la configuración de **gentle-pi**: lee sus archivos
 de configuración (`~/.pi/gentle-ai/`), se integra con su panel de Agents, con su menú
-`/gentle:customize` y con sus fases ODD, y varias de sus piezas —el menú del banner, el trabajo
-inline en el panel, los glifos de actividad— existen **solo** con el parche a gentle-pi aplicado.
+`/gentle:customize` y con sus fases ODD, y varias de sus piezas —el menú del banner, los glifos
+de actividad— existen **solo** con el parche a gentle-pi aplicado.
 
 Si no usas Pi, o lo usas sin gentle-pi, la mayor parte de este paquete no tiene dónde engancharse.
 
@@ -92,8 +92,7 @@ pi -e /ruta/a/loon
 ```
 
 Se instala **completo**. No hay variantes ni un perfil al que le falte algo: banner, color
-automático, barras, tema derivado, las filas de LOON en `/gentle:customize`, el card style
-y el trabajo inline en el panel de Agents.
+automático, barras, tema derivado, las filas de LOON en `/gentle:customize` y el card style.
 
 ### El parche se aplica solo, y se repara solo
 
@@ -132,8 +131,7 @@ El tema generado se deriva del **tema activo**, así que con `Gruvbox` activo se
 `Gruvbox (LOON)` y pi lo activa. Sin tema activo cae a `Wallpaper (LOON)`, que es lo que las
 instalaciones existentes ya tienen.
 
-`package.json` declara dos extensiones (`loon-startup.ts` e `inline-work.ts`) y ningún tema,
-imagen ni prompt.
+`package.json` declara una extensión (`loon-startup.ts`) y ningún tema, imagen ni prompt.
 
 ## Pruebas
 
@@ -434,406 +432,6 @@ una línea de resumen lee como verde. Con la copia verificada, los tres tests de
 los demás saltos de una caja son `gentle-pi is not installed here`, es decir los que cargan el
 paquete instalado — y esos no se arreglan transfiriendo prístinos.
 
-### El trabajo inline, en el panel de Agents
-
-Cuando el orquestador programa inline —sin lanzar un subagente— ese trabajo no tiene
-tarjeta en el panel de Agents: el panel solo dibuja `TaskRecord`s que produce un proceso
-hijo, y el trabajo inline no tiene hijo. Así que cada llamada de herramienta cae en el
-render principal y empuja hacia arriba el resumen anterior, que es justo lo que se pierde
-cuando el scrollback se corta.
-
-Dos piezas, una de este repositorio y otra de gentle-pi:
-
-- `extensions/inline-work.ts` escribe un registro con la forma de `TaskRecord` (agente
-  `gentle-ai-worker`, modo `inline`) por unidad de trabajo, en
-  `~/.pi/agent/state/loon-inline/`. Se crea con la primera llamada de herramienta, late
-  cada 20 segundos mientras corre, se cierra como `completed` con la primera línea de la
-  respuesta final cuando el turno termina, y se borra al cerrar la sesión. Es solo
-  presentación: no hay proceso hijo, no hay segunda llamada al modelo, no cambia el conteo
-  de tokens y el registro nunca es autoridad de lanzamiento. Además, al cerrarse, la unidad
-  se guarda **con su hilo** en el directorio de historia de gentle-pi —eso es lo que la hace
-  sobrevivir a una recarga, y está más abajo—.
-- `scripts/apply-inline-carrier-patch.mjs` enseña a gentle-pi esos registros, en dos
-  archivos: `visibleTasks()` en `extensions/gentle-agents.ts`, que es la tarjeta de la
-  derecha; y, en `lib/agents-view.ts`, la lista y el detalle del panel de `/gentle:agents`,
-  que hasta ahora solo leía el store y por eso no podía mostrar una unidad viva. Nada más del
-  paquete cambia.
-
-```sh
-node scripts/apply-inline-carrier-patch.mjs check
-node scripts/apply-inline-carrier-patch.mjs apply
-node scripts/apply-inline-carrier-patch.mjs revert
-```
-
-Igual que el parche del banner: respalda el archivo en
-`~/.pi/agent/backups/loon-inline-carrier-patch-*` antes de escribir, se niega si el ancla
-se movió o aparece dos veces, verifica lo escrito antes de darlo por bueno, y volver a
-aplicarlo es una operación nula que solo comprueba. Un registro que no se puede leer, que
-pertenece a otra sesión, o cuyo pi ya murió, no se dibuja: por eso el registro guarda el
-`pid` de su escritor y late.
-
-Dos guardas más, porque este script edita una instalación viva. Un argumento malformado
-—`--install` o `--backups` sin valor, una opción desconocida, una repetida con otro
-valor, un directorio suelto— falla con salida 1 antes de leer o escribir nada, en vez de
-caer en las rutas por defecto y parchear la instalación real cuando creías apuntar a una
-copia. Y `revert` solo restaura si el archivo en disco es exactamente el que el parche
-escribió: el manifiesto guarda ese `patchedMd5`, y cuando el respaldo es más viejo y no lo
-trae, se recompone desde los bytes respaldados. Si gentle-pi se actualizó, o alguien tocó
-el archivo después, se niega en vez de pisar una versión más nueva y decir que salió bien.
-
-### La prosa también vive en el panel
-
-Las filas de herramientas son la mitad. La otra mitad es la prosa del asistente: los mismos
-párrafos que el panel enseña como transcripción del trabajo aparecían enteros en el transcript.
-Eso no necesita ningún parche: pi expone `registerMarkdownTransformer`, «un transformador del
-Markdown del usuario y del asistente antes de que Pi lo dibuje en el transcript interactivo», y
-el contexto le dice si el mensaje es del usuario, del asistente o es el razonamiento del modelo.
-
-Tres valores, y uno por defecto:
-
-```sh
-LOON_INLINE_TRANSCRIPT=summary   # por defecto: una línea por mensaje, con su puntero
-LOON_INLINE_TRANSCRIPT=off       # solo el puntero, sin extracto
-LOON_INLINE_TRANSCRIPT=full      # el comportamiento de siempre, sin tocar nada
-```
-
-En `summary` un mensaje del asistente se dibuja como una línea:
-
-```
-▸ Voy a mirar el estado del repositorio antes de tocar nada. · inline · /gentle:agents
-```
-
-`off` deja solo `· inline · /gentle:agents`. El texto completo sigue en el panel, dentro de la
-tarjeta del trabajo.
-
-El **razonamiento** del modelo pasa por el mismo interruptor y por el mismo hook, con su propia
-marca, para que quien lee una línea sepa qué está mirando:
-
-```
-▸ Voy a comprobar primero si el hook recibe el pensamiento. · pensamiento · /gentle:agents
-```
-
-Que el hook lo recibe no está supuesto: pi construye el bloque de razonamiento con
-`createMarkdownTransform("assistant-thinking", …)` (`assistant-message.js:118`), así que el
-transformador se invoca con `messageType: "assistant-thinking"` y su salida es lo que se dibuja.
-La única excepción es la configuración que **oculta** los bloques de razonamiento: entonces pi
-dibuja una etiqueta sin Markdown, el transformador no corre y el panel tampoco recibe el bloque.
-
-Y colapsar no es perder: un transformador de Markdown no se puede volver a abrir con `Ctrl+O`, así
-que cada bloque **que se colapsó** va al hilo del trabajo como un ítem propio (`kind: "thinking"`),
-que el panel rotula **Thinking**. Un bloque que se dibuja entero —turno ligero— no llega al panel:
-si no se ocultó nada, no hay nada que preservar. Se registra **en cada fotograma**, no solo en el
-último: pi puede terminar un bloque sin volver a dibujarlo, y entonces el bloque que la persona
-leyó no llegaría nunca al panel. El ítem abierto se reescribe en su sitio, así que los fotogramas son un solo ítem que
-crece; al sellarse, el siguiente bloque es otro ítem, y un repintado del mismo bloque no lo
-duplica. Se recorta a 4000 caracteres. Si el razonamiento no se fuera al panel, este cambio sería
-peor que el ruido que quita.
-
-Cuatro reglas que hacen esto seguro:
-
-- Solo se transforma un mensaje **del asistente** o un bloque de **razonamiento**, y solo
-  mientras la sesión está viva. Los mensajes del usuario y cualquier mensaje de una sesión
-  cerrada se dibujan byte por byte como antes.
-- **La puerta es la sesión, no la tarjeta.** El trabajo se abre con la primera llamada de
-  herramienta del turno, y el razonamiento —y la primera prosa— ocurren **antes**: atarlos a la
-  existencia de la tarjeta dejaría medio turno entero en el transcript para siempre, porque una
-  decisión es pegajosa. Y la ausencia de tarjeta **no es una decisión**: sin sesión viva no se
-  recuerda nada, de modo que el mismo mensaje se decide cuando la sesión empieza a trabajar.
-- **El peso del turno es la otra puerta, y es la misma para las dos cosas.** Por debajo de
-  `INLINE_HEAVY_CALLS` no se colapsa ni la prosa ni el razonamiento (ver más abajo).
-- **La primera decisión es la que queda**, en las dos direcciones. Un mensaje —o un bloque de
-  razonamiento— que se colapsó mientras la unidad corría sigue colapsado al repintarse, y uno que
-  ya era historia, o que se dibujó con `full`, se queda entero aunque el modo cambie después: por
-  eso el transcript no se rellena ni se vacía hacia atrás mientras lees.
-- **La respuesta se queda legible entera, para siempre.** Se exime en **cada `message_end`**, no
-  al cerrar el trabajo: un trabajo abarca varios turnos, así que esperar al cierre dejaba
-  colapsada la respuesta de todos los turnos intermedios. Un mensaje que termina con una llamada
-  de herramienta es trabajo y se colapsa; uno que termina sin ella es la respuesta, y se exime.
-  pi avisa primero a las extensiones y después reconstruye el mensaje terminado, así que la
-  exención ya está puesta cuando se dibuja por última vez. Y una respuesta exenta lo está para
-  siempre: el tope de memoria olvida primero cualquier decisión que **no** sea una exención.
-- **La memoria está acotada**: 500 decisiones por cada clase de mensaje (prosa y razonamiento
-  llevan memorias separadas). Al llegar al tope se olvida la más antigua que no sea una
-  exención, y ese
-  mensaje se vuelve a decidir en su siguiente repintado —colapsado si la unidad sigue viva. Una
-  sesión normal no llega ahí; una sesión muy larga puede, y entonces lo peor que pasa es que un
-  mensaje viejo cambie de forma al repintarse.
-
-#### Solo se colapsa el trabajo pesado
-
-Colapsar toda la prosa de un turno esconde algo más que el trabajo: en un turno ligero —mirar un
-estado, responder una pregunta con dos comandos— la narración intermedia **es** la respuesta, y
-mandarla al panel hace que el turno se lea como si el agente hubiera teletrabajado. El resumen
-final ya se lee entero; lo que sobraba era el colapso en turnos que no son trabajo. Lo mismo vale
-para el razonamiento: pensar en voz alta en un turno ligero no es programar.
-
-Así que el umbral es explícito y vive en el código, no en una variable de entorno:
-
-```ts
-export const INLINE_HEAVY_CALLS = 3;
-```
-
-- un turno con **menos de tres** llamadas de herramienta dibuja **toda** su prosa y **todos** sus
-  bloques de razonamiento tal como se escribieron, sin marca;
-- al llegar a la tercera, la narración y el pensamiento **posteriores** de ese turno se colapsan;
-- un turno conversacional, sin herramientas, no colapsa nada nunca;
-- el contador es **por turno**, no por trabajo: un trabajo largo hecho de turnos ligeros no arrastra
-  el peso del turno anterior.
-
-**El razonamiento NO obedece a esa puerta: obedece a si el turno está programando**
-(`isCoding()` en el fotograma del bloque, con su propio indicador). Leer, grepear, correr
-comprobaciones de layout o de tipos es investigar, y mientras investiga el razonamiento *es* lo que
-la persona está siguiendo: se dibuja entero, por muchas llamadas que acumule el turno. Solo cuando
-aparece una herramienta que escribe código (`edit`, `write`, `apply_patch`, `multiedit`) el bloque
-deja de ser el turno y pasa a ser trabajo, y entonces se colapsa y se manda al panel.
-
-Un bloque visible no se manda al panel: si no se ocultó nada, no hay nada que preservar. Solo los
-bloques colapsados se convierten en ítems `thinking` del hilo.
-
-Consecuencia aceptada, y es la disciplina monotónica de siempre: el bloque que llega **antes** de la
-primera escritura se queda entero, porque en ese instante el turno todavía no estaba programando —
-y ese bloque inicial es justamente el plan. Nada se encoge hacia atrás.
-
-La prosa conserva el umbral por conteo: la regla del dueño es sobre su razonamiento, no sobre el
-resumen de lo que hizo.
-
-### Lo que cuenta como trabajo
-
-El contador suma toda herramienta que **trabaja sobre el repositorio**, y no la que lleva
-registro. La lista es explícita, junto al umbral:
-
-```ts
-export const INLINE_ACCOUNTING_TOOLS: readonly string[] = ['todo', 'mem_', 'orchestrator_'];
-export const INLINE_CODING_TOOLS: readonly string[] = ['edit', 'write', 'apply_patch', 'multiedit'];
-```
-
-- un nombre exacto cuenta como ese nombre; una entrada terminada en `_` es una familia
-  (`mem_save`, `mem_session_summary`, `orchestrator_send_message`…);
-- `codemode` **sí** cuenta: es donde vive el trabajo real de este entorno —los tests, `git`, las
-  comprobaciones—; lo que se excluye es el registro, no el shell;
-- un turno de `todo` + `mem_save` + una comprobación suma **una** llamada y no alcanza el umbral;
-- si mañana aparece otra herramienta de registro, se añade a la lista. El umbral no se mueve.
-
-Lo que **no** depende del umbral: la fila de herramienta se colapsa desde la primera llamada en
-cuanto hay sesión viva (eso es exactamente lo que el dueño quería oculto) y la respuesta final
-sigue exenta por su `message_end` sin herramienta.
-
-#### Al reanudar, la conversación restaurada es historia, no trabajo
-
-Un reinicio trae una conversación que pi vuelve a dibujar entera, con un proceso nuevo y la
-memoria de decisiones **vacía**. Sin nada más, esa historia parece trabajo en curso: cada
-respuesta vieja se colapsa para siempre —aunque el dueño la había leído entera— y **cada bloque
-de razonamiento viejo se captura en el trabajo que acaba de empezar**, que es peor que el ruido
-porque le atribuye a un trabajo el pensamiento de otro.
-
-Así que al `session_start` se siembra la memoria **antes del primer frame**, leyendo lo que pi
-restauró (`ctx.sessionManager.getEntries()`):
-
-- la prosa y el razonamiento restaurados quedan `kept`: se dibujan como se leyeron la primera vez
-  y no se vuelven a decidir;
-- un mensaje restaurado que termina **sin** llamada de herramienta era una respuesta, y queda
-  `exempt` para siempre.
-
-La captura del razonamiento cuelga de esa decisión, no del render: un bloque restaurado ya está
-decidido, así que no se entrega al hilo. Solo lo que este proceso escribe llega al panel.
-
-Que la siembra llegue antes del primer frame no es una suposición: `session_start` se emite
-durante la inicialización de la sesión (`core/agent-session.js:2680`) y el chat restaurado se
-construye en un paso posterior (`interactive-mode.js:3417`, `rebuildChatFromMessages`).
-
-Si pi no puede entregar los entries —lanza, o no existe el método—, no se decide **nada** hasta
-que este proceso termina su primer mensaje: no se puede distinguir «esto lo acabo de escribir» de
-«esto lo cargué del disco», y adivinar sería exactamente el defecto que esto evita.
-
-#### El otro orden: el mensaje ya está dibujado
-
-Hay un segundo orden que este colapso depende de respetar, y no es el de los renderers de
-herramienta. El componente de Markdown de pi **cachea sus líneas por texto y ancho**
-(`pi-tui/dist/components/markdown.js:205`), y solo vuelve a llamar al transformador cuando falla
-esa caché. De ahí se siguen tres cosas:
-
-- **Un repintado no arregla una decisión.** `this.ui.requestRender()` —y por tanto
-  `setWidget`/`renderWidgets`— redibuja componentes ya construidos: las mismas líneas
-  cacheadas. Si la respuesta se dibujó colapsada, pedir un frame la deja colapsada.
-- **La palanca es la reconstrucción del mensaje.** En `message_end` pi vacía el contenedor y
-  construye un `Markdown` nuevo con un transformador nuevo (`assistant-message.js:69`,
-  `interactive-mode.js:2845`), y eso sí vuelve a preguntar. Y las extensiones ven el evento
-  **antes** que los listeners propios de pi (`core/agent-session.js:752`: «Emit to extensions
-  first, then notify public listeners»), así que la exención ya está en memoria cuando el
-  mensaje terminado se reconstruye. Ese es el mecanismo, no un repintado.
-- **No hay componente propio para el texto del asistente.** `registerMessageRenderer` sirve
-  para `CustomMessageEntry` —mensajes con `role: "custom"`— y nada más: no permite apropiarse
-  del mensaje del asistente para re-decidir en cada `render()`.
-
-`tests/inline-transcript-order.test.ts` fija las tres cosas contra el componente real de pi:
-dibuja el mensaje transmitiéndose, exime después, comprueba que un repintado **no** cambia lo
-dibujado y que la reconstrucción de `message_end` sí. Si una versión futura de pi deja de
-reconstruir en `message_end`, ese test falla antes que la terminal.
-
-#### Lo que el hilo del panel duplica, y por qué no es una fuga
-
-El hilo de una tarjeta guarda la prosa del asistente tal cual: esa es la transcripción del trabajo.
-Con el colapso de prosa activo esa prosa ya no se dibuja en el transcript, así que a la vista no
-hay nada duplicado; con `LOON_INLINE_TRANSCRIPT=full`, o con el colapso apagado, el mismo párrafo
-aparece en los dos sitios. Eso es **duplicación por diseño** —los dos leen la misma fuente— y no
-una fuga del compositor de la TUI: se revisó y el transcript no contiene ninguna fila del panel
-(ni `└ ✓ Subagent …` ni las filas de herramienta). Ese diagnóstico quedó cerrado; no hay nada que
-parchear por él.
-
-#### El orden que hay que respetar si tocas este renderer
-
-pi resuelve los renderers de una llamada **cuando construye su componente**, y lo construye en
-`message_update`, mientras llega el mensaje del asistente: antes de que la herramienta se ejecute
-y antes de que exista ningún registro nuestro. Cualquier condición que espere a que el trabajo "ya
-haya empezado" llega tarde para la primera llamada, y una unidad hecha a través de `codemode`
-suele ser esa única llamada. Por eso la condición es la sesión y no el portador.
-
-El detalle del host, que es el que hay que tener a mano al extender esto:
-`ToolExecutionComponent.getRenderShell()` devuelve `toolDefinition?.renderShell ?? "default"`
-(`dist/modes/interactive/components/tool-execution.js:71`), el constructor solo añade
-`selfRenderContainer` para ese shell (`:54-56`), y `render()` devuelve `[]` cuando ese
-contenedor no dibuja líneas y no hay imágenes (`:159-168`). `withBuiltInRenderers` solo cubre
-`read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find` y `ls`, así que `codemode`
-llega con lo que devuelva nuestro resolver. Ese mismo orden es el que cerró el diagnóstico de la
-"fuga": lo que aparecía en el transcript era la primera fila sin colapsar, no una fila del panel.
-
-### El colapso de filas
-
-La tercera pieza no necesita parche. Desde la primera llamada de la sesión,
-`extensions/inline-work.ts` registra un renderer con `pi.registerToolRenderer` que no dibuja
-ninguna fila para
-`read`, `bash`, `grep`, `find`, `ls`, `edit`, `write` y `codemode`: pi dibuja un componente
-vacío de una herramienta con `renderShell: "self"` como cero líneas, así que el transcript
-se queda con la prosa del asistente y su resumen de cierre. Las ocho son dos familias del
-mismo problema: las herramientas de archivo y shell, y `codemode`, por donde pasa *cada*
-llamada de un agente que trabaja a través de él —con las siete primeras su transcript
-seguiría igual de lleno—. Todo lo demás conserva su dibujo: los subagentes reales, las
-preguntas que esperan tu respuesta, `todo` y cualquier otra herramienta. Una llamada que falla
-delega en el renderer que tenía antes, para que el error nunca se esconda, y sin sesión —o con
-`LOON_INLINE_WORK=0`— no se registra renderer alguno y todo se dibuja exactamente como antes.
-
-La condición es la **sesión**, no el registro. La razón está en el orden del propio pi: el
-componente de una llamada se construye mientras llega el mensaje del asistente, antes de que la
-herramienta se ejecute, así que una condición que esperara al registro dejaría pasar la primera
-fila de cada unidad —y una unidad que trabaja a través de `codemode` puede ser una sola
-llamada—. Con la condición en la sesión, la primera llamada ya no dibuja nada y lo que queda en
-el transcript es la prosa del asistente y su resumen de cierre.
-
-Una fila colapsada no se puede pulsar: no tiene altura, así que no tiene zona de clic. Se
-expande con el atajo global de pi, `Ctrl+O`, que marca todas las filas de herramienta —las
-que ya están y las que lleguen— como expandidas; el renderer respeta ese estado y devuelve
-el dibujo completo mientras dure. La expansión es de todo o nada, no fila por fila.
-
-**Las dos mitades degradan por separado, y sólo una combinación es peligrosa.** La tarjeta
-del panel y el colapso del transcript no dependen la una del otro. Sin el parche —lo normal
-después de cada actualización de gentle-pi— el colapso sigue funcionando y lo que falta es la
-tarjeta; sin el renderer, la tarjeta sigue y el transcript vuelve a llenarse. La combinación
-que no avisa es la tercera: registro activo con el parche ausente, porque entonces el trabajo
-inline no está ni en el transcript ni en el panel, y nada lo dice. La recuperación, después de
-cada actualización de gentle-pi, es comprobar y volver a aplicar —nunca `revert`:
-
-```sh
-node scripts/apply-inline-carrier-patch.mjs check
-node scripts/apply-inline-carrier-patch.mjs apply
-```
-
-Y si quieres el transcript de antes sin tocar `node_modules`, `LOON_INLINE_WORK=0` apaga las
-dos mitades a la vez.
-
-### Lo que sobrevive a una recarga
-
-El registro vivo es estado de pantalla y se borra con la sesión, pero la unidad cerrada no:
-al cerrarse se escribe `{ task, thread }` en el directorio de historia del propio gentle-pi,
-`~/.pi/agent/gentle-agents/tasks/loon-inline-<sesión>-<n>.json`. Ese archivo es dato, no
-código: se escribe en un directorio que gentle-pi ya lee, no se parchea nada del paquete, y su
-forma es la que su `loadHistory` acepta (la comprueba una prueba que lo lee con el lector de
-gentle-pi). Al reabrir la sesión, gentle-pi la vuelve a meter en su store, así que
-`/gentle:agents` la lista y abrirla muestra su transcripción: las llamadas de la unidad con su
-nombre y un resumen acotado, y el texto del cierre. Nada de eso es el log completo: un panel no
-es un log, y un volcado de herramienta ahí es ruido.
-
-Un registro por **trabajo**, no por turno: el id es `loon-inline-<sesión>-<n>` y el archivo se
-escribe cuando el trabajo termina, con la transcripción acumulada. Pedir algo que se hace en
-cuatro turnos deja **una** tarjeta con cuatro tramos, separados por una marca donde empezó cada
-petición nueva; los totales son del trabajo —tokens, coste y llamadas se suman, y el tiempo de
-pared va de la primera actividad a la última— y una petición posterior, ya cerrado el trabajo,
-abre otra tarjeta con su propio número.
-
-**El trabajo no termina cuando el turno termina.** Solo el agente sabe cuándo la tarea está
-hecha, así que lo dice él, con un comando:
-
-```sh
-node scripts/inline-job.mjs end        # cierra el trabajo de esta sesión de pi
-node scripts/inline-job.mjs status     # qué trabajos están abiertos ahora
-```
-
-Desde otro directorio, con la ruta completa:
-`node /home/loonbac/Proyectos/pi-loon/loon/scripts/inline-job.mjs end`. El script escribe una
-señal pequeña junto al registro vivo y la extensión la consume en su siguiente evento: la
-tarjeta pasa a `completed`, la transcripción se guarda y el registro anota
-`"closedBy": "agent"`. Se puede forzar una sesión concreta con `--session <id>`.
-
-**La tarjeta no puede decir "terminado" mientras el trabajo siga abierto**, ni por un tick.
-Dos cosas lo garantizan, y conviene saber que son dos. En el escritor, `agent_end` no completa
-nada: deja `status: running` y no escribe historia, y el único código que pone el estado
-`completed` es `closeJob` (`extensions/inline-work.ts`), al que solo llegan la señal, el cierre
-por inactividad y el apagado de sesión. En el lector, el portador vivo de un trabajo manda sobre
-cualquier registro persistido con su mismo id, sin comparar fechas
-(`extensions/lib/inline-overlay.ts`): comparar "la descripción más reciente" era la vía por la
-que un registro terminado podía ganar un repintado y decir que la obra había acabado cuando no.
-La prueba que cubre el par peligroso —historia `completed`, portador `running`, mismo id— está
-en `tests/inline-overlay.test.ts`, y la que lee la tarjeta entre tres turnos en
-`tests/inline-history.test.ts`.
-
-Dos salidas de emergencia, porque un agente puede olvidarse de avisar: un trabajo sin actividad
-real durante **diez minutos** se cierra solo como completado y lo dice en su registro
-(`"closedBy": "idle"`, y una nota en la transcripción explicando que no lo cerró el agente); y
-si la sesión de pi termina con el trabajo abierto, se cierra como `"closedBy": "session"` en vez
-de quedarse colgado en el panel para siempre.
-
-### El panel, mientras la unidad corre
-
-La unidad se ve en `/gentle:agents` **mientras trabaja**, sin reiniciar pi. La extensión
-publica un proveedor en `globalThis.__loonInlinePanel` al empezar la sesión, y las dos líneas
-que el parche añade en `lib/agents-view.ts` lo consultan: la lista suma sus registros a lo que
-devuelve el store, y el detalle pregunta por el hilo antes de caer al store. Mientras la unidad
-corre, la tarjeta sale del registro vivo con su último estado y su transcripción en un sidecar
-al lado (`state/loon-inline/<sesión>.thread.json`); cuando el turno termina, sale del registro
-de historia recién escrito, con el mismo hilo más el texto de cierre. No hay ningún paso que
-haga falta provocar: el panel se repinta solo en el tick de presencia que gentle-pi reprograma
-cada segundo.
-
-**Un trabajo es una tarjeta, siempre.** Las tres fuentes —el registro vivo, el archivo de
-historia y lo que un reinicio metió en el store— se juntan por trabajo, no por archivo: todo id
-inline de una sesión resuelve a `loon-inline-<sesión>`, y si el store ya sirve alguno de ellos
-el proveedor no añade nada, porque esa tarjeta ya está. Cuando un tramo cierra, el registro vivo
-y el de historia existen a la vez durante el lapso entre escribir uno y borrar el otro, y aun
-así es una sola tarjeta: la que describe el estado más reciente, que mientras hay trabajo
-abierto es la viva y por eso la tarjeta dice «running» aunque el tramo anterior haya cerrado.
-
-Dos precisiones, porque las dos se ven como defecto sin serlo. La mitad durable y la mitad viva
-son independientes: si el parche no está, o gentle-pi cambió de versión, no se dibuja nada
-nuevo en el panel y este se comporta exactamente como antes; el registro de historia sigue
-escribiéndose igual. Y gentle-pi solo restaura historia en una reanudación: su `session_start`
-restaura cuando el motivo es `resume`, o cuando es `startup` y la sesión ya tenía entradas;
-nunca en una sesión nueva, un fork ni un `/reload` en proceso. Eso ya no hace falta para ver
-una unidad viva —para eso está el proveedor—, pero sí para volver a ver las cerradas de una
-sesión que no estás reabriendo.
-
-Cinco límites que conviene conocer. El hilo vive dentro del panel; abrir la sesión del hijo
-(Enter) avisa de que esta tarea no tiene archivo de sesión, porque no hay hijo detrás. El
-contador de
-trabajo en curso, en cambio, no cuenta la tarjeta: gentle-pi lo calcula en
-`gentle-agents.ts:573` desde `store.list(...).filter(ownedTaskIds.has(...))`, no desde el
-`visibleTasks()` que el parche reescribe, y el registro nunca entra al store ni a
-`ownedTaskIds`. Es solo presentación, y arreglarlo pediría otro parche a `node_modules` por un
-número: queda escrito como inconsistencia conocida, no como tarea. Una fila
-terminada desaparece de la tarjeta a los 60 segundos, exactamente como la de un subagente
-real. El detalle del panel es la transcripción acotada de la unidad, no el log completo, y
-abrirlo como si fuera un hijo real (Enter) avisa de que no hay archivo de sesión, porque no hay
-hijo detrás. Y colapsar el render no reduce el contexto: para eso hay que delegar o partir
-el trabajo, que es otra decisión. Apagar todo esto es `LOON_INLINE_WORK=0`.
-
 ### Medir un frame
 
 Cada frame de este repositorio sale de un único script, porque la alternativa es medir
@@ -927,11 +525,6 @@ Después de actualizar `pi` o gentle-pi, correr `check` antes que `apply`: si el
 `different-version`, el problema se arregla ahí, no abriendo `pi` y descubriendo que el banner
 no está.
 
-Lo mismo vale para el parche del registro inline: instalar o actualizar gentle-pi lo borra
-(se pierde con el paquete), y se repone con `node scripts/apply-inline-carrier-patch.mjs
-apply`, cuyo `check` dice si hace falta. Sin ese parche LOON sigue escribiendo el registro y
-nada se rompe: lo único que falta es que la tarjeta lo dibuje.
-
 El menú es texto insertado en un paquete ajeno, así que la pregunta es qué pasa cuando
 gentle-pi se actualiza. La respuesta son dos reglas, y la primera es la que importa:
 
@@ -1006,7 +599,7 @@ Los subtopics de recurso son **opcionales**. Sin ninguno, la entrada se lista co
 
 | Subtopic | Qué declara en LOON |
 | --- | --- |
-| `gentle-shell-extension` | `extensions/loon-startup.ts` y el trabajo inline del panel. |
+| `gentle-shell-extension` | `extensions/loon-startup.ts`, la extensión única del paquete. |
 | `gentle-shell-theme` | El tema `Wallpaper (LOON)` y sus derivados OKLCH. |
 
 Los otros dos existen para otros recursos: `gentle-shell-skill` para un paquete de skills y

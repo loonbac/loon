@@ -36,11 +36,7 @@ function shipped(): string[] {
 
 test('the patch travels with the package: installing LOON installs the tool that patches gentle-pi', () => {
 	const travels = shipped();
-	for (const needed of [
-		'scripts/gentle-pi-patch.ts',
-		'scripts/apply-inline-carrier-patch.mjs',
-		'scripts/inline-job.mjs',
-	]) {
+	for (const needed of ['scripts/gentle-pi-patch.ts']) {
 		assert.ok(travels.includes(needed), needed + ' would not ship; `files` does not cover it');
 	}
 });
