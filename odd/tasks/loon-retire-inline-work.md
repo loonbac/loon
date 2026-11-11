@@ -81,3 +81,11 @@ workflows and no branch protection on `master`; those skill gates are therefore
 inapplicable and no label or approval was invented. `assess` on `HEAD~2..HEAD`
 returned `risk: medium`, `reviewDue: false` (`under_budget`), so no native review
 lineage was opened.
+
+L7. Follow-up after the merge: the first rewrite of `package.json` used
+`JSON.stringify(..., '\t')` and reformatted the whole file from the repository's
+two-space style to tabs, adding ~100 lines of noise to the diff. `package.json` was
+rewritten from the pre-feature base `a2797c3` with only the three intended edits
+(two `files` entries, the `inline-job` script and the `inline-work` extension).
+`git diff a2797c3 -- package.json` again shows exactly those deletions, `git diff
+--check` is clean, and `node -e "require('./package.json')"` parses it.
