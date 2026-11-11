@@ -72,3 +72,12 @@ L5. Runtime state produced by the retired feature is display data, not source: 1
 state files under `~/.pi/agent/state/loon-inline/`. No reader remains, so they are
 inert. Cleaning them is outside the requested source change and would destroy the
 owner's own history; leave them unless the owner asks.
+
+L6. Delivery evidence. Issue #232 (`Retirar el trabajo inline: el transcript debe
+mostrar el texto completo`) created against `github.com/loonbac/loon` with the
+verification evidence and `Risk: none`, read back and confirmed. The repository has
+no issue forms, no PR template, no `type:*` or `status:approved` labels, no
+workflows and no branch protection on `master`; those skill gates are therefore
+inapplicable and no label or approval was invented. `assess` on `HEAD~2..HEAD`
+returned `risk: medium`, `reviewDue: false` (`under_budget`), so no native review
+lineage was opened.
