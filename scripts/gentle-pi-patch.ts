@@ -6,7 +6,7 @@
  *
  * This edits another installed package, so it is deliberately paranoid:
  *
- *   - the files must be exactly the gentle-pi 4.7.0 build the patch was written
+ *   - the files must be exactly the gentle-pi 4.8.0 build the patch was written
  *     against (md5), or nothing is touched;
  *   - every anchor must appear exactly once, so a partial match cannot leave half
  *     a patch behind;
@@ -29,7 +29,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /** The gentle-pi release this patch is written for. */
-export const GENTLE_PI_VERSION = '4.7.0';
+export const GENTLE_PI_VERSION = '4.8.0';
 
 /** Every patched file carries this marker, which also makes the patch idempotent. */
 export const PATCH_MARKER = 'LOON banner patch';
@@ -44,7 +44,7 @@ export interface PatchEdit {
 export interface TargetSpec {
 	/** Path relative to the gentle-pi package root. */
 	file: string;
-	/** md5 of the untouched 4.7.0 build. */
+	/** md5 of the untouched 4.8.0 build. */
 	md5: string;
 	edits: PatchEdit[];
 	/** md5 of the exact bytes this version writes. */
@@ -585,9 +585,9 @@ const SHELL_CARD_PANEL_REPLACEMENT =
 // LOON agent marks: extensions/gentle-shell.ts. The theme only reaches the prompt editor
 // through the factory, so the decision is taken there and read per render.
 const SHELL_MARKS_IMPORT_ANCHOR =
-	'import { DOUBLE_ESC_CANCEL_HINT, floatPromptRow, framePromptLines, panelPromptRow, resolvePromptLayout, IDLE_ESC_CLEAR_HINT, PANEL_BUTTON, PROMPT_HINT, PROMPT_STATE, SHELL_PULSE_WATCHDOG_MS, withPromptHint, type PromptState } from "../lib/shell-prompt.ts";';
+	'import { DOUBLE_ESC_CANCEL_HINT, floatPromptRow, framePromptLines, panelPromptRow, resolvePromptLayout, IDLE_ESC_CLEAR_HINT, PANEL_BUTTON, PROMPT_HINT, PROMPT_STATE, SHELL_PULSE_MS, SHELL_PULSE_WATCHDOG_MS, withPromptHint, workingTick, type PromptState } from "../lib/shell-prompt.ts";';
 const SHELL_MARKS_IMPORT_REPLACEMENT =
-	'import { agentActivityRow, DOUBLE_ESC_CANCEL_HINT, floatPromptRow, framePromptLines, panelPromptRow, resolvePromptLayout, IDLE_ESC_CLEAR_HINT, PANEL_BUTTON, PROMPT_HINT, PROMPT_STATE, SHELL_PULSE_WATCHDOG_MS, withPromptHint, type PromptState } from "../lib/shell-prompt.ts";';
+	'import { agentActivityRow, DOUBLE_ESC_CANCEL_HINT, floatPromptRow, framePromptLines, panelPromptRow, resolvePromptLayout, IDLE_ESC_CLEAR_HINT, PANEL_BUTTON, PROMPT_HINT, PROMPT_STATE, SHELL_PULSE_MS, SHELL_PULSE_WATCHDOG_MS, withPromptHint, workingTick, type PromptState } from "../lib/shell-prompt.ts";';
 
 const SHELL_MARKS_DEPS_ANCHOR = [
 	'\t/**',
@@ -620,9 +620,9 @@ const SHELL_MARKS_DEPS_REPLACEMENT = [
 
 // The option travels to the frame without a local: the anchor is one complete property, so
 // the same edit applies to a real file and to a stand-in.
-const SHELL_MARKS_FRAME_ANCHOR = '\t\t\ttick: this.tick,';
+const SHELL_MARKS_FRAME_ANCHOR = '\t\t\ttick: this.workingPhase(),';
 const SHELL_MARKS_FRAME_REPLACEMENT = [
-	'\t\t\ttick: this.tick,',
+	'\t\t\ttick: this.workingPhase(),',
 	'\t\t\t// LOON banner patch: read per render, so a theme change needs no new editor.',
 	'\t\t\tagentMarks: this.deps.agentMarks?.() ?? false,',
 ].join('\n');
@@ -638,7 +638,7 @@ const SHELL_MARKS_TOPROWS_REPLACEMENT = [
 	'\t\t// out of the frame - the same dynamic label, under the Agent marks. It goes last, so',
 	'\t\t// the rows the shell already owns keep their indices and their clicks.',
 	'\t\tif ((this.deps.agentMarks?.() ?? false) && this.deps.activityRow?.() === true && state === PROMPT_STATE.WORKING) {',
-	'\t\t\ttopRows.push(agentActivityRow({ state, tick: this.tick, fg: this.deps.fg, bold: this.deps.bold, workingLabel: this.deps.workingLabel?.() }, width));',
+	'\t\t\ttopRows.push(agentActivityRow({ state, tick: this.workingPhase(), fg: this.deps.fg, bold: this.deps.bold, workingLabel: this.deps.workingLabel?.() }, width));',
 	'\t\t}',
 ].join('\n');
 
@@ -715,206 +715,6 @@ const SHELL_MOUSE_REPLACEMENT = "\thandleMouse(event: Parameters<CustomEditor[\"
 const SHELL_CARD_PREVIEW_ANCHOR = '\t\t\tconst cardStylePreview = { [CARD_STYLE.NEON]: "╭─ ✿ read ─╮  outlined chrome + prompt", [CARD_STYLE.FLOAT]: "▎ ✿ read  painted chrome + prompt" };';
 const SHELL_CARD_PREVIEW_REPLACEMENT = '\t\t\tconst cardStylePreview = { [CARD_STYLE.NEON]: "╭─ ✿ read ─╮  outlined chrome + prompt", [CARD_STYLE.FLOAT]: "▎ ✿ read  painted chrome + prompt", [CARD_STYLE.LOON]: "▎ ✿ read  flush rule, text at column 2, two columns of air" };';
 
-// LOON banner patch (peer labels): the recipient picker and the orchestrator_list rows
-// show what each peer published - subject, session name, workspace, topic - and a session
-// that cannot ask a person resolves its own recipient instead of handing the owner a UUID.
-const AGENTS_LABELS_ANCHOR = "/** Human-readable labels for the recipient picker. A raw session id gives a person\n * nothing to choose by, so the published session label and the workspace are used when\n * they exist, and a short id suffix keeps every label unique: the chosen label is mapped\n * back to a peer by exact match, so a collision would select the wrong one. */\nfunction recipientSelectionLabels(profile: string, candidates: readonly PresenceRecord[], activations: readonly PresenceRecord[] = candidates): string[] {\n\tlet discovered: ReturnType<typeof discoverOrchestrators> = [];\n\t// Discovery must see every activation: it fails closed when one session resolves to\n\t// several, and deduplicating before this point would silently label an ambiguous peer.\n\ttry { discovered = discoverOrchestrators(profile, activations); } catch { /* labels are best-effort, never routing */ }\n\tconst peersById = new Map(discovered.map(peer => [peer.sessionId, peer] as const));\n\tconst bases = candidates.map((candidate) => {\n\t\tconst peer = peersById.get(candidate.sessionId);\n\t\tconst name = peer?.label ?? peer?.legacyLabel;\n\t\tif (!name) return \"Orchestrator\";\n\t\tconst workspace = peer?.workspace?.split(/[\\\\/]/).filter(Boolean).at(-1);\n\t\treturn workspace && workspace !== name ? `${name} (${workspace})` : name;\n\t});\n\t// Short ids stay whole (fixtures and test sessions); long ones are suffixed.\n\tconst suffix = (sessionId: string, length: number): string => sessionId.length <= 8 ? sessionId : sessionId.slice(-length);\n\tfor (const length of [4, 6, 8]) {\n\t\tconst labels = bases.map((base, index) => `${base} · ${suffix(candidates[index]!.sessionId, length)}`);\n\t\tif (new Set(labels).size === labels.length) return labels;\n\t}\n\treturn bases.map((base, index) => `${base} · ${candidates[index]!.sessionId}`);\n}";
-const AGENTS_LABELS_REPLACEMENT = "/** LOON banner patch (peer labels): one readable identity, shared by the recipient picker\n * and the orchestrator_list row. A raw session id gives a person nothing to choose by and\n * an agent nothing to match on, so the identity carries what the peer published - subject,\n * session name, workspace, topic - and the id stays an internal value. */\nexport function peerIdentity(peer: {\n\tlabel?: string;\n\tlegacyLabel?: string;\n\tworkspace?: string;\n\taliases?: { currentAlias: string | null };\n\tworkRecord?: { work: { area?: string; topic?: string } | null };\n}): string | undefined {\n\tconst name = peer.label ?? peer.legacyLabel;\n\tconst subject = peer.aliases?.currentAlias ?? undefined;\n\tconst workspace = peer.workspace?.split(/[\\\\/]/).filter(Boolean).at(-1);\n\tconst work = peer.workRecord?.work;\n\tconst topic = work?.topic ?? work?.area;\n\tconst parts = [\n\t\t...(subject ? [`${subject} (subject)`] : []),\n\t\t...(name ? [`Session name: ${name}`] : []),\n\t\t...(workspace ? [workspace] : []),\n\t\t...(topic ? [topic] : []),\n\t];\n\treturn parts.length > 0 ? parts.join(\" · \") : undefined;\n}\n/** Only an interactive session may hand the choice to a person. A child, a background or\n * single-shot run, and a session without UI resolve the recipient themselves: asking the\n * owner what a session id means is what this gate exists to stop. */\nexport function interactiveRecipientSelection(ctx: { hasUI: boolean; mode: string }, env: NodeJS.ProcessEnv = process.env): boolean {\n\treturn ctx.hasUI && !isSingleShotMode(ctx.mode) && env.GENTLE_PI_AGENTS_CHILD !== \"1\";\n}\n/** What a session that cannot ask a person is told to do instead of asking the owner. */\nexport function recipientResolutionText(labels: readonly string[]): string {\n\treturn [\n\t\t\"Several recipient orchestrators are available and this session cannot ask a person to choose. Resolve the recipient yourself: call orchestrator_list, match the peer by subject, topic or workspace, then retry orchestrator_send_message with that exact recipient_session_id. Do not ask the owner which session id a label means.\",\n\t\t...labels.map((label) => `- ${label}`),\n\t].join(\"\\n\");\n}\n/** Human-readable labels for the recipient picker: the identity the list row shows, with a\n * plain ordinal when two peers published the same thing. The chosen label is mapped back to\n * a peer by exact match, so the labels must stay unique - and they never carry the UUID. */\nexport function recipientSelectionLabels(profile: string, candidates: readonly PresenceRecord[], activations: readonly PresenceRecord[] = candidates): string[] {\n\tlet discovered: ReturnType<typeof discoverOrchestrators> = [];\n\t// Discovery must see every activation: it fails closed when one session resolves to\n\t// several, and deduplicating before this point would silently label an ambiguous peer.\n\t// includeWork is what makes the published topic reachable: the work record lives in the\n\t// peer's owner-curated state, not in the discovery metadata itself.\n\ttry { discovered = discoverOrchestrators(profile, activations, Date.now(), { includeWork: true }); } catch { /* labels are best-effort, never routing */ }\n\tconst peersById = new Map(discovered.map(peer => [peer.sessionId, peer] as const));\n\tconst bases = candidates.map(candidate => peerIdentity(peersById.get(candidate.sessionId) ?? {}) ?? \"Orchestrator\");\n\tconst seen = new Map<string, number>();\n\tfor (const base of bases) seen.set(base, (seen.get(base) ?? 0) + 1);\n\treturn bases.map((base, index) => (seen.get(base) ?? 0) > 1 ? `${base} · #${index + 1}` : base);\n}";
-
-const AGENTS_SELECTOR_ANCHOR = "\t\t\t\t\t\tconst labels = recipientSelectionLabels(agentHome, candidates, activations);\n\t\t\t\t\t\tif (!ctx.hasUI) return text(`Several recipient orchestrators are available. Ask the user to choose one of these recipient labels; do not ask for a session ID:\\n${labels.map((label) => `- ${label}`).join(\"\\n\")}\\nSending still requires interactive human consent.`, { gentleAgents: { candidates: candidates.map((candidate, index) => ({ label: labels[index]!, sessionId: candidate.sessionId })) } });\n\t\t\t\t\t\tconst selected = await ctx.ui.select(\"Select recipient orchestrator\", labels, { signal });";
-const AGENTS_SELECTOR_REPLACEMENT = "\t\t\t\t\t\tconst labels = recipientSelectionLabels(agentHome, candidates, activations);\n\t\t\t\t\t\t// LOON banner patch (peer labels): a child, a background or single-shot run\n\t\t\t\t\t\t// and a session without UI never open this selector. The choice goes back to\n\t\t\t\t\t\t// the caller as a resolution order, so the owner is not asked which session\n\t\t\t\t\t\t// id means what. An interactive person keeps the picker, with the labels above.\n\t\t\t\t\t\tif (!interactiveRecipientSelection(ctx, env)) return text(recipientResolutionText(labels), { gentleAgents: { candidates: candidates.map((candidate, index) => ({ label: labels[index]!, sessionId: candidate.sessionId })) } });\n\t\t\t\t\t\tconst selected = await ctx.ui.select(\"Select recipient orchestrator\", labels, { signal });";
-
-const AGENTS_LIST_ROW_ANCHOR = "\t\t\t\t\treturn `- ${peer.sessionId}${context} · ${legacy ? \"repository: not published\" : repository(peer.scope?.host)} · metadata: ${legacy ? \"legacy\" : peer.freshness}${tasks}${registered}${gaps}${catalog}${note}${unpublished}${peer.omitted ? `\\n  (${peer.omitted} more tasks omitted)` : \"\"}`;";
-
-// LOON banner patch (peer repair, defect 1): the frame is already written when the ACK
-// deadline fires, so a slow, missing or unreadable ACK is a lost confirmation and not a
-// failed delivery. Only an explicit rejection still fails the send. The two transports
-// carry the same defect and the same repair.
-const AGENTS_ACK_GATE_ANCHOR = [
-	'\t\tsocket.on("error", stale);',
-	'\t\tsocket.once("connect", () => {',
-	'\t\t\tif (pending.settled || staleCleanup) return;',
-	'\t\t\tconnected = true;',
-	'\t\t\tcancelConnect();',
-	'\t\t\ttry { socket.write(bytes); } catch { pending.settle(clientError("io_error")); return; }',
-	'\t\t\ttry { pending.ackTimer = this.scheduler.setTimeout(() => pending.settle(clientError("ack_timeout")), this.ackDeadlineMs); }',
-	'\t\t\tcatch { pending.settle(clientError("ack_timeout")); }',
-	'\t\t});',
-	'\t\tconst reply = () => {',
-	'\t\t\tif (pending.settled || staleCleanup) return;',
-	'\t\t\ttry {',
-	'\t\t\t\tconst ack = decoder.finish();',
-	'\t\t\t\tif (ack.kind !== "ack" || ack.id !== id) pending.settle(clientError("invalid_ack"));',
-	'\t\t\t\telse if (!ack.accepted) pending.settle(clientError("remote_rejected"));',
-	'\t\t\t\telse pending.settle(undefined, Object.freeze({ id, accepted: true }));',
-	'\t\t\t} catch { pending.settle(clientError("invalid_ack")); }',
-	'\t\t};',
-	'\t\tsocket.on("data", (chunk: Buffer) => { if (!pending.settled && !staleCleanup) try { decoder.push(chunk); } catch { pending.settle(clientError("invalid_ack")); } });',
-	'\t\tsocket.on("end", reply);',
-	'\t\tsocket.on("close", () => { if (!pending.settled && !staleCleanup) decoder.complete ? reply() : pending.settle(clientError("io_error")); });',
-].join('\n');
-const AGENTS_ACK_GATE_REPLACEMENT = [
-	'\t\tsocket.on("error", stale);',
-	'\t\t// LOON banner patch (peer repair): once the frame is written the message is out, and',
-	'\t\t// the ACK is a confirmation that can arrive late, not arrive at all, or arrive',
-	'\t\t// unreadable without any of that meaning "not accepted". The receiver answering',
-	'\t\t// "rejected" is the one answer that still fails the send, because it is a verdict.',
-	'\t\tlet written = false;',
-	'\t\tconst delivered = () => pending.settle(undefined, Object.freeze({ id, accepted: true }));',
-	'\t\tconst ackLost = (code: ClientCode) => { if (written) delivered(); else pending.settle(clientError(code)); };',
-	'\t\tsocket.once("connect", () => {',
-	'\t\t\tif (pending.settled || staleCleanup) return;',
-	'\t\t\tconnected = true;',
-	'\t\t\tcancelConnect();',
-	'\t\t\ttry { socket.write(bytes); } catch { pending.settle(clientError("io_error")); return; }',
-	'\t\t\twritten = true;',
-	'\t\t\ttry { pending.ackTimer = this.scheduler.setTimeout(() => ackLost("ack_timeout"), this.ackDeadlineMs); }',
-	'\t\t\tcatch { ackLost("ack_timeout"); }',
-	'\t\t});',
-	'\t\tconst reply = () => {',
-	'\t\t\tif (pending.settled || staleCleanup) return;',
-	'\t\t\ttry {',
-	'\t\t\t\tconst ack = decoder.finish();',
-	'\t\t\t\tif (ack.kind !== "ack" || ack.id !== id) ackLost("invalid_ack");',
-	'\t\t\t\telse if (!ack.accepted) pending.settle(clientError("remote_rejected"));',
-	'\t\t\t\telse delivered();',
-	'\t\t\t} catch { ackLost("invalid_ack"); }',
-	'\t\t};',
-	'\t\tsocket.on("data", (chunk: Buffer) => { if (!pending.settled && !staleCleanup) try { decoder.push(chunk); } catch { ackLost("invalid_ack"); } });',
-	'\t\tsocket.on("end", reply);',
-	'\t\tsocket.on("close", () => { if (!pending.settled && !staleCleanup) decoder.complete ? reply() : ackLost("io_error"); });',
-].join('\n');
-
-const WINDOWS_ACK_GATE_ANCHOR = [
-	'\t\tconst finishAck = () => {',
-	'\t\t\tif (pending.settled) return;',
-	'\t\t\ttry {',
-	'\t\t\t\tconst ack = decoder.finish() as AckFrame;',
-	'\t\t\t\tif (ack.kind !== "ack" || ack.id !== id) pending.settle(new ActiveSessionClientError("invalid_ack"));',
-	'\t\t\t\telse if (!ack.accepted) pending.settle(new ActiveSessionClientError("remote_rejected"));',
-	'\t\t\t\telse pending.settle(undefined, Object.freeze({ id, accepted: true }));',
-	'\t\t\t} catch { pending.settle(new ActiveSessionClientError("invalid_ack")); }',
-	'\t\t};',
-	'\t\tconst onConnect = () => {',
-	'\t\t\tif (pending.settled) return;',
-	'\t\t\tif (pending.connectTimer !== undefined) { try { this.scheduler.clearTimeout(pending.connectTimer); } catch {} pending.connectTimer = undefined; }',
-	'\t\t\ttry { socket.write(request); } catch { pending.settle(new ActiveSessionClientError("io_error")); return; }',
-	'\t\t\tif (pending.settled) return;',
-	'\t\t\ttry {',
-	'\t\t\t\tconst timer = this.scheduler.setTimeout(() => pending.settle(new ActiveSessionClientError("ack_timeout")), this.ackDeadlineMs);',
-	'\t\t\t\tif (pending.settled) { try { this.scheduler.clearTimeout(timer); } catch {} return; }',
-	'\t\t\t\tpending.ackTimer = timer;',
-	'\t\t\t} catch { pending.settle(new ActiveSessionClientError("ack_timeout")); }',
-	'\t\t};',
-	'\t\tconst onData = (chunk: Buffer) => { if (!pending.settled) try { decoder.push(chunk); } catch { pending.settle(new ActiveSessionClientError("invalid_ack")); } };',
-	'\t\tconst onClose = () => { if (!pending.settled) pending.settle(new ActiveSessionClientError("io_error")); };',
-].join('\n');
-const WINDOWS_ACK_GATE_REPLACEMENT = [
-	'\t\t// LOON banner patch (peer repair): the same rule as the unix transport. After the write',
-	'\t\t// the message is out; a late, missing or unreadable ACK is a lost confirmation, and only',
-	'\t\t// an explicit rejection from the receiver still fails the send.',
-	'\t\tlet written = false;',
-	'\t\tconst delivered = () => pending.settle(undefined, Object.freeze({ id, accepted: true }));',
-	'\t\tconst ackLost = (code: "ack_timeout" | "invalid_ack" | "io_error") => { if (written) delivered(); else pending.settle(new ActiveSessionClientError(code)); };',
-	'\t\tconst finishAck = () => {',
-	'\t\t\tif (pending.settled) return;',
-	'\t\t\ttry {',
-	'\t\t\t\tconst ack = decoder.finish() as AckFrame;',
-	'\t\t\t\tif (ack.kind !== "ack" || ack.id !== id) ackLost("invalid_ack");',
-	'\t\t\t\telse if (!ack.accepted) pending.settle(new ActiveSessionClientError("remote_rejected"));',
-	'\t\t\t\telse delivered();',
-	'\t\t\t} catch { ackLost("invalid_ack"); }',
-	'\t\t};',
-	'\t\tconst onConnect = () => {',
-	'\t\t\tif (pending.settled) return;',
-	'\t\t\tif (pending.connectTimer !== undefined) { try { this.scheduler.clearTimeout(pending.connectTimer); } catch {} pending.connectTimer = undefined; }',
-	'\t\t\ttry { socket.write(request); } catch { pending.settle(new ActiveSessionClientError("io_error")); return; }',
-	'\t\t\tif (pending.settled) return;',
-	'\t\t\twritten = true;',
-	'\t\t\ttry {',
-	'\t\t\t\tconst timer = this.scheduler.setTimeout(() => ackLost("ack_timeout"), this.ackDeadlineMs);',
-	'\t\t\t\tif (pending.settled) { try { this.scheduler.clearTimeout(timer); } catch {} return; }',
-	'\t\t\t\tpending.ackTimer = timer;',
-	'\t\t\t} catch { ackLost("ack_timeout"); }',
-	'\t\t};',
-	'\t\tconst onData = (chunk: Buffer) => { if (!pending.settled) try { decoder.push(chunk); } catch { ackLost("invalid_ack"); } };',
-	'\t\tconst onClose = () => { if (!pending.settled) ackLost("io_error"); };',
-].join('\n');
-
-// LOON banner patch (peer repair, defect 2): one unreadable presence header, one page that
-// ran out of budget and one transient filesystem failure are facts about what a scan could
-// see, not verdicts on the peers it did see. Each peer is resolved on the evidence that
-// names it; a scan that never started still fails everyone.
-const DISCOVERY_IMPORTS_ANCHOR = 'import { activationHash, discoveryAbsent, listPresence, readDiscovery, sessionHash, type DiscoveryMetadata } from "./orchestrator-presence.ts";';
-const DISCOVERY_IMPORTS_REPLACEMENT = 'import { activationHash, discoveryAbsent, listPresence, readDiscovery, sessionHash, type DiscoveryMetadata, type PresencePage } from "./orchestrator-presence.ts";';
-
-const DISCOVERY_SCAN_ANCHOR = [
-	'\tconst page = listPresence(profile, now);',
-	'\tconst ids = [...new Set(peers.map(peer => peer.sessionId))];',
-	'\treturn ids.filter(id => selection?.recipientSessionId === undefined || selection.recipientSessionId === id).map(sessionId => {',
-	'\t\tconst unknown: OrchestratorCandidate = { sessionId, reachability: "unknown", freshness: "unknown" };',
-	'\t\tconst activations = peers.filter(peer => peer.sessionId === sessionId);',
-	'\t\tif (page.unavailable || page.overflow || page.rejected || activations.length !== 1) return unknown;',
-].join('\n');
-const DISCOVERY_SCAN_REPLACEMENT = [
-	'\t// LOON banner patch (peer repair): the page is read once for every peer, retried while',
-	'\t// the failure is one that can pass. A header this scan could not read and a budget it',
-	'\t// ran out of leave their own peer unknown further down; they do not unlabel the peers',
-	'\t// whose headers were read.',
-	'\tconst page = readPresencePage(profile, now);',
-	'\tconst ids = [...new Set(peers.map(peer => peer.sessionId))];',
-	'\treturn ids.filter(id => selection?.recipientSessionId === undefined || selection.recipientSessionId === id).map(sessionId => {',
-	'\t\tconst unknown: OrchestratorCandidate = { sessionId, reachability: "unknown", freshness: "unknown" };',
-	'\t\tconst activations = peers.filter(peer => peer.sessionId === sessionId);',
-	'\t\t// A scan that never opened the profile is still the fail-closed case: nothing was read,',
-	'\t\t// so nothing can be labelled.',
-	'\t\tif (page.unavailable !== undefined || activations.length !== 1) return unknown;',
-].join('\n');
-
-const DISCOVERY_HELPERS_ANCHOR = [
-	'/** One bounded metadata page, no thread reads or transport probes. The registry',
-	' * selects a canonical routing activation; metadata must bind to that exact one.',
-	' * Incomplete scans and duplicate presence headers fail closed. */',
-	'export function discoverOrchestrators(',
-].join('\n');
-const DISCOVERY_HELPERS_REPLACEMENT = [
-	'// LOON banner patch (peer repair): the reasons a listing failure can pass on its own.',
-	'// "missing" is not one of them: a profile with no presence directory will not grow one',
-	'// in the next few milliseconds, and retrying it would cost every call the backoff.',
-	'const RETRYABLE_PRESENCE_FAILURES = new Set(["io-error", "closed", "changed-directory"]);',
-	'const PRESENCE_SCAN_ATTEMPTS = 3;',
-	'const PRESENCE_SCAN_BACKOFF_MS = 20;',
-	'',
-	'/** A synchronous pause, because this scan is called from rendering and listing paths that',
-	' * cannot await: a transient filesystem failure is worth a few milliseconds before it',
-	' * blanks every label on the screen. */',
-	'function pause(ms: number) {',
-	'\ttry { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* no shared buffer here: retry at once */ }',
-	'}',
-	'',
-	'/**',
-	' * LOON banner patch (peer repair): one bounded page, retried twice with a short backoff',
-	' * while the failure is transient. A transient filesystem error used to take every label',
-	' * with it; a profile that is simply not there is not retried.',
-	' */',
-	'function readPresencePage(profile: string, now: number): PresencePage {',
-	'\tlet page = listPresence(profile, now);',
-	'\tfor (let attempt = 1; attempt < PRESENCE_SCAN_ATTEMPTS && page.unavailable !== undefined && RETRYABLE_PRESENCE_FAILURES.has(page.unavailable); attempt += 1) {',
-	'\t\tpause(PRESENCE_SCAN_BACKOFF_MS * attempt);',
-	'\t\tpage = listPresence(profile, now);',
-	'\t}',
-	'\treturn page;',
-	'}',
-	'',
-	'/** One bounded metadata page, no thread reads or transport probes. The registry',
-	' * selects a canonical routing activation; metadata must bind to that exact one.',
-	' * Duplicate presence headers for one session fail closed; a header that could not be',
-	' * read, or one the page budget never reached, leaves only its own peer unknown.',
-	' * LOON banner patch (peer repair). */',
-	'export function discoverOrchestrators(',
-].join('\n');
-const AGENTS_LIST_ROW_REPLACEMENT = "\t\t\t\t\treturn `- ${peerIdentity(peer) ?? \"unnamed peer\"}${context} · ${legacy ? \"repository: not published\" : repository(peer.scope?.host)} · metadata: ${legacy ? \"legacy\" : peer.freshness}${tasks}${registered}${gaps}${catalog}${note}${unpublished}${peer.omitted ? `\\n  (${peer.omitted} more tasks omitted)` : \"\"} · session id (internal value: match by subject, topic or workspace; never ask the owner for it): ${peer.sessionId}`;";
-
 export const ANCHORS = {
 	shellInit: SHELL_INIT_ANCHOR,
 	shellSource: SHELL_SOURCE_ANCHOR,
@@ -969,24 +769,17 @@ export const ANCHORS = {
 	shellMarksFactory: SHELL_MARKS_FACTORY_ANCHOR,
 	shellMarksRequest: SHELL_MARKS_REQUEST_ANCHOR,
 	shellMouse: SHELL_MOUSE_ANCHOR,
-	agentsLabels: AGENTS_LABELS_ANCHOR,
-	agentsSelector: AGENTS_SELECTOR_ANCHOR,
-	agentsListRow: AGENTS_LIST_ROW_ANCHOR,
-	agentsAckGate: AGENTS_ACK_GATE_ANCHOR,
-	windowsAckGate: WINDOWS_ACK_GATE_ANCHOR,
-	discoveryImports: DISCOVERY_IMPORTS_ANCHOR,
-	discoveryScan: DISCOVERY_SCAN_ANCHOR,
-	discoveryHelpers: DISCOVERY_HELPERS_ANCHOR,
 };
 
 export const TARGETS: TargetSpec[] = [
 	{
 		file: 'extensions/gentle-shell.ts',
-		md5: '8a28b39ca26789fd501a06958f36060b',
-		// Newest first: the patch before the Agent marks, the patch before the mark row, the patch
-		// before the theme accent, then the older patched states from before the v2 rows.
-		md5PatchedV1: ['1516e9b3dccdc134747411e2b931fec6', '871cf1d257931ed743fd6067fd9819fa', '9c77666b43b7aa6fbe3f761dee03d624', 'bc7197600a9f1482ed4e86bd1119b4d8', '7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
-		md5Patched: 'd8627700bbbd1d71023998dd550241fe',
+		md5: '1af7ae4c11c9080e9ceb9aa8bc3e36b1',
+		// Newest first: the 4.7.0 patch, the patch before the Agent marks, the patch before the
+		// mark row, the patch before the theme accent, then the older patched states from before
+		// the v2 rows.
+		md5PatchedV1: ['d8627700bbbd1d71023998dd550241fe', '1516e9b3dccdc134747411e2b931fec6', '871cf1d257931ed743fd6067fd9819fa', '9c77666b43b7aa6fbe3f761dee03d624', 'bc7197600a9f1482ed4e86bd1119b4d8', '7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
+		md5Patched: 'b34ba58f3598edc57828565bd1bc555b',
 		v2Marker: 'Banner color: wallpaper',
 		edits: [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
@@ -1088,9 +881,10 @@ export const TARGETS: TargetSpec[] = [
 	{
 		// Card style loon: lib/shell-prompt.ts
 		file: 'lib/shell-prompt.ts',
-		md5: '70f028ae3d61ccd471f5e346b5111e9e',
-		md5Patched: '0b550a34c72851380e40252881f2f7f2',
-		md5PatchedV1: ['a86e804371554af8653442886919ed1c', 'afcd1b6ec35d955b45a565c2a5eb433b', '993a7f2237db3eb718b9d6ab05591bf1', 'fa3cc52522ee55195f48ceeee9c47259', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52', '0d07a750ae6162d2c8bbfbda7760e55f', 'ddb8bd748ae664cb28f9f0307e0917e5'],
+		md5: 'b378f18732ac26107f20879f1254c83c',
+		// Newest first: the 4.7.0 patch, then the patched states from before the v2 rows.
+		md5Patched: 'd09dac2e3593d8921b93bb76e3b39451',
+		md5PatchedV1: ['0b550a34c72851380e40252881f2f7f2', 'a86e804371554af8653442886919ed1c', 'afcd1b6ec35d955b45a565c2a5eb433b', '993a7f2237db3eb718b9d6ab05591bf1', 'fa3cc52522ee55195f48ceeee9c47259', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52', '0d07a750ae6162d2c8bbfbda7760e55f', 'ddb8bd748ae664cb28f9f0307e0917e5'],
 		edits: [
 			{ anchor: SHELL_PROMPT_1_ANCHOR, replacement: SHELL_PROMPT_1_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_2_ANCHOR, replacement: SHELL_PROMPT_2_REPLACEMENT },
@@ -1105,46 +899,6 @@ export const TARGETS: TargetSpec[] = [
 			{ anchor: SHELL_PROMPT_HINT_ANCHOR, replacement: SHELL_PROMPT_HINT_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_PANEL_ANCHOR, replacement: SHELL_PROMPT_PANEL_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_ACTIVITY_ANCHOR, replacement: SHELL_PROMPT_ACTIVITY_REPLACEMENT },
-		],
-	},
-	{
-		// Peer labels: the recipient picker and the orchestrator_list rows show what each peer
-		// published - subject, session name, workspace, topic - instead of a raw session id,
-		// and a session that cannot ask a person resolves its own recipient.
-		file: 'extensions/gentle-agents.ts',
-		md5: 'fa0c3bd549eba8c20e1a2de1f0b81bdf',
-		md5Patched: 'a00df365d7d5b18fb2254c9ea78676ed',
-		edits: [
-			{ anchor: AGENTS_LABELS_ANCHOR, replacement: AGENTS_LABELS_REPLACEMENT },
-			{ anchor: AGENTS_SELECTOR_ANCHOR, replacement: AGENTS_SELECTOR_REPLACEMENT },
-			{ anchor: AGENTS_LIST_ROW_ANCHOR, replacement: AGENTS_LIST_ROW_REPLACEMENT },
-		],
-	},
-	{
-		// Peer repair, defect 1: a written frame is not a failed delivery just because the ACK
-		// was slow, missing or unreadable.
-		file: 'lib/agents-session-transport.ts',
-		md5: '744104c846cc8b9525c25d6f28f5c06a',
-		md5Patched: 'ab37685fc98967f40a2da59eab92ccbf',
-		edits: [{ anchor: AGENTS_ACK_GATE_ANCHOR, replacement: AGENTS_ACK_GATE_REPLACEMENT }],
-	},
-	{
-		// The Windows side of the same transport carries the same defect.
-		file: 'lib/windows-session-transport.ts',
-		md5: '445b391ecfb809edf25aecf205589bd3',
-		md5Patched: 'cb04d7dcbfd30cff65019bf4556a9ee2',
-		edits: [{ anchor: WINDOWS_ACK_GATE_ANCHOR, replacement: WINDOWS_ACK_GATE_REPLACEMENT }],
-	},
-	{
-		// Peer repair, defect 2: one unreadable header, an exhausted page budget or a transient
-		// listing failure no longer leaves every peer unnamed.
-		file: 'lib/orchestrator-discovery.ts',
-		md5: 'f194720996cb02adcfc83e38ffc9f85e',
-		md5Patched: 'c511e59c5f41dc74932f4c6b6e7f0d11',
-		edits: [
-			{ anchor: DISCOVERY_IMPORTS_ANCHOR, replacement: DISCOVERY_IMPORTS_REPLACEMENT },
-			{ anchor: DISCOVERY_SCAN_ANCHOR, replacement: DISCOVERY_SCAN_REPLACEMENT },
-			{ anchor: DISCOVERY_HELPERS_ANCHOR, replacement: DISCOVERY_HELPERS_REPLACEMENT },
 		],
 	},
 ];
@@ -1640,7 +1394,7 @@ export function apply(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numbe
 		}
 	}
 
-	// Every backup holds the pristine 4.7.0 bytes, so `revert` always has something
+	// Every backup holds the pristine 4.8.0 bytes, so `revert` always has something
 	// to verify against - including when this run upgraded our own earlier patch.
 	const dir = backupOriginals(paths, prepared.map(({ spec, pristine, patched }) => ({ spec, text: pristine, patched })));
 	console.log('backup: ' + dir);
@@ -1703,7 +1457,7 @@ function ourOutputs(spec: TargetSpec): string[] {
  * snapshot cannot leave the installation half restored.
  *
  * The recorded copy is used as it is: it holds whatever was installed before the patch,
- * which is the file to give back. The pinned digest of gentle-pi 4.7.0 is not the gate
+ * which is the file to give back. The pinned digest of gentle-pi 4.8.0 is not the gate
  * here either - a build that was patched over a harmless change must revert to that
  * change, not to a release this machine never had.
  */

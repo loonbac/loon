@@ -276,19 +276,24 @@ node --experimental-strip-types scripts/gentle-pi-patch.ts apply
 node --experimental-strip-types scripts/gentle-pi-patch.ts revert
 ```
 
-Qué cambia, siete archivos, cada una por una razón, contra **gentle-pi 4.6.0**. De las 32
-anclas, 26 son idénticas a 4.5.1 y 6 se movieron; cada una está justificada en
-`odd/tasks/gentle-pi-menu-map.md` (qué cambió en 4.6.0 en ese punto y por qué la nueva es el
-mismo sitio lógico). `check` nombra cualquier ancla que falte y el parche **se niega antes de
-escribir nada**: no hay aplicación parcial.
+Qué cambia, siete archivos, cada uno por una razón, contra **gentle-pi 4.8.0**. Son **53
+anclas**; frente a 4.7.0 solo se movieron dos, las dos en `extensions/gentle-shell.ts`: la
+línea que importa `lib/shell-prompt.ts` (ahora trae también `SHELL_PULSE_MS` y `workingTick`) y
+el `tick` del frame, que pasó de `this.tick` a `this.workingPhase()`. `lib/shell-prompt.ts`
+cambió de bytes sin mover ninguna ancla, y los otros cinco archivos son idénticos byte a byte
+a 4.7.0. Cada ancla movida está justificada en `odd/tasks/gentle-pi-menu-map.md` (qué cambió
+en ese punto de gentle-pi y por qué la nueva es el mismo sitio lógico). `check` nombra
+cualquier ancla que falte y el parche **se niega antes de escribir nada**: no hay aplicación
+parcial.
 
-**Un `pi update` borra este parche, siempre.** No hay re-aplicación automática al arrancar
-sesión, y eso es un problema abierto, no una nota al pie: tras cada actualización de gentle-pi, la
-geometría LOON, la barra sin marca y las filas de banner desaparecen hasta que alguien corra
-`apply`. Detectar el borrado desde el arranque es fácil y barato; **escribir** `node_modules` al
-iniciar sesión no lo es —una actualización a medias o un `npm ci` en paralelo convertirían el
-arranque en una escritura silenciosa sobre el paquete—, así que `apply` sigue siendo un acto
-explícito del dueño.
+**Un `pi update` borra este parche, siempre; el arranque siguiente lo repone.** Al iniciar
+sesión LOON mira los marcadores: si están todos, no lanza ningún proceso; si falta alguno y el
+paquete instalado aparece, corre el mismo `apply` de la herramienta, que escribe primero la
+copia de seguridad con marca de tiempo y solo después toca el paquete. Si un ancla no encaja
+exactamente una vez, el `apply` se niega en redondo —cero bytes escritos, ninguna copia nueva—
+y el arranque se limita a decirlo, con el archivo y el motivo. Eso es lo que impide que una
+actualización a medias o un `npm ci` en paralelo se conviertan en una escritura silenciosa
+sobre el paquete: solo se escribe cuando encaja entero.
 
 - `extensions/gentle-shell.ts`: `/gentle:customize` recibe una fila,
   `Banner: loon` / `Banner: rose` / `Banner: off`, que cicla al seleccionar.
@@ -333,7 +338,7 @@ Semántica:
 | `rose` | el banner de gentle-pi; LOON libera el hueco y nunca lo reclama |
 | `off` | nadie: la cabecera propia de pi |
 
-La herramienta no exige que el archivo sea exactamente la compilación 4.5.1 contra la que
+La herramienta no exige que el archivo sea exactamente la compilación 4.8.0 contra la que
 fue escrita: exige que cada ancla aparezca exactamente una vez. Un cambio de gentle-pi que
 no toque ningún ancla no la detiene; uno que mueva un ancla sí, y entonces lo dice con el
 detalle de abajo. Además,
@@ -341,6 +346,25 @@ importa la copia parcheada en un proceso hijo con el mismo cargador que usa pi *
 reemplazar nada, y guarda una copia de seguridad con marca de tiempo en
 `~/.pi/agent/backups/gentle-pi-banner-patch-*` que `revert` restaura y verifica. Aquí nada
 es obligatorio: sin parche, LOON funciona exactamente como antes.
+
+### Frontera: tema, no arnés
+
+LOON es **tema y banner**. Su trabajo es cómo se ve la sesión: la cabecera, la paleta, el tema
+derivado del fondo de pantalla y la barra del shell. Un parche de arnés —el que cambia cómo se
+comporta la herramienta, no cómo se ve— no vive aquí, aunque también edite gentle-pi.
+
+Por eso los parches de comunicación entre sesiones (etiquetas de destinatario en el selector
+del orquestador y en las filas de `orchestrator_list`, ACK de mejor esfuerzo en los dos
+transportes, y resiliencia del descubrimiento por par) **ya no están en este repositorio**: se
+fueron a un paquete aparte, `parches-loon`, en el directorio de proyectos del dueño. No forman
+parte de LOON: se aplican desde ese paquete, no desde este repositorio.
+
+La razón es que un parche de gentle-pi es **efímero**. Vive mientras el defecto de arriba
+esté ahí: cuando upstream lo corrige, el parche se borra, no se reescribe. La misma regla
+vale para retirar una funcionalidad propia —se borra su directorio y su entrada en `TARGETS`,
+`PATCH_MARKERS` y `PATCHED_FILES` en el mismo cambio, y las pruebas de consistencia siguen
+verdes— y para no acumular capas: cada parche que queda es texto que hay que reanclar en cada
+versión nueva.
 
 ### El menú nuevo: qué ajuste vive en qué categoría
 
@@ -385,23 +409,24 @@ clave —el esquema exige las cinco exactas—, y mientras `loon-tui.json` diga
 perfil no manda ahí. La autoridad es `loon-tui.json`; los valores están puestos para que, si
 algún día cambia la fuente a `rose`, se vea lo que el perfil dice y no una sorpresa.
 
-### Cuando una actualización borra el parche, se avisa
+### Cuando una actualización borra el parche, y cuando no se puede reponer
 
-`pi update` reemplaza los archivos parcheados, **siempre**. Eso deja al dueño sin geometría
-de tarjetas, sin barra sin marca y sin filas de banner, y la vez que pasó se enteró horas
-después. Así que al arrancar sesión LOON lo dice, en una **clave de estado** (`loon:patch`,
-`ctx.ui.setStatus`) que sobrevive al scrollback en vez de ser una línea que se va:
+`pi update` reemplaza los archivos parcheados, **siempre**. El arranque siguiente los repone
+(ver «El parche se aplica solo, y se repara solo»), así que en el caso normal no ves nada. Lo
+que sí tiene que contarse es el caso en que la reparación **se niega**, porque entonces el
+paquete se queda sin parche y nadie lo sabe. Eso se dice en una **clave de estado**
+(`loon:patch`, `ctx.ui.setStatus`) que sobrevive al scrollback en vez de ser una línea que se
+va:
 
 - lee los siete archivos del paquete y busca la marca que solo escribe el parche
   (`extensions/lib/patch-notice.ts`); si falta alguna, nombra **qué** se perdió, cuántos
   archivos son y el **comando exacto con la ruta absoluta** del repositorio;
-- se limpia solo: en el primer arranque en que las marcas están de vuelta —esto es, después
-  de que `apply` haya corrido— la clave se borra, así que un aviso viejo no se queda
-  mintiendo;
-- **no escribe nada**: es lectura pura. Escribir `node_modules` al arrancar sesión
-  convertiría una actualización a medias o un `npm ci` en paralelo en una escritura
-  silenciosa sobre el paquete, que es el mismo fallo con otra cara. `apply` sigue siendo un
-  acto explícito del dueño.
+- aparece después de intentar la reparación, no antes: si las anclas encajaron, las marcas ya
+  están de vuelta y no hay nada que anunciar; si el `apply` se negó, la clave sigue nombrando
+  lo que falta y el comando a correr, que es lo que el dueño necesita para ver el motivo
+  completo del rechazo;
+- se limpia solo: en el primer arranque en que las marcas están de vuelta la clave se borra,
+  así que un aviso viejo no se queda mintiendo.
 
 La tabla de marcas se compara en un test con los destinos del parche: añadir un archivo al
 parche sin añadirlo al aviso rompe la suite, en vez de dejar un archivo cuya pérdida nadie
@@ -534,7 +559,7 @@ gentle-pi se actualiza. La respuesta son dos reglas, y la primera es la que impo
   una compilación distinta de la probada se permite y se avisa:
 
   ```
-  gentle-pi 4.6.0: 30 anchors intact, version not tested (this patch was written against 4.5.1)
+  gentle-pi 4.9.0: 53 anchors intact, version not tested (this patch was written against 4.8.0)
   ```
 
 - **Si el cambio toca un ancla, el parche se rompe a propósito.** No aplica nada (salida
@@ -543,7 +568,7 @@ gentle-pi se actualiza. La respuesta son dos reglas, y la primera es la que impo
   ```
   lib/shell-bar.ts: not the build this patch was written against
     md5:      expected c5b38192…, found e119c8be…
-    version:  installed 4.6.0 · patch pinned to 4.5.1
+    version:  installed 4.9.0 · patch pinned to 4.8.0
     anchor:   scripts/gentle-pi-patch.ts:232 (shellBarStagesTail) occurs 0 time(s), expected 1
       expected: [brand, location, withProfile],
       found:    line 282: const withProfile = model.profile ? `${withEffort} …
@@ -560,7 +585,7 @@ reemplazo tiene que haber caído exactamente una vez.
 node --experimental-strip-types scripts/gentle-pi-patch.ts check
 ```
 
-Deshacer no depende del md5 de gentle-pi 4.5.1: cada respaldo guarda el archivo que había
+Deshacer no depende del md5 de gentle-pi 4.8.0: cada respaldo guarda el archivo que había
 antes y el md5 de lo que el parche escribió, así que `revert` devuelve exactamente el
 archivo que estaba ahí—aunque no fuera la versión probada—y se niega si lo instalado ya no
 es lo que este parche escribió, porque entonces lo que hay es de otra persona.
@@ -609,7 +634,7 @@ Los otros dos existen para otros recursos: `gentle-shell-skill` para un paquete 
 
 - Documentación de usuario (`README.md` y la documentación del proyecto): **español**.
 - Artefactos de trabajo del agente (`odd/tasks/*.md`): **inglés**.
-- `AGENTS.md` y `NOTICE`: **inglés** (manifiesto del usuario y atribución legal).
+- `NOTICE`: **inglés** (atribución legal). `AGENTS.md`: **español**, porque es el manifiesto de arquitectura que el dueño redacta en esa lengua.
 - Comentarios de código, identificadores y mensajes de commit: **inglés**.
 
 ## Licencia

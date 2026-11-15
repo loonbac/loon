@@ -44,11 +44,11 @@ const shellFixture = ['// head', ANCHORS.shellInit, '// between', ANCHORS.shellS
 const bannerFixture = ['// head', ANCHORS.bannerEvent, '// body', ANCHORS.bannerConfig, '// tail'].join('\n');
 
 test('the patch targets the gentle-pi build it was written for', () => {
-	assert.equal(GENTLE_PI_VERSION, '4.7.0');
+	assert.equal(GENTLE_PI_VERSION, '4.8.0');
 	assert.deepEqual(
 		TARGETS.map((target) => [target.file, target.md5]),
 		[
-			['extensions/gentle-shell.ts', '8a28b39ca26789fd501a06958f36060b'],
+			['extensions/gentle-shell.ts', '1af7ae4c11c9080e9ceb9aa8bc3e36b1'],
 			// The view is patched only to hand each row the width it really has.
 			['lib/visual-customize-view.ts', '796675ca3e18faf5c575d91317859706'],
 			['extensions/startup-banner.ts', '7a1217b367cc94db2dbabb7405be2123'],
@@ -58,14 +58,7 @@ test('the patch targets the gentle-pi build it was written for', () => {
 			['lib/shell-card.ts', '2faa9cdac2e2358e5950a82d068708b4'],
 			['lib/card-style-policy.ts', '2833f69f68273d351a09fd1d39424756'],
 			// The prompt band picks its geometry by style name, so loon needs this file too.
-			['lib/shell-prompt.ts', '70f028ae3d61ccd471f5e346b5111e9e'],
-			// Peer labels: a session resolves its own recipient instead of asking the owner by UUID.
-			['extensions/gentle-agents.ts', 'fa0c3bd549eba8c20e1a2de1f0b81bdf'],
-			// Peer repair: a written frame is delivered even when the ACK is lost, on both
-			// transports, and one bad presence header no longer blanks every peer label.
-			['lib/agents-session-transport.ts', '744104c846cc8b9525c25d6f28f5c06a'],
-			['lib/windows-session-transport.ts', '445b391ecfb809edf25aecf205589bd3'],
-			['lib/orchestrator-discovery.ts', 'f194720996cb02adcfc83e38ffc9f85e'],
+			['lib/shell-prompt.ts', 'b378f18732ac26107f20879f1254c83c'],
 		],
 	);
 });
@@ -288,7 +281,7 @@ function pristineSourceSkip(): string | undefined {
 	return resolved.ok ? undefined : resolved.reason;
 }
 
-/* The structural rule that keeps the flat menu from coming back. gentle-pi 4.7.0 groups rows
+/* The structural rule that keeps the flat menu from coming back. gentle-pi 4.8.0 groups rows
  * by the setting they name: one row per setting, one radio per value. A row without that
  * descriptor is its own row, so adding rows without it is how five settings became seven
  * loose values with no radios. */
@@ -450,7 +443,7 @@ test('a drifted target is refused with the file, the anchor and the address to f
 		assert.ok(output.includes(target.file), target.file + ': the failure does not name the target');
 		assert.ok(output.includes(spec.md5), target.file + ': the failure does not print the expected md5');
 		assert.ok(output.includes(md5(drifted)), target.file + ': the failure does not print the md5 it found');
-		assert.ok(output.includes('pinned to 4.7.0'), target.file + ': the failure does not name the pinned version');
+		assert.ok(output.includes('pinned to 4.8.0'), target.file + ': the failure does not name the pinned version');
 		assert.ok(output.includes('nothing was written'), target.file + ': the failure does not say nothing was written');
 		assert.ok(
 			output.includes('scripts/gentle-pi-patch.ts:'),
@@ -515,7 +508,7 @@ test('the band opens with a row and the mouse shift follows it', () => {
 	);
 });
 
-/* A digest nobody checks is a digest that drifts. The pristine 4.7.0 sources are NOT
+/* A digest nobody checks is a digest that drifts. The pristine 4.8.0 sources are NOT
  * committed - a whole foreign package once cost 6,900 of 7,779 reviewed lines - so they are
  * resolved at run time and hashed against the committed record before use. No source means a
  * visible skip with its reason; bytes that do not hash right are a failure. */
@@ -675,14 +668,14 @@ test('check shows the installed version beside the pinned one', async () => {
 	writeFileSync(join(install, 'extensions', 'gentle-shell.ts'), shellText.replace('// head', '// head, edited by a newer gentle-pi'));
 	// A build that is not the pinned one: the version notice is about a mismatch, so the
 	// stand-in has to be one version ahead of the pin.
-	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.7.1' }));
+	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.8.1' }));
 
 	const { code, output } = captureOutput(() => report({ install, backups: join(root, 'backups') }, [shellSpec]));
 
 	// Visible before anyone tries to apply, which is the whole point of check: the build
 	// is not the pinned one, the anchors are intact, so it is patchable and untested.
-	assert.match(output, /gentle-pi installed: 4\.7\.1/);
-	assert.match(output, /patch pinned to 4\.7\.0/);
+	assert.match(output, /gentle-pi installed: 4\.8\.1/);
+	assert.match(output, /patch pinned to 4\.8\.0/);
 	assert.match(output, /not the build this patch was written against/);
 	assert.match(output, /extensions\/gentle-shell\.ts: clean \(anchors intact: \d+ checked; md5 [0-9a-f]{32} is not the pinned [0-9a-f]{32}/);
 	assert.equal(code, 0, 'check reports, it does not fail the shell');
@@ -695,7 +688,7 @@ test('a change outside the anchors does not block the patch', () => {
 	const install = join(root, 'gentle-pi');
 	const backups = join(root, 'backups');
 	mkdirSync(join(install, 'extensions'), { recursive: true });
-	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.7.1' }));
+	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.8.1' }));
 	const pristine = shellStand();
 	const edited = pristine + '\n// a comment a newer gentle-pi added\n';
 	const path = join(install, 'extensions', 'gentle-shell.ts');
@@ -707,7 +700,7 @@ test('a change outside the anchors does not block the patch', () => {
 	assert.equal(code, 0, 'a change that misses every anchor must not block the patch');
 	assert.match(readFileSync(path, 'utf8'), /LOON banner patch/, 'the file was not patched');
 	assert.equal(readFileSync(path, 'utf8').endsWith('// a comment a newer gentle-pi added\n'), true, 'the patch dropped the new tail');
-	assert.match(output, /gentle-pi 4\.7\.1: \d+ anchors intact, version not tested/);
+	assert.match(output, /gentle-pi 4\.8\.1: \d+ anchors intact, version not tested/);
 });
 
 test('an anchor that occurs twice is refused as ambiguous', () => {
@@ -773,7 +766,7 @@ test('a refusal never blames a healthy anchor, and the notice counts them', () =
 	const install = join(root, 'gentle-pi');
 	const backups = join(root, 'backups');
 	mkdirSync(join(install, 'extensions'), { recursive: true });
-	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.7.1' }));
+	writeFileSync(join(install, 'package.json'), JSON.stringify({ name: 'gentle-pi', version: '4.8.1' }));
 
 	// A drifted target: one anchor moved, nothing else.
 	const pristine = shellStand();
@@ -796,7 +789,7 @@ test('a refusal never blames a healthy anchor, and the notice counts them', () =
 	assert.equal(applied.code, 0, 'a healthy anchor set must not be refused');
 	assert.match(
 		applied.output,
-		new RegExp('gentle-pi 4\\.7\\.1: ' + shellSpec.edits.length + ' anchors intact, version not tested'),
+		new RegExp('gentle-pi 4\\.8\\.1: ' + shellSpec.edits.length + ' anchors intact, version not tested'),
 		'the notice does not say how many anchors were checked',
 	);
 });
@@ -817,7 +810,7 @@ test('the four patch states, end to end on a copy of the package', async () => {
 	writeFileSync(shellPath, shellText);
 	writeFileSync(bannerPath, bannerText);
 
-	// The stand-ins are not the 4.7.0 build, so the run uses targets pinned to them;
+	// The stand-ins are not the 4.8.0 build, so the run uses targets pinned to them;
 	// everything else - anchors, backup, jiti gate, atomic write - is the real path.
 	const shellV2 = patchText(shellText, shellSpec);
 	assert.ok(shellV2.ok);

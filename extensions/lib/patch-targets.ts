@@ -28,15 +28,6 @@ export const PATCHED_FILES: readonly string[] = [
 	'lib/shell-card.ts',
 	'lib/card-style-policy.ts',
 	'lib/shell-prompt.ts',
-	// Peer labels: the recipient picker and the orchestrator_list rows show a readable
-	// identity instead of a raw session id, and a session that cannot ask a person
-	// resolves its own recipient.
-	'extensions/gentle-agents.ts',
-	// Peer repair: a written frame is delivered even when the ACK is lost, on both
-	// transports, and one unreadable presence header no longer blanks every peer label.
-	'lib/agents-session-transport.ts',
-	'lib/windows-session-transport.ts',
-	'lib/orchestrator-discovery.ts',
 ];
 
 /**

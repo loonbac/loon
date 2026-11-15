@@ -313,3 +313,45 @@ Cuando un módulo lo necesite, mantener documentación breve sobre su responsabi
 > **Máxima de Modularidad:** una pieza merece independencia cuando tiene una responsabilidad y un contrato propios, no simplemente porque pueda moverse a otro archivo.
 >
 > **Máxima para Agentes:** cada cambio debe requerir comprender lo necesario para hacerlo correctamente, sin arrastrar detalles internos de partes no relacionadas del sistema.
+
+---
+
+## Frontera de este repositorio: tema, no arnés
+
+LOON es **tema y banner**: cómo se ve la sesión —la cabecera de arranque, la paleta resuelta
+desde el tema activo, el tema derivado del fondo de pantalla y la barra del shell—. Un parche
+de arnés cambia cómo se comporta la herramienta, no cómo se ve, y **no vive aquí** aunque
+también edite gentle-pi: la comunicación entre sesiones (etiquetas de destinatario, ACK,
+descubrimiento por par) está en `parches-loon`, un paquete aparte en el directorio de
+proyectos del dueño. Cuando dudes si algo pertenece a LOON, la prueba es esa: si se puede
+quitar sin que la sesión deje de verse como LOON, no es de LOON.
+
+**Los parches de gentle-pi son efímeros.** Un parche vive mientras el defecto o el hueco de
+arriba siga ahí, y se retira, no se reescribe:
+
+- Retirar una funcionalidad es **borrar sus archivos y su entrada en `TARGETS`
+  (`scripts/gentle-pi-patch.ts`), `PATCH_MARKERS` (`extensions/lib/patch-notice.ts`) y
+  `PATCHED_FILES` (`extensions/lib/patch-targets.ts`) en el mismo cambio**; las pruebas de
+  consistencia entre esas tres tablas tienen que seguir verdes, y no se deja una tabla
+  apuntando a un archivo que ya no se parchea.
+- Cuando upstream corrige el defecto, se **borra el parche**; no se adapta para seguir
+  aplicándose por inercia.
+- No se acumulan capas: cada parche que queda es texto que hay que reanclar en cada versión
+  nueva de gentle-pi, y ese coste se paga con cada uno.
+
+**Al cambiar el pin de gentle-pi** el orden es fijo:
+
+1. correr `node --experimental-strip-types scripts/gentle-pi-patch.ts check` y leer qué ancla
+   dejó de encajar;
+2. reanclar esas anclas al sitio lógico equivalente del build nuevo, justificando cada una en
+   `odd/tasks/gentle-pi-menu-map.md`;
+3. recomputar los digests **solo añadiendo**: el md5 del build anterior pasa a
+   `md5PatchedV1` y el linaje crece (`tests/fixtures/digest-lineage.json`), porque borrar un
+   digest rompe `revert` sobre instalaciones que siguen en la versión vieja;
+4. registrar el linaje en el mismo cambio, para que se pueda leer de qué versión a qué versión
+   se movió cada ancla.
+
+**El arranque repara el parche solo** cuando faltan marcadores y todas las anclas encajan
+exactamente una vez: escribe primero la copia de seguridad con marca de tiempo y solo después
+el paquete. Si un ancla no encaja, no escribe un byte, no crea copia nueva y reporta el
+archivo y el motivo; la sesión arranca igual, porque el banner nunca depende del parche.
