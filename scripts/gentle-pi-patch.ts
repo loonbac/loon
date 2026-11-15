@@ -6,7 +6,7 @@
  *
  * This edits another installed package, so it is deliberately paranoid:
  *
- *   - the files must be exactly the gentle-pi 4.7.0 build the patch was written
+ *   - the files must be exactly the gentle-pi 4.8.0 build the patch was written
  *     against (md5), or nothing is touched;
  *   - every anchor must appear exactly once, so a partial match cannot leave half
  *     a patch behind;
@@ -29,7 +29,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /** The gentle-pi release this patch is written for. */
-export const GENTLE_PI_VERSION = '4.7.0';
+export const GENTLE_PI_VERSION = '4.8.0';
 
 /** Every patched file carries this marker, which also makes the patch idempotent. */
 export const PATCH_MARKER = 'LOON banner patch';
@@ -44,7 +44,7 @@ export interface PatchEdit {
 export interface TargetSpec {
 	/** Path relative to the gentle-pi package root. */
 	file: string;
-	/** md5 of the untouched 4.7.0 build. */
+	/** md5 of the untouched 4.8.0 build. */
 	md5: string;
 	edits: PatchEdit[];
 	/** md5 of the exact bytes this version writes. */
@@ -585,9 +585,9 @@ const SHELL_CARD_PANEL_REPLACEMENT =
 // LOON agent marks: extensions/gentle-shell.ts. The theme only reaches the prompt editor
 // through the factory, so the decision is taken there and read per render.
 const SHELL_MARKS_IMPORT_ANCHOR =
-	'import { DOUBLE_ESC_CANCEL_HINT, floatPromptRow, framePromptLines, panelPromptRow, resolvePromptLayout, IDLE_ESC_CLEAR_HINT, PANEL_BUTTON, PROMPT_HINT, PROMPT_STATE, SHELL_PULSE_WATCHDOG_MS, withPromptHint, type PromptState } from "../lib/shell-prompt.ts";';
+	'import { DOUBLE_ESC_CANCEL_HINT, floatPromptRow, framePromptLines, panelPromptRow, resolvePromptLayout, IDLE_ESC_CLEAR_HINT, PANEL_BUTTON, PROMPT_HINT, PROMPT_STATE, SHELL_PULSE_MS, SHELL_PULSE_WATCHDOG_MS, withPromptHint, workingTick, type PromptState } from "../lib/shell-prompt.ts";';
 const SHELL_MARKS_IMPORT_REPLACEMENT =
-	'import { agentActivityRow, DOUBLE_ESC_CANCEL_HINT, floatPromptRow, framePromptLines, panelPromptRow, resolvePromptLayout, IDLE_ESC_CLEAR_HINT, PANEL_BUTTON, PROMPT_HINT, PROMPT_STATE, SHELL_PULSE_WATCHDOG_MS, withPromptHint, type PromptState } from "../lib/shell-prompt.ts";';
+	'import { agentActivityRow, DOUBLE_ESC_CANCEL_HINT, floatPromptRow, framePromptLines, panelPromptRow, resolvePromptLayout, IDLE_ESC_CLEAR_HINT, PANEL_BUTTON, PROMPT_HINT, PROMPT_STATE, SHELL_PULSE_MS, SHELL_PULSE_WATCHDOG_MS, withPromptHint, workingTick, type PromptState } from "../lib/shell-prompt.ts";';
 
 const SHELL_MARKS_DEPS_ANCHOR = [
 	'\t/**',
@@ -620,9 +620,9 @@ const SHELL_MARKS_DEPS_REPLACEMENT = [
 
 // The option travels to the frame without a local: the anchor is one complete property, so
 // the same edit applies to a real file and to a stand-in.
-const SHELL_MARKS_FRAME_ANCHOR = '\t\t\ttick: this.tick,';
+const SHELL_MARKS_FRAME_ANCHOR = '\t\t\ttick: this.workingPhase(),';
 const SHELL_MARKS_FRAME_REPLACEMENT = [
-	'\t\t\ttick: this.tick,',
+	'\t\t\ttick: this.workingPhase(),',
 	'\t\t\t// LOON banner patch: read per render, so a theme change needs no new editor.',
 	'\t\t\tagentMarks: this.deps.agentMarks?.() ?? false,',
 ].join('\n');
@@ -638,7 +638,7 @@ const SHELL_MARKS_TOPROWS_REPLACEMENT = [
 	'\t\t// out of the frame - the same dynamic label, under the Agent marks. It goes last, so',
 	'\t\t// the rows the shell already owns keep their indices and their clicks.',
 	'\t\tif ((this.deps.agentMarks?.() ?? false) && this.deps.activityRow?.() === true && state === PROMPT_STATE.WORKING) {',
-	'\t\t\ttopRows.push(agentActivityRow({ state, tick: this.tick, fg: this.deps.fg, bold: this.deps.bold, workingLabel: this.deps.workingLabel?.() }, width));',
+	'\t\t\ttopRows.push(agentActivityRow({ state, tick: this.workingPhase(), fg: this.deps.fg, bold: this.deps.bold, workingLabel: this.deps.workingLabel?.() }, width));',
 	'\t\t}',
 ].join('\n');
 
@@ -774,11 +774,12 @@ export const ANCHORS = {
 export const TARGETS: TargetSpec[] = [
 	{
 		file: 'extensions/gentle-shell.ts',
-		md5: '8a28b39ca26789fd501a06958f36060b',
-		// Newest first: the patch before the Agent marks, the patch before the mark row, the patch
-		// before the theme accent, then the older patched states from before the v2 rows.
-		md5PatchedV1: ['1516e9b3dccdc134747411e2b931fec6', '871cf1d257931ed743fd6067fd9819fa', '9c77666b43b7aa6fbe3f761dee03d624', 'bc7197600a9f1482ed4e86bd1119b4d8', '7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
-		md5Patched: 'd8627700bbbd1d71023998dd550241fe',
+		md5: '1af7ae4c11c9080e9ceb9aa8bc3e36b1',
+		// Newest first: the 4.7.0 patch, the patch before the Agent marks, the patch before the
+		// mark row, the patch before the theme accent, then the older patched states from before
+		// the v2 rows.
+		md5PatchedV1: ['d8627700bbbd1d71023998dd550241fe', '1516e9b3dccdc134747411e2b931fec6', '871cf1d257931ed743fd6067fd9819fa', '9c77666b43b7aa6fbe3f761dee03d624', 'bc7197600a9f1482ed4e86bd1119b4d8', '7da141c898257cf56230f735fe4c553e', 'ec03598026098aefe27e1cd4dcfe7393', 'b12919486a662d03f1587ee719d0bd73', 'f389ce976bc0a92e65b5d2f9e9b5dd3d', '24763fed19449f3a4e31a52bbe1be72e', '8ae96c97de14436e9755608a81579441', 'b808107af050aa1778410fefa67974df', '945363c38d21403cce653143e0305a6a', '3075925c2f5ac762bf8a545e1ee33915', 'cf86ef5ca39a5e1d4135e01b379b469c', 'd3c362b675260233fd87ac0850f608bd', '14bc306579491b3fcaa496c147724bb8', '2bc6883c2ad02abea7d7c8e4c6ca2c42'],
+		md5Patched: 'b34ba58f3598edc57828565bd1bc555b',
 		v2Marker: 'Banner color: wallpaper',
 		edits: [
 			{ anchor: SHELL_INIT_ANCHOR, replacement: SHELL_INIT_ANCHOR + '\n' + SHELL_INIT_ADDITION },
@@ -880,9 +881,10 @@ export const TARGETS: TargetSpec[] = [
 	{
 		// Card style loon: lib/shell-prompt.ts
 		file: 'lib/shell-prompt.ts',
-		md5: '70f028ae3d61ccd471f5e346b5111e9e',
-		md5Patched: '0b550a34c72851380e40252881f2f7f2',
-		md5PatchedV1: ['a86e804371554af8653442886919ed1c', 'afcd1b6ec35d955b45a565c2a5eb433b', '993a7f2237db3eb718b9d6ab05591bf1', 'fa3cc52522ee55195f48ceeee9c47259', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52', '0d07a750ae6162d2c8bbfbda7760e55f', 'ddb8bd748ae664cb28f9f0307e0917e5'],
+		md5: 'b378f18732ac26107f20879f1254c83c',
+		// Newest first: the 4.7.0 patch, then the patched states from before the v2 rows.
+		md5Patched: 'd09dac2e3593d8921b93bb76e3b39451',
+		md5PatchedV1: ['0b550a34c72851380e40252881f2f7f2', 'a86e804371554af8653442886919ed1c', 'afcd1b6ec35d955b45a565c2a5eb433b', '993a7f2237db3eb718b9d6ab05591bf1', 'fa3cc52522ee55195f48ceeee9c47259', '040c2b8c8ca1f727aa937ca6e5204375', '0618298301450ad9811a4d7b287bc3cd', '2174a62f342df42f37d2a78b53b2a9e0', '6ed83675ab5a63201df8ea38867cee8d', '5bd10c1347200edb2f181e7631e67b52', '0d07a750ae6162d2c8bbfbda7760e55f', 'ddb8bd748ae664cb28f9f0307e0917e5'],
 		edits: [
 			{ anchor: SHELL_PROMPT_1_ANCHOR, replacement: SHELL_PROMPT_1_REPLACEMENT },
 			{ anchor: SHELL_PROMPT_2_ANCHOR, replacement: SHELL_PROMPT_2_REPLACEMENT },
@@ -1392,7 +1394,7 @@ export function apply(paths: PatchPaths, targets: TargetSpec[] = TARGETS): numbe
 		}
 	}
 
-	// Every backup holds the pristine 4.7.0 bytes, so `revert` always has something
+	// Every backup holds the pristine 4.8.0 bytes, so `revert` always has something
 	// to verify against - including when this run upgraded our own earlier patch.
 	const dir = backupOriginals(paths, prepared.map(({ spec, pristine, patched }) => ({ spec, text: pristine, patched })));
 	console.log('backup: ' + dir);
@@ -1455,7 +1457,7 @@ function ourOutputs(spec: TargetSpec): string[] {
  * snapshot cannot leave the installation half restored.
  *
  * The recorded copy is used as it is: it holds whatever was installed before the patch,
- * which is the file to give back. The pinned digest of gentle-pi 4.7.0 is not the gate
+ * which is the file to give back. The pinned digest of gentle-pi 4.8.0 is not the gate
  * here either - a build that was patched over a harmless change must revert to that
  * change, not to a release this machine never had.
  */

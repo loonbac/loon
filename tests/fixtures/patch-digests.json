@@ -1,9 +1,10 @@
 {
-	"version": "4.7.0",
+	"version": "4.8.0",
 	"targets": {
 		"extensions/gentle-shell.ts": {
-			"md5Patched": "d8627700bbbd1d71023998dd550241fe",
+			"md5Patched": "b34ba58f3598edc57828565bd1bc555b",
 			"md5PatchedV1": [
+				"d8627700bbbd1d71023998dd550241fe",
 				"1516e9b3dccdc134747411e2b931fec6",
 				"871cf1d257931ed743fd6067fd9819fa",
 				"9c77666b43b7aa6fbe3f761dee03d624",
@@ -60,8 +61,9 @@
 			"md5PatchedV1": []
 		},
 		"lib/shell-prompt.ts": {
-			"md5Patched": "0b550a34c72851380e40252881f2f7f2",
+			"md5Patched": "d09dac2e3593d8921b93bb76e3b39451",
 			"md5PatchedV1": [
+				"0b550a34c72851380e40252881f2f7f2",
 				"a86e804371554af8653442886919ed1c",
 				"afcd1b6ec35d955b45a565c2a5eb433b",
 				"993a7f2237db3eb718b9d6ab05591bf1",

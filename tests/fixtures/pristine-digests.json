@@ -1,12 +1,12 @@
 {
-	"version": "4.7.0",
+	"version": "4.8.0",
 	"files": {
-		"extensions/gentle-shell.ts": "59d0e83e7843c0e52644d5233edbfb0a41bdbfbb5a8fb451e692611fa9b277e4",
+		"extensions/gentle-shell.ts": "1374256445ee87b445780adf250645666e6a06269f38f52ee6d11382eefd0b80",
 		"lib/visual-customize-view.ts": "21ab31a271a7cf10d9bf178c6f5d8294674c316c85651a0ec799dce67ffb8e38",
 		"extensions/startup-banner.ts": "30dd7ff00c462c69ea90eb2c02aed93fa2e17721c3de20a87a0567fee30c5920",
 		"lib/shell-bar.ts": "80fbf152887840527b240c1b485fa2a01013fc1f00500a1236797bc229bbbef8",
 		"lib/shell-card.ts": "37de5e2877b702573dae47f2d25f9cbad072b222d9c4ba876fc381afeecf1b06",
 		"lib/card-style-policy.ts": "ab9a1c62fe0750245e5901d4ddc3b722b1bbe348f2efd4209690cf4e9ddd33c8",
-		"lib/shell-prompt.ts": "5db8c6d88f065cd2b6a54aee58c0d549848f296b650b98fc3d760e405b701a0d"
+		"lib/shell-prompt.ts": "bbee91f836842d0c52d3f2c4372674393ba3127f469b2d6972e853e89c381d98"
 	}
 }

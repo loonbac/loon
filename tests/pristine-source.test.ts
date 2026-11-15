@@ -25,7 +25,7 @@ function copyOfReal(): string {
 }
 
 test('the record names one SHA-256 per patch target, and nothing else', () => {
-	assert.equal(PRISTINE_VERSION, '4.7.0');
+	assert.equal(PRISTINE_VERSION, '4.8.0');
 	assert.deepEqual(PRISTINE_FILES, TARGETS.map((target) => target.file).sort(), 'the record and the patch targets drifted apart');
 	for (const [file, digest] of Object.entries(PRISTINE_SHA)) {
 		assert.match(digest, /^[0-9a-f]{64}$/, file + ' has no SHA-256');
@@ -102,5 +102,5 @@ test('with no source at all the reason names what was looked for', () => {
 		assert.match(resolved.source.label, /^(backup|installed|GENTLE_PI_ROOT)/, resolved.source.label);
 		return;
 	}
-	assert.match(resolved.reason, /no hay prístinos de gentle-pi 4\.7\.0 disponibles/, resolved.reason);
+	assert.match(resolved.reason, /no hay prístinos de gentle-pi 4\.8\.0 disponibles/, resolved.reason);
 });
